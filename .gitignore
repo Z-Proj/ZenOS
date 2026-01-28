@@ -1,0 +1,7 @@
+.vscode/
+*.o
+iso/
+build/
+*.iso
+zfs_man
+*.elf
