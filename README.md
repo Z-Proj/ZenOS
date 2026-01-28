@@ -1,6 +1,6 @@
 # ZenOS
 
-[![ZenOS Build Check](https://github.com/Rishies2010/StartOS/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/Rishies2010/StartOS/actions/workflows/c-cpp.yml)
+[![ZenOS Build Check](https://github.com/Rishies2010/ZenOS/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/Rishies2010/ZenOS/actions/workflows/c-cpp.yml)
 
 ---
 
