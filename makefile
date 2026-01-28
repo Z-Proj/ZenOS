@@ -30,7 +30,7 @@ all: $(ISO_IMAGE)
 
 $(KERNEL): $(OBJ)
 	@mkdir -p $(BUILD_DIR)
-	ld $(LDFLAGS) $(OBJ) -o $@
+	ld.lld $(LDFLAGS) $(OBJ) -o $@
 
 $(ISO_IMAGE): $(KERNEL) $(LIMINE_BINARIES)
 	@mkdir -p $(ISO_DIR)/boot
@@ -45,6 +45,35 @@ $(ISO_IMAGE): $(KERNEL) $(LIMINE_BINARIES)
 
 clean:
 	rm -rf $(OBJ) $(KERNEL) $(ISO_IMAGE) $(ISO_DIR) $(BUILD_DIR) src/cpu/ap.bin
+
+deps:
+	@echo "Checking ZenOS build dependencies..."
+	@missing=0; \
+	check() { \
+		if command -v $$1 >/dev/null 2>&1; then \
+			printf "  [OK]      %s\n" $$1; \
+		else \
+			printf "  [NO] %s\n" $$1; \
+			missing=1; \
+		fi; \
+	}; \
+	check clang; \
+	check ld; \
+	check nasm; \
+	check xorriso; \
+	check qemu-system-x86_64; \
+	check gdb; \
+	check socat; \
+	if [ $$missing -ne 0 ]; then \
+		echo ""; \
+		echo "Some dependencies are missing."; \
+		echo "Please install them before building ZenOS."; \
+		exit 1; \
+	else \
+		echo ""; \
+		echo "All dependencies satisfied."; \
+	fi
+
 
 run:
 	virtualboxvm --startvm "ZenOS" &
