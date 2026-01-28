@@ -149,13 +149,11 @@ static void cmd_echo(int argc, char* argv[]) {
 
 static void cmd_version(void) {
     prints(COLOR_BOLD COLOR_CYAN);
-    prints("  #####  #######    #    ######  #######      #####   #####  \n");
-    prints(" #     #    #      # #   #     #    #        #     # #     # \n");
-    prints(" #          #     #   #  #     #    #        #     # #       \n");
-    prints("  #####     #    #     # ######     #        #     #  #####  \n");
-    prints("       #    #    ####### #   #      #        #     #       # \n");
-    prints(" #     #    #    #     # #    #     #        #     # #     # \n");
-    prints("  #####     #    #     # #     #    #         #####   #####  \n\n");
+    prints(" _____           ___  ____  \n");
+    prints("|__  /___ _ __  / _ \\/ ___| \n");
+    prints("  / // _ \\ '_ \\| | | \\___ \\ \n");
+    prints(" / /|  __/ | | | |_| |___) |\n");
+    prints("/____\\___|_| |_|\\___/|____/ \n\n");
     prints("ZenOS v0.90.0\n\n");
     prints(COLOR_RESET);
 }
@@ -297,13 +295,11 @@ static int execute_command(void) {
 static void show_banner(void) {
     cmd_clear();
     prints(COLOR_CYAN COLOR_BOLD);
-    prints("  #####  #######    #    ######  #######      #####   #####  \n");
-    prints(" #     #    #      # #   #     #    #        #     # #     # \n");
-    prints(" #          #     #   #  #     #    #        #     # #       \n");
-    prints("  #####     #    #     # ######     #        #     #  #####  \n");
-    prints("       #    #    ####### #   #      #        #     #       # \n");
-    prints(" #     #    #    #     # #    #     #        #     # #     # \n");
-    prints("  #####     #    #     # #     #    #         #####   #####  \n");
+    prints(" _____           ___  ____  \n");
+    prints("|__  /___ _ __  / _ \\/ ___| \n");
+    prints("  / // _ \\ '_ \\| | | \\___ \\ \n");
+    prints(" / /|  __/ | | | |_| |___) |\n");
+    prints("/____\\___|_| |_|\\___/|____/ \n\n");
     prints(COLOR_RESET);
     prints("\n");
     prints(COLOR_YELLOW "Welcome to ZenOS Shell!\n" COLOR_RESET);

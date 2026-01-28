@@ -144,7 +144,7 @@ zfs_error_t zfs_format(uint8_t drive)
         return ZFS_ERR_INVALID_DRIVE;
     }
 
-    log("StartFS: Formatting drive %d...", 1, 0, drive);
+    log("ZenFS: Formatting drive %d...", 1, 0, drive);
 
     memset(&superblock, 0, sizeof(zfs_superblock_t));
     superblock.magic = ZFS_MAGIC;
@@ -164,17 +164,17 @@ zfs_error_t zfs_format(uint8_t drive)
 
     if (write_superblock() != ZFS_OK)
     {
-        log("StartFS: Failed to write superblock", 3, 1);
+        log("ZenFS: Failed to write superblock", 3, 1);
         return ZFS_ERR_WRITE_FAILED;
     }
 
     if (write_entry_table() != ZFS_OK)
     {
-        log("StartFS: Failed to write entry table", 3, 1);
+        log("ZenFS: Failed to write entry table", 3, 1);
         return ZFS_ERR_WRITE_FAILED;
     }
 
-    log("StartFS: Format complete! %d blocks available", 4, 0, superblock.total_blocks);
+    log("ZenFS: Format complete! %d blocks available", 4, 0, superblock.total_blocks);
     return ZFS_OK;
 }
 
@@ -192,13 +192,13 @@ zfs_error_t zfs_init(uint8_t drive)
 
     if (ata_read_sectors(drive, ZFS_SUPERBLOCK_LBA, 1, &superblock) != ATA_SUCCESS)
     {
-        log("StartFS: Failed to read superblock", 3, 1);
+        log("ZenFS: Failed to read superblock", 3, 1);
         return ZFS_ERR_READ_FAILED;
     }
 
     if (superblock.magic != ZFS_MAGIC)
     {
-        log("StartFS: Invalid magic number (expected 0x%x, got 0x%x)", 3, 1,
+        log("ZenFS: Invalid magic number (expected 0x%x, got 0x%x)", 3, 1,
             ZFS_MAGIC, superblock.magic);
         return ZFS_ERR_NOT_ZFS;
     }
@@ -206,14 +206,14 @@ zfs_error_t zfs_init(uint8_t drive)
     if (ata_read_sectors(drive, ZFS_FILETABLE_LBA, ZFS_FILETABLE_SIZE,
                          entry_table) != ATA_SUCCESS)
     {
-        log("StartFS: Failed to read entry table", 3, 1);
+        log("ZenFS: Failed to read entry table", 3, 1);
         return ZFS_ERR_READ_FAILED;
     }
 
     initialized = 1;
     current_dir = ZFS_ROOT_DIR_INDEX;
 
-    log("StartFS: Initialized successfully", 4, 0);
+    log("ZenFS: Initialized successfully", 4, 0);
     log("  Total blocks: %d (%d KB)", 1, 0,
         superblock.total_blocks, (superblock.total_blocks * 4));
     log("  Free blocks: %d (%d KB)", 1, 0,
@@ -242,14 +242,14 @@ zfs_error_t zfs_mkdir(const char *dirname)
     if (find_entry(name, parent, ZFS_TYPE_DIRECTORY) >= 0 ||
         find_entry(name, parent, ZFS_TYPE_FILE) >= 0)
     {
-        log("StartFS: '%s' already exists", 2, 0, name);
+        log("ZenFS: '%s' already exists", 2, 0, name);
         return ZFS_ERR_ALREADY_EXISTS;
     }
 
     int free_idx = find_free_entry();
     if (free_idx < 0)
     {
-        log("StartFS: No free entries", 3, 1);
+        log("ZenFS: No free entries", 3, 1);
         return ZFS_ERR_TOO_MANY_ENTRIES;
     }
 
@@ -268,7 +268,7 @@ zfs_error_t zfs_mkdir(const char *dirname)
     if (write_superblock() != ZFS_OK)
         return ZFS_ERR_WRITE_FAILED;
 
-    log("StartFS: Created directory '%s'", 1, 0, name);
+    log("ZenFS: Created directory '%s'", 1, 0, name);
     return ZFS_OK;
 }
 
@@ -296,7 +296,7 @@ zfs_error_t zfs_rmdir(const char *dirname)
 
     if (dir_idx == ZFS_ROOT_DIR_INDEX)
     {
-        log("StartFS: Cannot remove root directory", 3, 1);
+        log("ZenFS: Cannot remove root directory", 3, 1);
         return ZFS_ERR_INVALID_PARAM;
     }
 
@@ -305,7 +305,7 @@ zfs_error_t zfs_rmdir(const char *dirname)
         if (entry_table[i].type != ZFS_TYPE_UNUSED &&
             entry_table[i].parent_index == dir_idx)
         {
-            log("StartFS: Directory not empty", 3, 1);
+            log("ZenFS: Directory not empty", 3, 1);
             return ZFS_ERR_NOT_EMPTY;
         }
     }
@@ -319,7 +319,7 @@ zfs_error_t zfs_rmdir(const char *dirname)
     if (write_superblock() != ZFS_OK)
         return ZFS_ERR_WRITE_FAILED;
 
-    log("StartFS: Removed directory '%s'", 1, 0, name);
+    log("ZenFS: Removed directory '%s'", 1, 0, name);
     return ZFS_OK;
 }
 
@@ -423,7 +423,7 @@ zfs_error_t zfs_create(const char *filename, uint32_t size)
     if (find_entry(name, parent, ZFS_TYPE_FILE) >= 0 ||
         find_entry(name, parent, ZFS_TYPE_DIRECTORY) >= 0)
     {
-        log("StartFS: '%s' already exists", 2, 0, name);
+        log("ZenFS: '%s' already exists", 2, 0, name);
         return ZFS_ERR_ALREADY_EXISTS;
     }
 
@@ -433,7 +433,7 @@ zfs_error_t zfs_create(const char *filename, uint32_t size)
 
     if (blocks_needed > superblock.free_blocks)
     {
-        log("StartFS: Not enough space (%d blocks needed, %d free)", 3, 1,
+        log("ZenFS: Not enough space (%d blocks needed, %d free)", 3, 1,
             blocks_needed, superblock.free_blocks);
         return ZFS_ERR_NO_SPACE;
     }
@@ -441,7 +441,7 @@ zfs_error_t zfs_create(const char *filename, uint32_t size)
     int free_idx = find_free_entry();
     if (free_idx < 0)
     {
-        log("StartFS: No free entries", 3, 1);
+        log("ZenFS: No free entries", 3, 1);
         return ZFS_ERR_TOO_MANY_ENTRIES;
     }
 
@@ -488,7 +488,7 @@ zfs_error_t zfs_create(const char *filename, uint32_t size)
 
     if (found_blocks < blocks_needed)
     {
-        log("StartFS: Could not find contiguous space", 3, 1);
+        log("ZenFS: Could not find contiguous space", 3, 1);
         return ZFS_ERR_NO_SPACE;
     }
 
@@ -508,7 +508,7 @@ zfs_error_t zfs_create(const char *filename, uint32_t size)
     if (write_superblock() != ZFS_OK)
         return ZFS_ERR_WRITE_FAILED;
 
-    log("StartFS: Created '%s' (%d bytes, %d blocks)", 1, 0,
+    log("ZenFS: Created '%s' (%d bytes, %d blocks)", 1, 0,
         name, size, blocks_needed);
 
     return ZFS_OK;
@@ -536,7 +536,7 @@ zfs_error_t zfs_open(const char *filename, zfs_file_t *file)
     int file_idx = find_entry(name, parent, ZFS_TYPE_FILE);
     if (file_idx < 0)
     {
-        log("StartFS: File not found: '%s'", 2, 0, name);
+        log("ZenFS: File not found: '%s'", 2, 0, name);
         return ZFS_ERR_FILE_NOT_FOUND;
     }
 
@@ -547,7 +547,7 @@ zfs_error_t zfs_open(const char *filename, zfs_file_t *file)
     file->entry_index = file_idx;
     file->is_open = 1;
 
-    log("StartFS: Opened '%s' (%d bytes)", 1, 0, name, file->size);
+    log("ZenFS: Opened '%s' (%d bytes)", 1, 0, name, file->size);
     __asm__ volatile("sti");
     return ZFS_OK;
 }
@@ -629,7 +629,7 @@ zfs_error_t zfs_write(zfs_file_t *file, const void *buffer, uint32_t size)
 
     if (file->position + size > file->size)
     {
-        log("StartFS: Write would exceed file size", 3, 1);
+        log("ZenFS: Write would exceed file size", 3, 1);
         return ZFS_ERR_INVALID_PARAM;
     }
 
@@ -717,7 +717,7 @@ zfs_error_t zfs_delete(const char *filename)
     if (write_superblock() != ZFS_OK)
         return ZFS_ERR_WRITE_FAILED;
 
-    log("StartFS: Deleted '%s'", 1, 0, name);
+    log("ZenFS: Deleted '%s'", 1, 0, name);
     return ZFS_OK;
 }
 
@@ -783,7 +783,7 @@ void zfs_print_stats(void)
 {
     if (!initialized)
     {
-        log("StartFS not initialized.", 2, 1);
+        log("ZenFS not initialized.", 2, 1);
         return;
     }
 
@@ -798,7 +798,7 @@ void zfs_print_stats(void)
             dir_count++;
     }
 
-    log("StartFS Statistics:", 1, 1);
+    log("ZenFS Statistics:", 1, 1);
     log("  Total space: %d KB", 1, 1, superblock.total_blocks * 4);
     log("  Used space: %d KB", 1, 1,
         (superblock.total_blocks - superblock.free_blocks) * 4);
@@ -830,6 +830,6 @@ zfs_error_t zfs_unmount(void)
 
     initialized = 0;
     current_dir = ZFS_ROOT_DIR_INDEX;
-    log("StartFS: Unmounted successfully", 4, 0);
+    log("ZenFS: Unmounted successfully", 4, 0);
     return ZFS_OK;
 }

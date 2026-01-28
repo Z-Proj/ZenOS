@@ -98,13 +98,13 @@ int detect_vhd_offset() {
         uint32_t *magic_ptr = (uint32_t*)sector;
         if (*magic_ptr == ZFS_MAGIC) {
             vhd_data_offset = offset;
-            printf("Found StartFS at offset 0x%lx (%ld bytes)\n", offset, offset);
+            printf("Found ZenFS at offset 0x%lx (%ld bytes)\n", offset, offset);
             return 0;
         }
     }
     
     vhd_data_offset = 0;
-    printf("No StartFS found, starting at offset 0 (use 'format' to initialize)\n");
+    printf("No ZenFS found, starting at offset 0 (use 'format' to initialize)\n");
     return 0;
 }
 
@@ -137,7 +137,7 @@ int load_filesystem() {
     }
     
     if (superblock.magic != ZFS_MAGIC) {
-        fprintf(stderr, "Invalid StartFS magic (got 0x%x, expected 0x%x)\n", 
+        fprintf(stderr, "Invalid ZenFS magic (got 0x%x, expected 0x%x)\n", 
                 superblock.magic, ZFS_MAGIC);
         return -1;
     }
@@ -254,7 +254,7 @@ int resolve_path(const char *path, uint8_t *out_parent, char *out_name) {
 }
 
 void cmd_format() {
-    printf("Formatting StartFS...\n");
+    printf("Formatting ZenFS...\n");
     
     memset(&superblock, 0, sizeof(zfs_superblock_t));
     superblock.magic = ZFS_MAGIC;
@@ -290,7 +290,7 @@ void cmd_info() {
         else if (entry_table[i].type == ZFS_TYPE_DIRECTORY) dir_count++;
     }
     
-    printf("\nStartFS Statistics:\n");
+    printf("\nZenFS Statistics:\n");
     printf("  Total space:  %d KB\n", superblock.total_blocks * 4);
     printf("  Used space:   %d KB\n", 
            (superblock.total_blocks - superblock.free_blocks) * 4);
@@ -653,16 +653,16 @@ void cmd_delete(const char *zfs_path) {
 }
 
 void show_help() {
-    printf("StartFS Manager - Manage StartFS filesystems from Linux\n\n");
+    printf("ZenFS Manager - Manage ZenFS filesystems from Linux\n\n");
     printf("Usage: zfs_man <vhd_file> <command> [args]\n\n");
     printf("Commands:\n");
-    printf("  format                Format the VHD with StartFS\n");
+    printf("  format                Format the VHD with ZenFS\n");
     printf("  info                  Show filesystem statistics\n");
     printf("  list [path]           List directory contents (default: /)\n");
     printf("  mkdir <path>          Create directory\n");
-    printf("  import <src> <dst>    Import file from host to StartFS\n");
-    printf("  export <src> <dst>    Export file from StartFS to host\n");
-    printf("  delete <file>         Delete file from StartFS\n");
+    printf("  import <src> <dst>    Import file from host to ZenFS\n");
+    printf("  export <src> <dst>    Export file from ZenFS to host\n");
+    printf("  delete <file>         Delete file from ZenFS\n");
     printf("  help                  Show this help\n\n");
     printf("Examples:\n");
     printf("  zfs_man ZenOS.vhd format\n");
