@@ -76,7 +76,7 @@ ZenOS is intended as a learning-oriented operating system project, prioritizing 
 
 ```bash
 `clang`
-`ld`
+`ld.lld`
 `nasm`
 `xorriso`
 `qemu-system-x86_64`
