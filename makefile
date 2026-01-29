@@ -1,7 +1,7 @@
 # ZenOS Makefile
 
 CFLAGS = -mcmodel=kernel -m64 -ffreestanding -fno-stack-protector -Wall -Wextra -c -fno-pie -fno-pic -Wno-missing-braces -g
-LDFLAGS = -m elf_x86_64 -T linker.ld
+LDFLAGS = -Wl,-T,linker.ld -fuse-ld=lld -nostdlib -no-pie
 ASFLAGS = -f elf64
 
 SRC_DIR = src
@@ -30,7 +30,7 @@ all: $(ISO_IMAGE)
 
 $(KERNEL): $(OBJ)
 	@mkdir -p $(BUILD_DIR)
-	ld.lld $(LDFLAGS) $(OBJ) -o $@
+	clang $(LDFLAGS) $(OBJ) -o $@
 
 $(ISO_IMAGE): $(KERNEL) $(LIMINE_BINARIES)
 	@mkdir -p $(ISO_DIR)/boot
@@ -58,7 +58,7 @@ deps:
 		fi; \
 	}; \
 	check clang; \
-	check ld; \
+	check ld.lld; \
 	check nasm; \
 	check xorriso; \
 	check qemu-system-x86_64; \

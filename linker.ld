@@ -1,26 +1,31 @@
 OUTPUT_FORMAT(elf64-x86-64)
 ENTRY(_start)
 
-SECTIONS
-{
+PHDRS {
+    text   PT_LOAD FLAGS(5); /* R | X */
+    rodata PT_LOAD FLAGS(4); /* R */
+    data   PT_LOAD FLAGS(6); /* R | W */
+}
+
+SECTIONS {
     . = 0xffffffff80000000;
-    
-    .text : {
+
+    .text ALIGN(4K) : {
         *(.text*)
-    }
-    
-    .rodata : {
+    } :text
+
+    .rodata ALIGN(4K) : {
         *(.rodata*)
-    }
-    
-    .data : {
+    } :rodata
+
+    .data ALIGN(4K) : {
         *(.data*)
-    }
-    
-    .bss : {
+    } :data
+
+    .bss ALIGN(4K) (NOLOAD) : {
         *(COMMON)
         *(.bss*)
-    }
-    
+    } :data
+
     _kernel_end = .;
 }
