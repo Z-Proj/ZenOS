@@ -1,6 +1,6 @@
 #include <stdint.h>
 #include "sse_fpu.h"
-#include "../libk/debug/serial.h"
+#include "../libk/debug/log.h"
 #include "stddef.h"
 void enable_sse_and_fpu(void) {
     uint64_t cr0, cr4;
@@ -12,7 +12,7 @@ void enable_sse_and_fpu(void) {
     cr4 |= (1 << 9);   // Set OSFXSR
     cr4 |= (1 << 10);  // Set OSXMMEXCPT
     asm volatile("mov %0, %%cr4" :: "r"(cr4));
-    serial_write_string("[src/cpu/sse_fpu.c:???]- SSE instructions enabled.\n");
+    log("SSE instructions enabled.", 4, 0);
     size_t t;
     asm("clts");
     asm("mov %%cr0, %0" : "=r"(t));
@@ -23,5 +23,5 @@ void enable_sse_and_fpu(void) {
     t |= 3 << 9;
     asm("mov %0, %%cr4" :: "r"(t));
     asm("fninit");
-    serial_write_string("[src/cpu/sse_fpu.c:???]- Floating Point Unit enabled.\n");
+    log("Floating Point Unit enabled.", 4, 0);
 }

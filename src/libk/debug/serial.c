@@ -1,8 +1,10 @@
 #include <stdint.h>
 #include "serial.h"
 #include "../ports.h"
+#include "../spinlock.h"
 
 #define COM1 0x3F8
+static spinlock_t serial_;
 
 void serial_init() {
     outportb(COM1 + 1, 0x00);
@@ -12,6 +14,7 @@ void serial_init() {
     outportb(COM1 + 3, 0x03);
     outportb(COM1 + 2, 0xC7);
     outportb(COM1 + 4, 0x0B);
+    spinlock_init(&serial_);
     serial_write_string("\x1b[38;2;50;255;50m[src/libk/debug/serial.c:15]- Initialized.\n");
 }
 
@@ -23,9 +26,11 @@ void serial_write_char(char c) {
 }
 
 void serial_write_string(const char* str) {
+    spinlock_acquire(&serial_);
     while (*str) {
         serial_write_char(*str++);
     }
+    spinlock_release(&serial_);
 }
 
 void serial_write_hex(unsigned int n) {
