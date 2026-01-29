@@ -1,4 +1,6 @@
 #include "../userlib.h"
+#include <stddef.h>
+#include <stdbool.h>
 
 #define COLOR_RESET   "\033[0m"
 #define COLOR_RED     "\033[31m"
@@ -23,6 +25,7 @@ typedef struct {
 
 // Command buffer
 static char command_buffer[MAX_COMMAND_LENGTH];
+static char lastcmd[MAX_COMMAND_LENGTH];
 static int buffer_pos = 0;
 
 // Safe string functions with null checks
@@ -129,6 +132,8 @@ static void cmd_help(void) {
     prints("  exit      - Exit shell\n");
     prints("  beep      - Play a beep\n");
     prints("  test      - Run a test sequence\n");
+    prints("  shutdown  - Shutdown the system (with delay)\n");
+    prints("  z         - Run the command that was last executed.\n");
 }
 
 static void cmd_clear(void) {
@@ -193,6 +198,55 @@ static void cmd_test(void) {
     prints(COLOR_GREEN "All tests passed!\n" COLOR_RESET);
 }
 
+int atoi(const char* str) {
+    int result = 0;
+    int sign = 1;
+    size_t i = 0;
+    while (str[i] == ' ' || str[i] == '\t' || str[i] == '\n' || str[i] == '\r') {
+        i++;
+    }
+    if (str[i] == '-') {
+        sign = -1;
+        i++;
+    } else if (str[i] == '+') {
+        i++;
+    }
+    while (str[i] >= '0' && str[i] <= '9') {
+        result = result * 10 + (str[i] - '0');
+        i++;
+    }
+    
+    return result * sign;
+}
+
+
+static bool accept = false;
+static void cmd_shutdown(int argc, char* argv[]){
+    if (!argv || argc < 2 || argc > 2) {
+        prints(COLOR_RED "Usage: shutdown <delay in seconds>\n" COLOR_RESET);
+        return;
+    }
+    int time = atoi(argv[1])*1000;
+    if(time < 0){
+        prints(COLOR_RED "Invalid delay value.\nUsage: shutdown <delay in seconds>\n" COLOR_RESET);
+        return;
+    }
+    if(time > 50 && !accept){
+        prints(COLOR_YELLOW "Warning, that delay value is large.\nIf you still want to continue, please execute shutdown once again.\n" COLOR_RESET);
+        accept = true;
+        return;
+    }
+    if(time == 0){
+        log("Shutting down.", 2, 1);
+        shutdown();
+    }
+    sleep(time-1000);
+    log("Shutting down.", 2, 1);
+    sleep(1000);
+    shutdown();
+
+}
+
 // ============ SHELL CORE ============
 
 static void show_prompt(void) {
@@ -252,6 +306,10 @@ static int execute_command(void) {
     if (argc == 0 || !argv[0]) {
         return 1;  // Continue
     }
+
+    if (strcmp(argv[0], "z") != 0) {
+        strcpy(lastcmd, command_buffer);
+    }
     
     // Command dispatch with null checks
     if (strcmp(argv[0], "help") == 0) {
@@ -280,7 +338,16 @@ static int execute_command(void) {
         cmd_test();
     }
     else if (strcmp(argv[0], "shutdown") == 0) {
-        shutdown();
+        cmd_shutdown(argc, argv);
+    }
+    else if (strcmp(argv[0], "z") == 0) {
+        if (lastcmd[0] == '\0') {
+            prints(COLOR_RED "No previous command.\n" COLOR_RESET);
+            return 1;
+        }
+
+        strcpy(command_buffer, lastcmd);
+        execute_command();
     }
     else {
         prints(COLOR_RED "Unknown command: " COLOR_RESET);
@@ -308,8 +375,9 @@ static void show_banner(void) {
 }
 
 int main(void) {
-    // Initialize buffer
+    // Initialize buffers
     memset_char(command_buffer, 0, MAX_COMMAND_LENGTH);
+    memset_char(lastcmd, 0, MAX_COMMAND_LENGTH);
     
     show_banner();
     
