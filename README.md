@@ -1,4 +1,4 @@
-# ZenOS[![ZenOS Build Check](https://github.com/Rishies2010/ZenOS/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/Rishies2010/ZenOS/actions/workflows/c-cpp.yml)
+# ZenOS&nbsp;&nbsp;[![ZenOS Build Check](https://github.com/Rishies2010/ZenOS/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/Rishies2010/ZenOS/actions/workflows/c-cpp.yml)
 
 <img width="100%" alt="ZenOS Logo" src="https://github.com/user-attachments/assets/4a3141c6-4223-465a-9b38-9f5d851f0b83" />
 
@@ -73,12 +73,13 @@ The project focuses on clean design, correctness, and practical experimentation 
 - Favor correctness and explicitness over convenience
 
 - Provide a solid foundation for experimentation with:
-  
-  -[*]  Kernel subsystems
-  -[*] Filesystems
-  -[*] Scheduling
-  -[*] Userspace ABI design
-  -[ ] Support simple dual-boot usage and lightweight utilities such as a **Calculator, Text editor, simple apps, File Manager, System Info, etc.**
+
+- [x] Kernel subsystems
+- [x] Filesystems
+- [x] Scheduling
+- [x] SMP
+- [x] Userspace ABI design
+- [ ] Support simple dual-boot usage and lightweight utilities such as a **Calculator, Text editor, simple apps, File Manager, System Info, etc.**
 
 ZenOS is intended as a learning-oriented operating system project, prioritizing understanding the machine over chasing checklists.
 
@@ -87,13 +88,13 @@ ZenOS is intended as a learning-oriented operating system project, prioritizing 
 ## Toolchain
 
 ```bash
-`clang`
-`ld.lld`
-`nasm`
-`xorriso`
-`qemu-system-x86_64`
-`gdb`
-`socat`
+clang
+ld.lld
+nasm
+xorriso
+qemu-system-x86_64
+gdb
+socat
 ```
 
 ---
@@ -107,3 +108,4 @@ ZenOS is intended as a learning-oriented operating system project, prioritizing 
 
 **ZenOS**
 Made by **Rishies2010**.
+
