@@ -1,4 +1,4 @@
-# ZenOS  [![ZenOS Build Check](https://github.com/Rishies2010/ZenOS/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/Rishies2010/ZenOS/actions/workflows/c-cpp.yml)
+# ZenOS[![ZenOS Build Check](https://github.com/Rishies2010/ZenOS/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/Rishies2010/ZenOS/actions/workflows/c-cpp.yml)
 
 <img width="100%" alt="ZenOS Logo" src="https://github.com/user-attachments/assets/4a3141c6-4223-465a-9b38-9f5d851f0b83" />
 
@@ -14,39 +14,46 @@ The project focuses on clean design, correctness, and practical experimentation 
 
 ### Kernel
 
-- 64-bit x86_64 architecture  
-- Symmetric Multiprocessing (SMP)  
-- Pre-emptive round-robin scheduler  
-- Custom syscall interface  
-- ELF64 executable loading  
-- Userspace process support  
-- SSE and FPU support 
-- [Limine](https://codeberg.org/Limine/Limine) bootloader
-- High-resolution timing via HPET  
-- LAPIC and IOAPIC interrupt handling  
-- ACPI-based hardware discovery  
-- PCI bus enumeration  
+- 64-bit x86_64 monolithic kernel
+- Symmetric Multiprocessing (SMP) with AP startup
+- Pre-emptive round-robin scheduler
+- Kernel ↔ userspace context switching
+- Custom syscall ABI with assembly entry path
+- ELF64 executable loading
+- Userspace process support
+- CPU feature detection via CPUID
+- SSE and FPU initialization and management
+- Spinlock-based synchronization primitives
+- High-resolution timing via HPET
+- Local APIC and IOAPIC interrupt handling
+- ACPI-based hardware discovery and power handling
 
 ### Hardware & Drivers
 
-- PS/2 keyboard and mouse  
-- PC speaker  
-- Real-Time Clock (RTC)  
-- Serial output for debugging and logging  
-- ATA disk driver (PIO, 28-bit LBA)  
-- Early-stage network subsystem  
+- VGA output
+- PS/2 keyboard and mouse drivers
+- PC speaker support
+- Serial output for debugging and logging
+- ATA disk driver (PIO, 28-bit LBA)
+- PCI bus enumeration
+- Intel e1000 Ethernet driver (early-stage networking)
+- Others include RTC, HPET, Keyboard (PS/2), Mouse (PS/2)
 
 ### Filesystem
 
-- **ZenFS (ZFS)** — a custom filesystem designed specifically for ZenOS  
-- Native tooling for integration with Linux / Unix hosts  
-- Simple, deterministic, and OS-focused design  
+- **ZenFS (ZFS)** — a custom filesystem designed specifically for ZenOS
+- Native host-side management tooling (`zfs_man`)
+- Used as the primary medium for userspace ELF binaries
+
+### Userspace
+
+- ELF64 userspace programs
+- Minimal userspace C ABI
 
 ### Graphics & I/O
 
 - [Flanterm](https://codeberg.org/mintsuki/flanterm) terminal rendering
-- TGA image rendering  
-- Structured kernel logging system  
+- Structured kernel logging system
 
 ---
 
@@ -59,19 +66,19 @@ The project focuses on clean design, correctness, and practical experimentation 
 
 ## Design Goals
 
-- Maintain a clean, minimal, and readable codebase  
-- Avoid unnecessary legacy constraints  
-- Favor correctness and explicitness over convenience  
+- Maintain a clean, minimal, and readable codebase
+
+- Avoid unnecessary legacy constraints
+
+- Favor correctness and explicitness over convenience
+
 - Provide a solid foundation for experimentation with:
-  - Kernel subsystems  
-  - Filesystems  
-  - Scheduling  
-  - Userspace ABI design  
-- Support simple dual-boot usage and lightweight utilities such as:
-  - Calculator  
-  - Text editor  
-  - File manager  
-  - System inspection tools  
+  
+  -[*]  Kernel subsystems
+  -[*] Filesystems
+  -[*] Scheduling
+  -[*] Userspace ABI design
+  -[ ] Support simple dual-boot usage and lightweight utilities such as a **Calculator, Text editor, simple apps, File Manager, System Info, etc.**
 
 ZenOS is intended as a learning-oriented operating system project, prioritizing understanding the machine over chasing checklists.
 
@@ -98,5 +105,5 @@ ZenOS is intended as a learning-oriented operating system project, prioritizing 
 
 ---
 
-**ZenOS**  
+**ZenOS**
 Made by **Rishies2010**.
