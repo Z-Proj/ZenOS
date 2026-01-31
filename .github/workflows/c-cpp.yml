@@ -17,7 +17,7 @@ jobs:
       run: sudo apt update && sudo apt install -y lld clang nasm xorriso
 
     - name: Building with make...
-      run: make
+      run: make zfs && make ZenOS.iso && make user
 
     - name: Upload ISO
       uses: actions/upload-artifact@v4
