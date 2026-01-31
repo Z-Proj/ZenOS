@@ -178,35 +178,10 @@ void log_internal(const char *file, int line, const char *fmt, int level, int vi
     }
 }
 
-
-
-extern void load_idt(idt_ptr_t *);
-
-__attribute__((noreturn))
-void triple_fault(void) {
-    struct {
-        uint16_t limit;
-        uint64_t base;
-    } __attribute__((packed)) idtr = { 0, 0 };
-
-    __asm__ __volatile__("cli");
-    load_idt(&idtr);
-    __asm__ __volatile__("ud2");
-
-    for (;;)
-        __asm__ __volatile__("hlt");
-}
-
 __attribute__((noreturn))
 void shutdown(void) {
-    AcpiShutdown(); //1
-
-    triple_fault(); //2
-
+    AcpiShutdown();
     __asm__ __volatile__("cli");
-    for (;;) {
-        __asm__ __volatile__("hlt");
-    } //3: Last resort
-
+    log("Shutdown failed. Hanging system.", 0, 1);
     __builtin_unreachable();
 }

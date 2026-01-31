@@ -7,12 +7,14 @@ ASFLAGS = -f elf64
 SRC_DIR = src
 BUILD_DIR = build
 ISO_DIR = iso
+USER_DIR = userland
 
 LIMINE_DIR = limine
 LIMINE_BINARIES = $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin
 
 C_SOURCES = $(shell find $(SRC_DIR) -name "*.c")
 ASM_SOURCES = $(shell find $(SRC_DIR) -name "*.asm")
+USER_SOURCES = $(shell find $(USER_DIR)/files -name "*.c")
 
 OBJ = $(C_SOURCES:.c=.o) $(ASM_SOURCES:.asm=.o)
 
@@ -20,7 +22,7 @@ KERNEL = $(BUILD_DIR)/kernel.bin
 
 ISO_IMAGE = ZenOS.iso
 
-all: $(ISO_IMAGE)
+all: clean deps zfs $(ISO_IMAGE) user
 
 %.o: %.c
 	clang $(CFLAGS) $< -o $@
@@ -43,6 +45,12 @@ $(ISO_IMAGE): $(KERNEL) $(LIMINE_BINARIES)
 		-o $(ISO_IMAGE) $(ISO_DIR)
 	$(LIMINE_DIR)/limine bios-install $(ISO_IMAGE)
 
+user:
+	$(USER_DIR)/build_elf.sh $(USER_SOURCES)
+
+zfs:
+	clang zfs_man.c -o zfs_man
+
 clean:
 	rm -rf $(OBJ) $(KERNEL) $(ISO_IMAGE) $(ISO_DIR) $(BUILD_DIR) src/cpu/ap.bin
 
@@ -64,6 +72,8 @@ deps:
 	check qemu-system-x86_64; \
 	check gdb; \
 	check socat; \
+	check basename; \
+	check rm; \
 	if [ $$missing -ne 0 ]; then \
 		echo ""; \
 		echo "Some dependencies are missing."; \
@@ -104,4 +114,4 @@ out:
 gdb:
 	gdb build/kernel.bin
 
-.PHONY: all clean run qemu out stop gdb
+.PHONY: all clean run qemu out stop gdb zfs
