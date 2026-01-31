@@ -50,6 +50,13 @@ The project focuses on clean design, correctness, and practical experimentation 
 
 ---
 
+## Building
+
+- **Run** : `make all` at the root of the cloned git repo.
+- Any issues will be reported, to which you can take necessary action, such as missing dependencies.
+
+---
+
 ## Design Goals
 
 - Maintain a clean, minimal, and readable codebase  
@@ -88,13 +95,6 @@ ZenOS is intended as a learning-oriented operating system project, prioritizing 
 
 - The Limine bootloader. https://codeberg.org/Limine/Limine
 - Flanterm Terminal emulator. https://codeberg.org/mintsuki/flanterm
-
----
-
-## Documentation
-
-- 📘 **Wiki:** https://github.com/Rishies2010/ZenOS/wiki
-- The Wiki is yet to do.
 
 ---
 
