@@ -84,11 +84,18 @@ void _start(void)
     rtc_initialize();
     hpet_init(100);
     ata_init();
-    if(zfs_init(0) != ZFS_OK){
-        log("Unable to mount filesystem. Formatting the drive...", 2, 1);
-        if(zfs_format(0) != ZFS_OK){
-            log("Error formatting the drive.", 3, 1);
+    uint8_t boot_drive = 0;
+    for (int i = 0; i < 4; i++) {
+        if (ata_drive_exists(i) == ATA_SUCCESS) {
+            boot_drive = i;
+            log("Drive selected for use: %i", 1, 0, i);
+            break;
         }
+    }
+    if (zfs_init(boot_drive) != ZFS_OK) {
+        log("Formatting drive %d...", 1, 0, boot_drive);
+        zfs_format(boot_drive);
+        zfs_init(boot_drive);
     }
     init_keyboard();
     mouse_init();

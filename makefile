@@ -91,7 +91,9 @@ qemu:
 	-netdev user,id=net0 \
 	-device e1000,netdev=net0 \
 	-device virtio-gpu-pci \
-	-display gtk,gl=on
+	-display gtk,gl=on \
+	-enable-kvm \
+	-cpu host
 
 stop:
 	VBoxManage controlvm "ZenOS" poweroff

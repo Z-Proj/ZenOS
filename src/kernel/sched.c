@@ -62,11 +62,7 @@ void sched_start(void)
     scheduler_enabled = 1;
 }
 
-// At the top, add extern
-extern void user_task_entry(void);
-
-// In task_create_user, change the register setup:
-task_t *task_create_user(void (*entry)(void), const char *name)
+task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pml4)
 {
     spinlock_acquire(&sched_lock);
     task_t *task = (task_t *)kmalloc(sizeof(task_t));
@@ -83,6 +79,7 @@ task_t *task_create_user(void (*entry)(void), const char *name)
     task->time_slice_remaining = TIME_SLICE;
     task->stack_size = TASK_STACK_SIZE;
     task->is_kernel_task = 0;
+    task->pml4 = pml4;
     
     task->kernel_stack = (uint64_t)kmalloc(TASK_STACK_SIZE);
     if (!task->kernel_stack)
@@ -94,7 +91,6 @@ task_t *task_create_user(void (*entry)(void), const char *name)
     memset((void *)task->kernel_stack, 0, TASK_STACK_SIZE);
     
     uint64_t user_stack_base = 0x700000000000;
-    page_table_t *pml4 = get_kernel_pml4();
     size_t stack_pages = (TASK_STACK_SIZE + PAGE_SIZE - 1) / PAGE_SIZE;
     
     for (size_t i = 0; i < stack_pages; i++)
@@ -104,38 +100,34 @@ task_t *task_create_user(void (*entry)(void), const char *name)
         {
             for (size_t j = 0; j < i; j++)
             {
-                uint64_t p = virt_to_phys(pml4, user_stack_base + j * PAGE_SIZE);
+                uint64_t p = virt_to_phys(task->pml4, user_stack_base + j * PAGE_SIZE);
                 if (p) free_page(p);
-                unmap_page(pml4, user_stack_base + j * PAGE_SIZE);
+                unmap_page(task->pml4, user_stack_base + j * PAGE_SIZE);
             }
             kfree((void*)task->kernel_stack);
             kfree(task);
             spinlock_release(&sched_lock);
             return NULL;
         }
-        map_page(pml4, user_stack_base + i * PAGE_SIZE, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+        map_page(task->pml4, user_stack_base + i * PAGE_SIZE, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
     }
     
-    __asm__ volatile("mov %%cr3, %%rax; mov %%rax, %%cr3" ::: "rax", "memory");
     task->user_stack = user_stack_base;
     
     memset(&task->regs, 0, sizeof(registers_t));
     uint64_t user_stack_top = user_stack_base + TASK_STACK_SIZE;
     user_stack_top &= ~0xFULL;
-    user_stack_top -= 8;  // ABI alignment
+    user_stack_top -= 8;
     
-    // Setup for user_task_entry trampoline
     task->regs.rip = (uint64_t)user_task_entry;
-    task->regs.rdi = (uint64_t)entry;      // arg1: user entry point
-    task->regs.rsi = user_stack_top;       // arg2: user stack
+    task->regs.rdi = (uint64_t)entry;
+    task->regs.rsi = user_stack_top;
     task->regs.rbp = task->kernel_stack + TASK_STACK_SIZE - 16;
     task->regs.userrsp = task->kernel_stack + TASK_STACK_SIZE - 16;
     task->regs.rflags = 0x202;
-    task->regs.cs = 0x08;   // Kernel code (trampoline runs in kernel)
-    task->regs.ss = 0x10;   // Kernel stack
+    task->regs.cs = 0x08;
+    task->regs.ss = 0x10;
     task->regs.ds = 0x10;
-    
-    // ... rest of existing code (adding to list, etc)
     
     if (!task_list_head)
     {
@@ -178,6 +170,7 @@ task_t *task_create(void (*entry)(void), const char *name)
     task->time_slice_remaining = TIME_SLICE;
     task->stack_size = TASK_STACK_SIZE;
     task->is_kernel_task = 1;
+    task->pml4 = get_kernel_pml4();
     
     task->kernel_stack = (uint64_t)kmalloc(TASK_STACK_SIZE);
     if (!task->kernel_stack)
@@ -258,17 +251,21 @@ static void reap_dead_tasks(void)
             
             if (iter->user_stack && !iter->is_kernel_task)
             {
-                page_table_t *pml4 = get_kernel_pml4();
                 size_t stack_pages = (TASK_STACK_SIZE + PAGE_SIZE - 1) / PAGE_SIZE;
                 for (size_t i = 0; i < stack_pages; i++)
                 {
-                    uint64_t phys = virt_to_phys(pml4, iter->user_stack + i * PAGE_SIZE);
+                    uint64_t phys = virt_to_phys(iter->pml4, iter->user_stack + i * PAGE_SIZE);
                     if (phys)
                     {
                         free_page(phys);
-                        unmap_page(pml4, iter->user_stack + i * PAGE_SIZE);
+                        unmap_page(iter->pml4, iter->user_stack + i * PAGE_SIZE);
                     }
                 }
+            }
+            
+            if (!iter->is_kernel_task && iter->pml4 && iter->pml4 != get_kernel_pml4())
+            {
+                free_page_directory(iter->pml4);
             }
             
             if (iter == task_list_head)
@@ -355,6 +352,11 @@ void sched_yield(void)
     new_task->time_slice_remaining = TIME_SLICE;
     
     tss.rsp0 = new_task->kernel_stack + TASK_STACK_SIZE;
+    
+    if (new_task->pml4 != old_task->pml4)
+    {
+        switch_page_directory(new_task->pml4);
+    }
     
     task_t *prev_task = current_task;
     current_task = new_task;

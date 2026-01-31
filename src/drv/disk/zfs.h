@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define ZFS_MAGIC           0x53465321      
+#define ZFS_MAGIC           0x2153465a      
 #define ZFS_MAX_ENTRIES     64              
 #define ZFS_MAX_FILENAME    28              
 #define ZFS_BLOCK_SIZE      4096            

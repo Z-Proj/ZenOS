@@ -42,6 +42,13 @@ int elf_exec(const char *filename, int argc, char **argv)
         return -1;
     }
     
+    page_table_t *pml4 = clone_page_directory(get_kernel_pml4());
+    if (!pml4)
+    {
+        kfree(elf_data);
+        return -1;
+    }
+    
     uint64_t min_addr = 0xFFFFFFFFFFFFFFFF;
     uint64_t max_addr = 0;
     for (int i = 0; i < ehdr->e_phnum; i++)
@@ -57,7 +64,6 @@ int elf_exec(const char *filename, int argc, char **argv)
     uint64_t total_size = max_addr - min_addr;
     size_t pages = (total_size + PAGE_SIZE - 1) / PAGE_SIZE;
     uint64_t user_virt = min_addr;
-    page_table_t *pml4 = get_kernel_pml4();
     
     for (size_t i = 0; i < pages; i++)
     {
@@ -70,6 +76,7 @@ int elf_exec(const char *filename, int argc, char **argv)
                 if (p) free_page(p);
                 unmap_page(pml4, user_virt + j * PAGE_SIZE);
             }
+            free_page_directory(pml4);
             kfree(elf_data);
             return -1;
         }
@@ -100,7 +107,7 @@ int elf_exec(const char *filename, int argc, char **argv)
     uint64_t entry_point = ehdr->e_entry;
     kfree(elf_data);
     
-    task_t *task = task_create_user((void(*)(void))entry_point, filename);
+    task_t *task = task_create_user((void(*)(void))entry_point, filename, pml4);
     if (!task)
     {
         for (size_t i = 0; i < pages; i++)
@@ -109,6 +116,7 @@ int elf_exec(const char *filename, int argc, char **argv)
             if (phys) free_page(phys);
             unmap_page(pml4, user_virt + i * PAGE_SIZE);
         }
+        free_page_directory(pml4);
         return -1;
     }
     return 0;

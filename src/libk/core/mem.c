@@ -501,19 +501,13 @@ void unmap_page(page_table_t *pml4, uint64_t virt)
 
 page_table_t *clone_page_directory(page_table_t *src)
 {
-    // Get ACTUAL current CR3
-    uint64_t cr3;
-    __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
-    page_table_t *real_pml4 = (page_table_t*)(cr3 + KERNEL_VIRT_OFFSET);
-    
     page_table_t *new_pml4 = create_page_directory();
     if (!new_pml4) return NULL;
 
     for (int i = 0; i < 512; i++)
     {
-        new_pml4->entries[i] = real_pml4->entries[i];
+        new_pml4->entries[i] = src->entries[i];
     }
-
     return new_pml4;
 }
 

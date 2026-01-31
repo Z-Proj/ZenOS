@@ -3,7 +3,6 @@ section .text
 global user_task_entry
 
 user_task_entry:
-    ; Clear all registers first
     xor rax, rax
     xor rbx, rbx
     xor rdx, rdx
@@ -16,19 +15,16 @@ user_task_entry:
     xor r14, r14
     xor r15, r15
     
-    ; Setup for sysret
-    mov rcx, rdi        ; User RIP (from RDI)
-    mov rsp, rsi        ; User stack (from RSI)
-    mov r11, 0x202      ; RFLAGS (IF set)
+    mov rcx, rdi
+    mov rsp, rsi
+    mov r11, 0x202
     
-    ; Set user data segments
-    mov ax, 0x23
+    mov ax, 0x1B
     mov ds, ax
     mov es, ax
     mov fs, ax
     mov gs, ax
     
-    ; Clear remaining registers
     xor rax, rax
     xor rbx, rbx
     xor rdx, rdx
@@ -39,5 +35,4 @@ user_task_entry:
     xor r9, r9
     xor r10, r10
     
-    ; Jump to userspace
     o64 sysret

@@ -63,11 +63,11 @@ task_switch:
     jmp rax
 
 .user_mode:
-    push qword [rsi + 176]      ; SS
-    push qword [rsi + 168]      ; RSP
-    push qword [rsi + 160]      ; RFLAGS  
-    push qword [rsi + 152]      ; CS
-    push qword [rsi + 144]      ; RIP
+    push qword [rsi + 176]
+    push qword [rsi + 168]
+    push qword [rsi + 160]
+    push qword [rsi + 152]
+    push qword [rsi + 144]
     mov ax, [rsi + 0]
     mov ds, ax
     mov es, ax
@@ -87,5 +87,4 @@ task_switch:
     mov rdi, [rsi + 80]
     mov rsi, [rsi + 88]
     
-    ; Jump to user mode
     iretq

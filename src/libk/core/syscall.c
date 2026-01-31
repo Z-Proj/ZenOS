@@ -9,12 +9,14 @@
 #include "../../kernel/sched.h"
 #include "../../drv/rtc.h"
 #include "../../cpu/acpi/acpi.h"
+#include "../../cpu/gdt.h"
 #include "mem.h"
 #include "socket.h"
 
 extern void syscall_entry(void);
 extern void AcpiReboot(void);
 extern char *os_version;
+extern tss_t tss;
 
 void init_syscalls(void)
 {
@@ -22,16 +24,24 @@ void init_syscalls(void)
     uint32_t star_lo = star & 0xFFFFFFFF;
     uint32_t star_hi = star >> 32;
     __asm__ volatile("wrmsr" : : "c"(0xC0000081), "a"(star_lo), "d"(star_hi));
+    
     uint64_t lstar = (uint64_t)&syscall_entry;
     uint32_t lstar_lo = lstar & 0xFFFFFFFF;
     uint32_t lstar_hi = lstar >> 32;
     __asm__ volatile("wrmsr" : : "c"(0xC0000082), "a"(lstar_lo), "d"(lstar_hi));
+    
     uint64_t fmask = 0x200;
     __asm__ volatile("wrmsr" : : "c"(0xC0000084), "a"(fmask), "d"(0));
+    
     uint32_t efer_lo, efer_hi;
     __asm__ volatile("rdmsr" : "=a"(efer_lo), "=d"(efer_hi) : "c"(0xC0000080));
     efer_lo |= 1;
     __asm__ volatile("wrmsr" : : "c"(0xC0000080), "a"(efer_lo), "d"(efer_hi));
+    
+    uint64_t kernel_gs_base = (uint64_t)&tss;
+    uint32_t gs_lo = kernel_gs_base & 0xFFFFFFFF;
+    uint32_t gs_hi = kernel_gs_base >> 32;
+    __asm__ volatile("wrmsr" : : "c"(0xC0000102), "a"(gs_lo), "d"(gs_hi));
     
     log("Syscalls initialized (STAR=0x%lx LSTAR=0x%lx)", 4, 0, star, lstar);
 }
@@ -42,8 +52,6 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     (void)arg5;
     
     switch(num) {
-        // ==================== PROCESS MANAGEMENT ====================
-        
         case SYSCALL_EXEC: {
             const char *filename = (const char*)arg1;
             int argc = (int)arg2;
@@ -72,8 +80,6 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return 0;
         }
         
-        // ==================== INPUT/OUTPUT ====================
-        
         case SYSCALL_GETKEY:
             return (uint64_t)get_key();
         
@@ -87,8 +93,6 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return 0;
         }
         
-        // ==================== MOUSE ====================
-        
         case SYSCALL_MOUSE_X:
             return mouse_x();
         
@@ -98,8 +102,6 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         case SYSCALL_MOUSE_BTN:
             return mouse_button();
         
-        // ==================== SPEAKER ====================
-        
         case SYSCALL_SPEAKER:
             speaker_play((uint32_t)arg1);
             return 0;
@@ -107,8 +109,6 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         case SYSCALL_SPEAKER_OFF:
             speaker_pause();
             return 0;
-        
-        // ==================== FILE OPERATIONS ====================
         
         case SYSCALL_OPEN: {
             const char *filename = (const char*)arg1;
@@ -143,7 +143,6 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         case SYSCALL_LSEEK: {
             zfs_file_t *file = (zfs_file_t*)arg1;
             uint32_t offset = (uint32_t)arg2;
-            // int whence = (int)arg3; // SEEK_SET, SEEK_CUR, SEEK_END
             if (!file) return ZFS_ERR_INVALID_PARAM;
             return zfs_seek(file, offset);
         }
@@ -166,15 +165,14 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             stat_t *statbuf = (stat_t*)arg2;
             if (!path || !statbuf) return -1;
             
-            // Open file to get info
             zfs_file_t file;
             zfs_error_t err = zfs_open(path, &file);
             if (err != ZFS_OK) return -1;
             
             statbuf->st_size = file.size;
-            statbuf->st_mode = 0644; // basic permissions for now
+            statbuf->st_mode = 0644;
             statbuf->st_nlink = 1;
-            statbuf->st_blksize = 4096; // ZFS_BLOCK_SIZE
+            statbuf->st_blksize = 4096;
             statbuf->st_blocks = (file.size + 4096 - 1) / 4096;
             
             zfs_close(&file);
@@ -193,8 +191,6 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             statbuf->st_blocks = (file->size + 4096 - 1) / 4096;
             return 0;
         }
-        
-        // ==================== DIRECTORY OPERATIONS ====================
         
         case SYSCALL_CHDIR: {
             const char *path = (const char*)arg1;
@@ -222,62 +218,55 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return zfs_rmdir(path);
         }
         
-        // ==================== MEMORY MANAGEMENT ====================
-        
         case SYSCALL_BRK: {
             uint64_t new_brk = arg1;
+            task_t *current = sched_current_task();
+            if (!current || !current->pml4) return -1;
             
-            // Simple brk: allocate pages in the USER_HEAP_START region
             if (new_brk < USER_HEAP_START) return -1;
             
-            // Round up to page boundary
-            uint64_t pages_needed = (new_brk - USER_HEAP_START + PAGE_SIZE - 1) / PAGE_SIZE;
+            static uint64_t current_brk = USER_HEAP_START;
+            uint64_t old_brk = current_brk;
             
-            // Map pages in kernel pml4
-            page_table_t *kernel_pml4 = get_kernel_pml4();
-            
-            for (uint64_t i = 0; i < pages_needed; i++) {
-                uint64_t virt = USER_HEAP_START + (i * PAGE_SIZE);
-                if (virt_to_phys(kernel_pml4, virt) == 0) {
-                    uint64_t phys = alloc_page();
-                    if (!phys) return -1;
-                    map_page(kernel_pml4, virt, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+            if (new_brk > current_brk) {
+                uint64_t start = (current_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+                uint64_t end = (new_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+                
+                for (uint64_t virt = start; virt < end; virt += PAGE_SIZE) {
+                    if (virt_to_phys(current->pml4, virt) == 0) {
+                        uint64_t phys = alloc_page();
+                        if (!phys) return -1;
+                        map_page(current->pml4, virt, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+                    }
                 }
             }
             
-            return new_brk;
+            current_brk = new_brk;
+            return old_brk;
         }
         
         case SYSCALL_SBRK: {
             int64_t increment = (int64_t)arg1;
+            task_t *current = sched_current_task();
+            if (!current || !current->pml4) return -1;
             
-            // TODO: Store heap_end in task struct
-            // For now, use a static variable (shared across all tasks since we use kernel pml4)
             static uint64_t current_brk = USER_HEAP_START;
             uint64_t old_brk = current_brk;
+            uint64_t new_brk = current_brk + increment;
             
-            if (increment == 0) return old_brk;
-            
-            uint64_t new_brk = old_brk + increment;
-            page_table_t *kernel_pml4 = get_kernel_pml4();
+            if (new_brk < USER_HEAP_START) return -1;
             
             if (increment > 0) {
-                // Allocate more pages
-                uint64_t start_page = (old_brk + PAGE_SIZE - 1) / PAGE_SIZE;
-                uint64_t end_page = (new_brk + PAGE_SIZE - 1) / PAGE_SIZE;
+                uint64_t start = (current_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+                uint64_t end = (new_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
                 
-                for (uint64_t page = start_page; page < end_page; page++) {
-                    uint64_t virt = page * PAGE_SIZE;
-                    if (virt < USER_HEAP_START) continue;
-                    
-                    if (virt_to_phys(kernel_pml4, virt) == 0) {
+                for (uint64_t virt = start; virt < end; virt += PAGE_SIZE) {
+                    if (virt_to_phys(current->pml4, virt) == 0) {
                         uint64_t phys = alloc_page();
                         if (!phys) return -1;
-                        map_page(kernel_pml4, virt, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+                        map_page(current->pml4, virt, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
                     }
                 }
-            } else if (increment < 0) {
-                // TODO: Free pages when shrinking heap
             }
             
             current_brk = new_brk;
@@ -291,20 +280,20 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             int flags = (int)arg4;
             (void)flags;
             
-            // Simple mmap: allocate pages in kernel pml4
+            task_t *current = sched_current_task();
+            if (!current || !current->pml4) return -1;
+            
             uint64_t virt_start = addr ? (uint64_t)addr : USER_HEAP_START + 0x10000000;
             size_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
             
             uint64_t page_flags = PAGE_PRESENT | PAGE_USER;
-            if (prot & 0x2) page_flags |= PAGE_WRITABLE; // PROT_WRITE
-            
-            page_table_t *kernel_pml4 = get_kernel_pml4();
+            if (prot & 0x2) page_flags |= PAGE_WRITABLE;
             
             for (size_t i = 0; i < pages; i++) {
                 uint64_t virt = virt_start + (i * PAGE_SIZE);
                 uint64_t phys = alloc_page();
                 if (!phys) return -1;
-                map_page(kernel_pml4, virt, phys, page_flags);
+                map_page(current->pml4, virt, phys, page_flags);
             }
             
             return virt_start;
@@ -314,30 +303,28 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             void *addr = (void*)arg1;
             size_t length = (size_t)arg2;
             
+            task_t *current = sched_current_task();
+            if (!current || !current->pml4) return -1;
+            
             uint64_t virt_start = (uint64_t)addr;
             size_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
             
-            page_table_t *kernel_pml4 = get_kernel_pml4();
-            
             for (size_t i = 0; i < pages; i++) {
                 uint64_t virt = virt_start + (i * PAGE_SIZE);
-                uint64_t phys = virt_to_phys(kernel_pml4, virt);
+                uint64_t phys = virt_to_phys(current->pml4, virt);
                 if (phys) {
                     free_page(phys);
-                    unmap_page(kernel_pml4, virt);
+                    unmap_page(current->pml4, virt);
                 }
             }
             return 0;
         }
-        
-        // ==================== TIME ====================
         
         case SYSCALL_GETTIMEOFDAY: {
             timeval_t *tv = (timeval_t*)arg1;
             if (!tv) return -1;
             
             rtc_time_t time = rtc_get_time();
-            // Simple conversion
             tv->tv_sec = time.seconds + time.minutes * 60 + time.hours * 3600;
             tv->tv_usec = time.milliseconds * 1000;
             return 0;
@@ -369,8 +356,6 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             sleep(ms);
             return 0;
         }
-        
-        // ==================== IPC - SOCKET (your custom system) ====================
         
         case SYSCALL_SOCKET_CREATE: {
             const char *name = (const char*)arg1;
@@ -426,18 +411,14 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return socket_available(file);
         }
         
-        // ==================== SYSTEM INFO ====================
-        
         case SYSCALL_UNAME: {
             utsname_t *buf = (utsname_t*)arg1;
             if (!buf) return -1;
             
-            // Fill in system info from log.c
             const char *sysname = "ZenOS";
             const char *machine = "x86_64";
             const char *nodename = "zen";
             
-            // Copy sysname
             int i = 0;
             while (sysname[i] && i < 64) {
                 buf->sysname[i] = sysname[i];
@@ -445,7 +426,6 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             }
             buf->sysname[i] = '\0';
             
-            // Copy nodename
             i = 0;
             while (nodename[i] && i < 64) {
                 buf->nodename[i] = nodename[i];
@@ -453,9 +433,6 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             }
             buf->nodename[i] = '\0';
             
-            // Copy release and version from os_version
-            // os_version format: "0.90.0 DEBUG_ENABLED" or "0.90.0 Unstable"
-            // Split on space to get release and version
             i = 0;
             int space_pos = -1;
             while (os_version[i] && i < 64) {
@@ -468,7 +445,6 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             }
             buf->release[i] = '\0';
             
-            // Copy version part (after space)
             if (space_pos >= 0) {
                 i = 0;
                 int j = space_pos + 1;
@@ -482,7 +458,6 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                 buf->version[0] = '\0';
             }
             
-            // Copy machine
             i = 0;
             while (machine[i] && i < 64) {
                 buf->machine[i] = machine[i];
@@ -492,8 +467,6 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             
             return 0;
         }
-        
-        // ==================== LOGGING AND SYSTEM ====================
         
         case SYSCALL_LOG: {
             const char *msg = (const char*)arg1;
