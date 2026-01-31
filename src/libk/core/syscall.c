@@ -14,8 +14,6 @@
 #include "socket.h"
 
 extern void syscall_entry(void);
-extern void AcpiReboot(void);
-extern char *os_version;
 extern tss_t tss;
 
 void init_syscalls(void)
