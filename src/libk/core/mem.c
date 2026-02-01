@@ -86,7 +86,7 @@ void init_pmm(void)
     struct limine_memmap_response *memmap = memmap_request.response;
     if (!memmap)
     {
-        serial_write_string("\x1b[38;2;255;50;50m[src/libk/core/mem.c:???]- Failed to get memory map!\n");
+        serial_write_string("\x1b[38;2;255;50;50m[0ms][mem.c:???]- Failed to get memory map!\n");
         return;
     }
     memory_base = UINT64_MAX;
@@ -121,7 +121,7 @@ void init_pmm(void)
     }
     if (!bitmap_phys)
     {
-        serial_write_string("\x1b[38;2;255;50;50m[src/libk/core/mem.c:???]- Can't find space for bitmap!\n");
+        serial_write_string("\x1b[38;2;255;50;50m[0ms][mem.c:???]- Can't find space for bitmap!\n");
         return;
     }
     pmm_bitmap = (uint8_t *)(bitmap_phys + KERNEL_VIRT_OFFSET);
@@ -173,7 +173,7 @@ void init_pmm(void)
         for (;;) __asm__ __volatile__("hlt");
     }
     
-    serial_write_string("[src/libk/core/mem.c:???]- PMM Initialized successfully\n");
+    serial_write_string("[0ms][mem.c:???]- PMM Initialized successfully\n");
 }
 
 uint64_t alloc_page(void)
@@ -245,7 +245,7 @@ void init_kernel_heap(void)
     uint64_t heap_phys = alloc_pages(heap_pages);
     if (!heap_phys)
     {
-        serial_write_string("[src/libk/core/mem.c:???]- Failed to allocate heap pages!\n");
+        serial_write_string("[0ms][mem.c:???]- Failed to allocate heap pages!\n");
         return;
     }
     uint64_t heap_virt = heap_phys + KERNEL_VIRT_OFFSET;
@@ -295,7 +295,7 @@ void *kmalloc(size_t size)
         }
         curr = curr->next;
     }
-    serial_write_string("\x1b[38;2;255;50;50m[src/libk/core/mem.c:???]- No suitable block found.\n");
+    serial_write_string("\x1b[38;2;255;50;50m[0ms][mem.c:???]- No suitable block found.\n");
     spinlock_release(&heap_lock);
     return NULL;
 }
@@ -643,7 +643,7 @@ void init_vmm(void)
     uint64_t new_cr3 = (uint64_t)new_kernel_pml4 - KERNEL_VIRT_OFFSET;
     __asm__ volatile("mov %0, %%cr3" : : "r"(new_cr3) : "memory");
     
-    serial_write_string("[src/libk/core/mem.c:???]- VMM initialized.\n");
+    serial_write_string("[0ms][mem.c:???]- VMM initialized.\n");
 }
 
 page_table_t *get_kernel_pml4(void)
