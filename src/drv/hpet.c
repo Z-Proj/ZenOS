@@ -2,8 +2,8 @@
 #include "../cpu/isr.h"
 #include "../drv/local_apic.h"
 #include "../kernel/sched.h"
+#include "../libk/debug/log.h"
 
-#define HPET_BASE 0xFED00000
 #define HPET_IRQ_VECTOR 0x22
 
 typedef struct {
@@ -23,11 +23,8 @@ typedef struct {
     uint64_t _r;
 } __attribute__((packed)) hpet_timer_t;
 
-static volatile hpet_regs_t *hpet =
-    (volatile hpet_regs_t *)HPET_BASE;
-
-static volatile hpet_timer_t *t0 =
-    (volatile hpet_timer_t *)(HPET_BASE + 0x100);
+static volatile hpet_regs_t *hpet = NULL;
+static volatile hpet_timer_t *t0 = NULL;
 
 static uint64_t ticks_per_irq;
 
@@ -39,9 +36,15 @@ static void hpet_handler(registers_t *r)
     sched_tick();
 }
 
+void SetHpetAddress(uint64_t addr)
+{
+    hpet = (volatile hpet_regs_t *)(uintptr_t)addr;
+    t0 = (volatile hpet_timer_t *)((uintptr_t)addr + 0x100);
+}
+
 void hpet_init(uint32_t frequency_hz)
 {
-    if (!frequency_hz)
+    if (!hpet || !frequency_hz)
         return;
 
     hpet->config = 0;
@@ -60,11 +63,7 @@ void hpet_init(uint32_t frequency_hz)
     t0->comparator = ticks_per_irq;
     t0->config = (1ULL << 2) | (1ULL << 4);
 
-    register_interrupt_handler(
-        HPET_IRQ_VECTOR,
-        hpet_handler,
-        "HPET Timer"
-    );
-
+    register_interrupt_handler(HPET_IRQ_VECTOR, hpet_handler, "HPET Timer");
     hpet->config = 1;
+    log("HPET Initialized.", 4, 0);
 }

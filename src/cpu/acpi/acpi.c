@@ -1,5 +1,6 @@
 #include "acpi.h"
 #include "../../drv/ioapic.h"
+#include "../../drv/hpet.h"
 #include "../../drv/local_apic.h"
 #include "../../libk/string.h"
 #include "../../libk/ports.h"
@@ -90,6 +91,24 @@ typedef struct {
     uint8_t type;
     uint8_t length;
 } __attribute__((__packed__)) ApicHeader;
+
+typedef struct {
+    AcpiHeader header;
+    uint8_t hardware_rev_id;
+    uint8_t comparator_count : 5;
+    uint8_t counter_size : 1;
+    uint8_t reserved : 1;
+    uint8_t legacy_replacement : 1;
+    uint16_t pci_vendor_id;
+    uint8_t address_space_id;
+    uint8_t register_bit_width;
+    uint8_t register_bit_offset;
+    uint8_t reserved2;
+    uint64_t address;
+    uint8_t hpet_number;
+    uint16_t minimum_tick;
+    uint8_t page_protection;
+} __attribute__((packed)) AcpiHpet;
 
 #define APIC_TYPE_LOCAL_APIC 0
 #define APIC_TYPE_IO_APIC 1
@@ -351,6 +370,10 @@ static void AcpiParseDT(AcpiHeader *header) {
     else if (header->signature == 0x43495041) {
         AcpiParseApic((AcpiMadt *)header);
     }
+    else if (header->signature == 0x54455048) {
+    AcpiHpet *hpet = (AcpiHpet *)header;
+    SetHpetAddress(hpet->address);
+}
 }
 
 static void AcpiParseRsdt(AcpiHeader *rsdt) {
