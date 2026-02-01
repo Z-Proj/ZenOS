@@ -41,7 +41,7 @@ void init_syscalls(void)
     uint32_t gs_hi = kernel_gs_base >> 32;
     __asm__ volatile("wrmsr" : : "c"(0xC0000102), "a"(gs_lo), "d"(gs_hi));
     
-    log("Syscalls initialized (STAR=0x%lx LSTAR=0x%lx)", 4, 0, star, lstar);
+    log("Syscalls initialized.", 4, 0);
 }
 
 uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)

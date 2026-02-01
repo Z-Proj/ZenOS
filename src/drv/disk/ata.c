@@ -181,10 +181,6 @@ ata_error_t ata_init(void)
             }
             else
                 drives[i].exists = 0;
-            if (strstr(drive_name, "QEMU") != NULL)
-                log("ZenOS running in a VM (QEMU)", 4, 0);
-            if (strstr(drive_name, "VBOX") != NULL)
-                log("ZenOS running in a VM (VirtualBox)", 4, 0);
         }
     }
     log("Initialization complete. Found %i drive%s.", 4, 0, found_drives, found_drives == 1 ? "" : "s");

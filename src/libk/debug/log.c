@@ -26,24 +26,24 @@ void sound_err()
 static void format_time(uint64_t ms, char *out, size_t size)
 {
     if (ms < 1000) {
-        snprintf(out, size, "%llu ms", ms);
+        snprintf(out, size, "%llums", ms);
         return;
     }
 
     uint64_t s = ms / 1000;
     if (s < 60) {
-        snprintf(out, size, "%llu s", s);
+        snprintf(out, size, "%llus", s);
         return;
     }
 
     uint64_t m = s / 60;
     if (m < 60) {
-        snprintf(out, size, "%llu min", m);
+        snprintf(out, size, "%llumin", m);
         return;
     }
 
     uint64_t h = m / 60;
-    snprintf(out, size, "%llu h", h);
+    snprintf(out, size, "%lluh", h);
 }
 
 void log_internal(const char *file, int line, const char *fmt, int level, int visibility, ...)
@@ -110,7 +110,12 @@ void log_internal(const char *file, int line, const char *fmt, int level, int vi
         char timebuf[32];
         format_time(ms, timebuf, sizeof(timebuf));
 
-        snprintf(header, 256, "[%s][%s:%d]- ", timebuf, file, line);
+        const char *filename = file;
+        const char *slash = strrchr(file, '/');
+        if (slash) {
+            filename = slash + 1;
+        }
+        snprintf(header, 256, "[%s][%s:%d]- ", timebuf, filename, line);
     }
 
     char *message = kmalloc(1024);

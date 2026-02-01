@@ -395,6 +395,10 @@ static bool AcpiParseRsdp(uint8_t *p) {
 
     uint8_t revision = p[15];
     log("ACPI Rev %d (%s)", 1, 0, revision, oem);
+    if (strstr(oem, "BOCHS") != NULL)
+        log("ZenOS running in a VM (QEMU/Bochs)", 4, 0);
+    if (strstr(oem, "VBOX") != NULL)
+        log("ZenOS running in a VM (VirtualBox)", 4, 0);
 
     if (revision == 0) {
         uint32_t rsdtAddr = *(uint32_t *)(p + 16);

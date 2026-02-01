@@ -504,10 +504,21 @@ page_table_t *clone_page_directory(page_table_t *src)
     page_table_t *new_pml4 = create_page_directory();
     if (!new_pml4) return NULL;
 
-    for (int i = 0; i < 512; i++)
+    if (src == get_kernel_pml4())
     {
-        new_pml4->entries[i] = src->entries[i];
+        for (int i = 0; i < 512; i++)
+        {
+            new_pml4->entries[i] = src->entries[i];
+        }
     }
+    else
+    {
+        for (int i = 256; i < 512; i++)
+        {
+            new_pml4->entries[i] = src->entries[i];
+        }
+    }
+
     return new_pml4;
 }
 
@@ -599,9 +610,39 @@ void free_task_address_space(page_table_t *pml4, uint64_t user_start, uint64_t u
 
 void init_vmm(void)
 {
-    uint64_t cr3;
-    __asm__ volatile("mov %%cr3, %0" : "=r"(cr3));
-    kernel_pml4 = (page_table_t *)(cr3 + KERNEL_VIRT_OFFSET);
+    uint64_t old_cr3;
+    __asm__ volatile("mov %%cr3, %0" : "=r"(old_cr3));
+    page_table_t *limine_pml4 = (page_table_t *)(old_cr3 + KERNEL_VIRT_OFFSET);
+    
+    page_table_t *new_kernel_pml4 = create_page_directory();
+    if (!new_kernel_pml4) {
+        serial_write_string("Failed to create kernel PML4!\n");
+        for(;;) __asm__("hlt");
+    }
+    
+    for (int i = 256; i < 512; i++)
+    {
+        new_kernel_pml4->entries[i] = limine_pml4->entries[i];
+    }
+    
+    for (int i = 0; i < 256; i++)
+    {
+        if (limine_pml4->entries[i] & PAGE_PRESENT)
+        {
+            uint64_t virt_base = (uint64_t)i << 39;
+            
+            if (virt_base < 0x100000)
+            {
+                new_kernel_pml4->entries[i] = limine_pml4->entries[i];
+            }
+        }
+    }
+    
+    kernel_pml4 = new_kernel_pml4;
+    
+    uint64_t new_cr3 = (uint64_t)new_kernel_pml4 - KERNEL_VIRT_OFFSET;
+    __asm__ volatile("mov %0, %%cr3" : : "r"(new_cr3) : "memory");
+    
     serial_write_string("[src/libk/core/mem.c:???]- VMM initialized.\n");
 }
 

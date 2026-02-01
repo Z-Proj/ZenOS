@@ -59,7 +59,7 @@ void play_bootup_sequence()
 void init(void){
     log("Starting init.", 1, 0);
     if(elf_exec("init", 0, NULL) != ZFS_OK)
-        log("No init program found.", 0, 0);
+        log("No init program found.", 0, 1);
 }
 
 void idle(void){
@@ -80,8 +80,9 @@ void _start(void)
     AcpiInit();
     LocalApicInit();
     IoApicInit();
-    sched_init();
+    IoApicSetIrq(g_ioApicAddr, 8, 0x28, LocalApicGetId());
     rtc_initialize();
+    sched_init();
     hpet_init(100);
     ata_init();
     uint8_t boot_drive = 0;
@@ -97,13 +98,12 @@ void _start(void)
         zfs_format(boot_drive);
         zfs_init(boot_drive);
     }
-    init_keyboard();
-    mouse_init();
-    init_smp();
-    IoApicSetIrq(g_ioApicAddr, 8, 0x28, LocalApicGetId());
     IoApicSetIrq(g_ioApicAddr, 2, 0x22, LocalApicGetId());
     IoApicSetIrq(g_ioApicAddr, 0, 0x20, LocalApicGetId());
     IoApicSetIrq(g_ioApicAddr, 1, 0x21, LocalApicGetId());
+    init_keyboard();
+    mouse_init();
+    init_smp();
     pci_initialize_system();
     e1000_init();
     socket_init();
