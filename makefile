@@ -48,6 +48,15 @@ $(ISO_IMAGE): $(KERNEL) $(LIMINE_BINARIES)
 user:
 	$(USER_DIR)/build_elf.sh $(USER_SOURCES)
 
+funcs:
+	@ctags -R --languages=C --c-kinds=f src && \
+	sed -n 's@^[^\t]*\t[^\t]*\t/\^\(.*\)\$$/;".*@\1;@p' tags | \
+	grep -v '^static ' | \
+	sed -E 's/\s*\{\s*;$$/;/; s/\s*\{$$/;/; s/^\s*([^;]+)\($$/\1;/;' | \
+	sort -u > funcs.txt
+	rm tags
+	@echo "✓ Generated funcs.txt"
+
 zfs:
 	clang zfs_man.c -o zfs_man
 
@@ -114,4 +123,4 @@ out:
 gdb:
 	gdb build/kernel.bin
 
-.PHONY: all clean run qemu out stop gdb zfs
+.PHONY: all clean run qemu out stop gdb zfs funcs

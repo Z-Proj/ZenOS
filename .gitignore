@@ -5,3 +5,4 @@ build/
 *.iso
 zfs_man
 *.elf
+funcs.txt
