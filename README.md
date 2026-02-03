@@ -2,6 +2,9 @@
 
 <img width="100%" alt="ZenOS Logo" src="https://github.com/user-attachments/assets/4a3141c6-4223-465a-9b38-9f5d851f0b83" />
 
+> [!WARNING]
+> Some functionality of the kernel has been temporarily disabled in the current commit, to fix an [issue.](https://github.com/Z-Proj/ZenOS/blob/main/docs/ISSUES.md)
+
 ## Overview
 
 **ZenOS** is a modern **64-bit SMP custom operating system**, developed entirely from scratch using **C** and **x86_64 assembly**, and bootstrapped with the **Limine** bootloader.
