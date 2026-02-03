@@ -214,12 +214,6 @@ zfs_error_t zfs_init(uint8_t drive)
     current_dir = ZFS_ROOT_DIR_INDEX;
 
     log("ZenFS: Initialized successfully", 4, 0);
-    log("  Total blocks: %d (%d KB)", 1, 0,
-        superblock.total_blocks, (superblock.total_blocks * 4));
-    log("  Free blocks: %d (%d KB)", 1, 0,
-        superblock.free_blocks, (superblock.free_blocks * 4));
-    log("  Entries: %d/%d", 1, 0, superblock.entry_count, ZFS_MAX_ENTRIES);
-
     return ZFS_OK;
 }
 
@@ -268,7 +262,6 @@ zfs_error_t zfs_mkdir(const char *dirname)
     if (write_superblock() != ZFS_OK)
         return ZFS_ERR_WRITE_FAILED;
 
-    log("ZenFS: Created directory '%s'", 1, 0, name);
     return ZFS_OK;
 }
 
@@ -319,7 +312,6 @@ zfs_error_t zfs_rmdir(const char *dirname)
     if (write_superblock() != ZFS_OK)
         return ZFS_ERR_WRITE_FAILED;
 
-    log("ZenFS: Removed directory '%s'", 1, 0, name);
     return ZFS_OK;
 }
 
@@ -508,9 +500,6 @@ zfs_error_t zfs_create(const char *filename, uint32_t size)
     if (write_superblock() != ZFS_OK)
         return ZFS_ERR_WRITE_FAILED;
 
-    log("ZenFS: Created '%s' (%d bytes, %d blocks)", 1, 0,
-        name, size, blocks_needed);
-
     return ZFS_OK;
 }
 
@@ -546,8 +535,6 @@ zfs_error_t zfs_open(const char *filename, zfs_file_t *file)
     file->position = 0;
     file->entry_index = file_idx;
     file->is_open = 1;
-
-    log("ZenFS: Opened '%s' (%d bytes)", 1, 0, name, file->size);
     __asm__ volatile("sti");
     return ZFS_OK;
 }
@@ -717,7 +704,6 @@ zfs_error_t zfs_delete(const char *filename)
     if (write_superblock() != ZFS_OK)
         return ZFS_ERR_WRITE_FAILED;
 
-    log("ZenFS: Deleted '%s'", 1, 0, name);
     return ZFS_OK;
 }
 

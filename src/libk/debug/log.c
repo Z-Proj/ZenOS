@@ -115,7 +115,8 @@ void log_internal(const char *file, int line, const char *fmt, int level, int vi
         if (slash) {
             filename = slash + 1;
         }
-        snprintf(header, 256, "[%s][%s:%d]- ", timebuf, filename, line);
+        // snprintf(header, 256, "[%s][%s:%d]- ", timebuf, filename, line); //TODO: Reimplement after RTC enabled
+        snprintf(header, 256, "[%s:%d]- ", filename, line);
     }
 
     char *message = kmalloc(1024);

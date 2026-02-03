@@ -947,6 +947,6 @@ int main(void) {
     }
     
     prints(COLOR_GREEN "Shell exited\n" COLOR_RESET);
-    exit(0);
+    // exit(0);
     return 0;
 }

@@ -64,13 +64,15 @@ The project focuses on clean design, correctness, and practical experimentation 
 
 ---
 
+## Contributions
+
+All good contributions are gladly welcome! It is suggested to fix an issue in the [ISSUES.md](https://github.com/Z-Proj/ZenOS/blob/main/docs/ISSUES.md), or you can add a feature, fix another unlisted bug, make ZenOS overall better!
+
+---
+
 ## Design Goals
 
 - Maintain a clean, minimal, and readable codebase
-
-- Avoid unnecessary legacy constraints
-
-- Favor correctness and explicitness over convenience
 
 - Provide a solid foundation for experimentation with:
 
@@ -107,5 +109,4 @@ socat
 ---
 
 **ZenOS**
-Made by **Rishies2010**.
 

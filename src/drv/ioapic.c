@@ -2,6 +2,8 @@
 
 #include "vga.h"
 #include "ioapic.h"
+#include "local_apic.h"
+#include "../cpu/acpi/acpi.h"
 #include "../libk/debug/log.h"
 
 uint8_t *g_ioApicAddr;
@@ -43,6 +45,12 @@ void IoApicSetIrq(uint8_t *base, uint8_t irq, uint8_t vector, uint8_t dest_apic_
                     ((uint64_t)dest_apic_id << 56);
 
     IoApicSetEntry(base, irq, entry);
+}
+
+void IoApicSetIrqMapped(int irq, int vector)
+{
+    int gsi = AcpiRemapIrq(irq);
+    IoApicSetIrq(g_ioApicAddr, gsi, vector, LocalApicGetId());
 }
 
 void IoApicInit()

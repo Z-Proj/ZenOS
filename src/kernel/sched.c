@@ -153,7 +153,7 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
     return task;
 }
 
-task_t *task_create(void (*entry)(void), const char *name)
+task_t *task_create(void (*entry)(void), const char *name) //TODO: Get rid of user_entry.asm
 {
     spinlock_acquire(&sched_lock);
     task_t *task = (task_t *)kmalloc(sizeof(task_t));
