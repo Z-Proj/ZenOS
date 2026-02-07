@@ -79,6 +79,8 @@ void _start(void)
     sched_init();
     IoApicSetIrqMapped(0, 0x22); //HPET
     hpet_init(100);
+    IoApicSetIrqMapped(1, 0x21); //Keyboard
+    init_keyboard();
     ata_init();
     uint8_t boot_drive = 0;
     for (int i = 0; i < 4; i++) {
@@ -89,13 +91,18 @@ void _start(void)
         }
     }
     if (zfs_init(boot_drive) != ZFS_OK) {
-        log("Formatting drive %d...", 1, 0, boot_drive);
-        zfs_format(boot_drive);
-        zfs_init(boot_drive);
+        log("Unable to attach to the drive via ZFS.\nWould you like to format it? (y/*)", 2, 1);
+        __asm__ __volatile__("sti");
+        char flag = wait_for_key();
+        __asm__ __volatile__("cli");
+        if(flag == 'y' || flag == 'Y'){
+            log("Formatting drive %d...", 1, 0, boot_drive);
+            zfs_format(boot_drive);
+            zfs_init(boot_drive);
+        }
+        else log("Leaving drive unattached.", 1, 0);
     }
     IoApicSetIrqMapped(12, 0x2C); //Mouse
-    IoApicSetIrqMapped(1, 0x21); //Keyboard
-    init_keyboard();
     mouse_init();
     init_smp();
     pci_initialize_system();

@@ -198,7 +198,7 @@ zfs_error_t zfs_init(uint8_t drive)
 
     if (superblock.magic != ZFS_MAGIC)
     {
-        log("ZenFS: Invalid magic number (expected 0x%x, got 0x%x)", 3, 1,
+        log("ZenFS: Invalid magic number (expected 0x%x, got 0x%x)", 3, 0,
             ZFS_MAGIC, superblock.magic);
         return ZFS_ERR_NOT_ZFS;
     }
