@@ -1,6 +1,6 @@
 # ZenOS Makefile
 
-CFLAGS = -mcmodel=kernel -m64 -ffreestanding -fno-stack-protector -Wall -Wextra -c -fno-pie -fno-pic -Wno-missing-braces -g
+CFLAGS = -mcmodel=kernel -m64 -ffreestanding -fno-stack-protector -Wall -Wextra -c -fno-pie -fno-pic -Wno-missing-braces
 LDFLAGS = -Wl,-T,linker.ld -fuse-ld=lld -nostdlib -no-pie
 ASFLAGS = -f elf64
 

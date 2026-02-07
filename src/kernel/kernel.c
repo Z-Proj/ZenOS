@@ -74,8 +74,8 @@ void _start(void)
     AcpiInit();
     LocalApicInit();
     IoApicInit();
-    // IoApicSetIrqMapped(8, 0x28); //RTC //TODO: yes, unused for now
-    // rtc_initialize();
+    IoApicSetIrqMapped(8, 0x28); //RTC its
+    rtc_initialize();
     sched_init();
     IoApicSetIrqMapped(0, 0x22); //HPET
     hpet_init(100);
@@ -96,11 +96,11 @@ void _start(void)
     IoApicSetIrqMapped(12, 0x2C); //Mouse
     IoApicSetIrqMapped(1, 0x21); //Keyboard
     init_keyboard();
-    // mouse_init(); //TODO: Unused for now, until i fix the elf executions
-    // init_smp();
-    // pci_initialize_system();
-    // e1000_init();
-    // socket_init();
+    mouse_init();
+    init_smp();
+    pci_initialize_system();
+    e1000_init();
+    socket_init();
 #if debug
     log("Running In Debug Mode.", 2, 1);
     detect_cpu_info(0);
