@@ -256,6 +256,34 @@ static void cmd_rmdir(int argc, char* argv[]) {
     }
 }
 
+static void cmd_ls(int argc, char* argv[]) {
+    if (argc < 2) {
+        if (ls() != 0) {
+            prints(COLOR_RED "Failed to list directory\n" COLOR_RESET);
+        }
+        return;
+    }
+
+    char cwd[256];
+    if (!getcwd(cwd, sizeof(cwd))) {
+        prints(COLOR_RED "Failed to get current directory\n" COLOR_RESET);
+        return;
+    }
+
+    if (chdir(argv[1]) != 0) {
+        prints(COLOR_RED "Failed to change directory\n" COLOR_RESET);
+        return;
+    }
+
+    if (ls() != 0) {
+        prints(COLOR_RED "Failed to list directory\n" COLOR_RESET);
+    }
+
+    if (chdir(cwd) != 0) {
+        prints(COLOR_RED "Failed to restore current directory\n" COLOR_RESET);
+    }
+}
+
 // ============ MEMORY COMMANDS ============
 
 static void cmd_malloc_test(int argc, char* argv[]) {
@@ -695,6 +723,7 @@ static void cmd_help(void) {
     prints("  write <file> <text>  - Write to file\n");
     prints("  stat <file>          - Show file info\n");
     prints("  pwd                  - Print working directory\n");
+    prints("  ls [dir]             - List directory contents\n");
     prints("  cd <dir>             - Change directory\n");
     prints("  mkdir <dir>          - Create directory\n");
     prints("  rmdir <dir>          - Remove directory\n");
@@ -859,6 +888,7 @@ static int execute_command(void) {
     else if (strcmp(argv[0], "stat") == 0) cmd_stat(argc, argv);
     // Directory ops
     else if (strcmp(argv[0], "pwd") == 0) cmd_pwd();
+    else if (strcmp(argv[0], "ls") == 0) cmd_ls(argc, argv);
     else if (strcmp(argv[0], "cd") == 0) cmd_cd(argc, argv);
     else if (strcmp(argv[0], "mkdir") == 0) cmd_mkdir(argc, argv);
     else if (strcmp(argv[0], "rmdir") == 0) cmd_rmdir(argc, argv);

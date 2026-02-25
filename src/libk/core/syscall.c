@@ -78,6 +78,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             sched_yield();
             return 0;
         }
+
+        case SYSCALL_LS: {
+            return zfs_list();
+        }
         
         case SYSCALL_GETKEY:
             return (uint64_t)get_key();

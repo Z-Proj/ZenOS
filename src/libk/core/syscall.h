@@ -71,6 +71,9 @@
 // Yield
 #define SYSCALL_YIELD       43
 
+// Filesystem listing
+#define SYSCALL_LS          44
+
 // stat structure for file info
 typedef struct {
     uint32_t st_dev;        // device ID

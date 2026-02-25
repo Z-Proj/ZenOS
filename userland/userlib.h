@@ -246,6 +246,10 @@ static inline int rmdir(const char *pathname) {
     return (int)syscall1(22, (uint64_t)pathname);
 }
 
+static inline int ls(void) {
+    return (int)syscall0(44);
+}
+
 // ==================== MEMORY MANAGEMENT ====================
 
 static inline int brk(void *addr) {
