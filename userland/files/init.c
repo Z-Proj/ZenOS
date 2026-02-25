@@ -131,30 +131,12 @@ static void cmd_write(int argc, char* argv[]) {
     }
     text[pos] = '\0';
     
-    ssize_t written = write(&file, text, strlen(text));
-    if (written > 0) {
-        prints(COLOR_GREEN "Wrote " COLOR_RESET);
-        char num[16];
-        // Simple itoa
-        int n = written;
-        int i = 0;
-        do {
-            num[i++] = '0' + (n % 10);
-            n /= 10;
-        } while (n > 0);
-        num[i] = '\0';
-        // Reverse
-        for (int j = 0; j < i/2; j++) {
-            char tmp = num[j];
-            num[j] = num[i-1-j];
-            num[i-1-j] = tmp;
-        }
-        prints(num);
-        prints(" bytes\n");
+    int success = write(&file, text, strlen(text));
+    if (!success) {
+        prints(COLOR_GREEN "Write successful.\n" COLOR_RESET);
     } else {
         prints(COLOR_RED "Write failed\n" COLOR_RESET);
     }
-    
     close(&file);
 }
 

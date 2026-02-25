@@ -199,8 +199,8 @@ static inline ssize_t read(zfs_file_t *file, void *buffer, size_t size) {
     return bytes_read;
 }
 
-static inline ssize_t write(zfs_file_t *file, const void *buffer, size_t size) {
-    return (ssize_t)syscall3(12, (uint64_t)file, (uint64_t)buffer, size);
+static inline int write(zfs_file_t *file, const void *buffer, size_t size) {
+    return syscall3(12, (uint64_t)file, (uint64_t)buffer, size);
 }
 
 static inline int close(zfs_file_t *file) {
