@@ -115,12 +115,12 @@ void _start(void)
     zfs_list();
 #endif
     task_create(idle, "Idle");
-    if(elf_exec("init", 0, NULL) != ZFS_OK)
+    if(elf_exec("init", 0, NULL) != ZFS_OK) //This needs keyboard input.
         log("No init program found.", 0, 1);
-    // if(elf_exec("fibonnaci", 0, NULL) != ZFS_OK)
-    //     log("No init program found.", 0, 1);
-    // if(elf_exec("counter", 0, NULL) != ZFS_OK)
-    //     log("No init program found.", 0, 1);
+    if(elf_exec("fibonnaci", 0, NULL) != ZFS_OK)
+        log("No init program found.", 0, 1);
+    if(elf_exec("counter", 0, NULL) != ZFS_OK)
+        log("No init program found.", 0, 1);
     asm volatile("sti");
     sched_start();
     for (;;)

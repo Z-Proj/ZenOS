@@ -504,18 +504,84 @@ page_table_t *clone_page_directory(page_table_t *src)
     page_table_t *new_pml4 = create_page_directory();
     if (!new_pml4) return NULL;
 
-    if (src == get_kernel_pml4())
+    if (!src)
+        return new_pml4;
+
+    // Share kernel half directly.
+    for (int i = 256; i < 512; i++)
     {
-        for (int i = 0; i < 512; i++)
-        {
-            new_pml4->entries[i] = src->entries[i];
-        }
+        new_pml4->entries[i] = src->entries[i];
     }
-    else
+
+    /*
+     * Clone lower-half paging structures so task-local mappings don't
+     * overwrite shared kernel/other-task mappings.
+     */
+    for (int pml4_idx = 0; pml4_idx < 256; pml4_idx++)
     {
-        for (int i = 256; i < 512; i++)
+        uint64_t src_pml4e = src->entries[pml4_idx];
+        if (!(src_pml4e & PAGE_PRESENT))
+            continue;
+
+        uint64_t pdpt_phys = alloc_page();
+        if (!pdpt_phys)
         {
-            new_pml4->entries[i] = src->entries[i];
+            free_page_directory(new_pml4);
+            return NULL;
+        }
+        page_table_t *dst_pdpt = (page_table_t *)(pdpt_phys + KERNEL_VIRT_OFFSET);
+        memset(dst_pdpt, 0, PAGE_SIZE);
+
+        page_table_t *src_pdpt = (page_table_t *)((src_pml4e & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
+        new_pml4->entries[pml4_idx] = pdpt_phys | (src_pml4e & ~0x000FFFFFFFFFF000ULL);
+
+        for (int pdpt_idx = 0; pdpt_idx < 512; pdpt_idx++)
+        {
+            uint64_t src_pdpte = src_pdpt->entries[pdpt_idx];
+            if (!(src_pdpte & PAGE_PRESENT))
+                continue;
+
+            if (src_pdpte & (1ULL << 7))
+            {
+                dst_pdpt->entries[pdpt_idx] = src_pdpte;
+                continue;
+            }
+
+            uint64_t pd_phys = alloc_page();
+            if (!pd_phys)
+            {
+                free_page_directory(new_pml4);
+                return NULL;
+            }
+            page_table_t *dst_pd = (page_table_t *)(pd_phys + KERNEL_VIRT_OFFSET);
+            memset(dst_pd, 0, PAGE_SIZE);
+            page_table_t *src_pd = (page_table_t *)((src_pdpte & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
+            dst_pdpt->entries[pdpt_idx] = pd_phys | (src_pdpte & ~0x000FFFFFFFFFF000ULL);
+
+            for (int pd_idx = 0; pd_idx < 512; pd_idx++)
+            {
+                uint64_t src_pde = src_pd->entries[pd_idx];
+                if (!(src_pde & PAGE_PRESENT))
+                    continue;
+
+                if (src_pde & (1ULL << 7))
+                {
+                    dst_pd->entries[pd_idx] = src_pde;
+                    continue;
+                }
+
+                uint64_t pt_phys = alloc_page();
+                if (!pt_phys)
+                {
+                    free_page_directory(new_pml4);
+                    return NULL;
+                }
+
+                page_table_t *dst_pt = (page_table_t *)(pt_phys + KERNEL_VIRT_OFFSET);
+                page_table_t *src_pt = (page_table_t *)((src_pde & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
+                memcpy(dst_pt, src_pt, PAGE_SIZE);
+                dst_pd->entries[pd_idx] = pt_phys | (src_pde & ~0x000FFFFFFFFFF000ULL);
+            }
         }
     }
 
@@ -554,6 +620,10 @@ void free_page_directory(page_table_t *pml4)
         for (int pdpt_idx = 0; pdpt_idx < 512; pdpt_idx++)
         {
             if (!(pdpt->entries[pdpt_idx] & PAGE_PRESENT))
+                continue;
+
+            // 1GB huge page at PDPT level; no lower page-table struct to free.
+            if (pdpt->entries[pdpt_idx] & (1ULL << 7))
                 continue;
                 
             page_table_t *pd = (page_table_t *)((pdpt->entries[pdpt_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
