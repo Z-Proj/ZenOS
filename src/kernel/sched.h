@@ -7,6 +7,7 @@
 
 #define TASK_STACK_SIZE 8192
 #define TIME_SLICE 4
+#define MAX_TASKS 256
 
 typedef enum
 {

@@ -10,6 +10,7 @@ extern struct tss_struct tss;
 static task_t *task_list_head = NULL;
 static task_t *current_task = NULL;
 static uint64_t next_pid = 0;
+static uint64_t task_count = 0;
 static spinlock_t sched_lock = {0};
 static volatile int scheduler_enabled = 0;
 
@@ -49,6 +50,8 @@ void sched_init(void)
     spinlock_init(&sched_lock);
     task_list_head = NULL;
     current_task = NULL;
+    next_pid = 0;
+    task_count = 0;
     scheduler_enabled = 0;
     extern struct tss_struct tss;
     tss.rsp0 = 0;
@@ -65,6 +68,11 @@ void sched_start(void)
 task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pml4)
 {
     spinlock_acquire(&sched_lock);
+    if (task_count >= MAX_TASKS)
+    {
+        spinlock_release(&sched_lock);
+        return NULL;
+    }
     task_t *task = (task_t *)kmalloc(sizeof(task_t));
     if (!task)
     {
@@ -148,6 +156,7 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
         task->next = old_next;
     }
     log("Created user task: %s (PID %d)", 1, 0, name, task->pid);
+    task_count++;
     
     spinlock_release(&sched_lock);
     return task;
@@ -156,6 +165,11 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
 task_t *task_create(void (*entry)(void), const char *name) //TODO: Get rid of user_entry.asm
 {
     spinlock_acquire(&sched_lock);
+    if (task_count >= MAX_TASKS)
+    {
+        spinlock_release(&sched_lock);
+        return NULL;
+    }
     task_t *task = (task_t *)kmalloc(sizeof(task_t));
     if (!task)
     {
@@ -226,6 +240,7 @@ task_t *task_create(void (*entry)(void), const char *name) //TODO: Get rid of us
         task->next = old_next;
     }
     log("Created kernel task: %s (PID %d)", 1, 0, name, task->pid);
+    task_count++;
     spinlock_release(&sched_lock);
     return task;
 }
@@ -273,6 +288,7 @@ static void reap_dead_tasks(void)
                 if (task_list_head->next == task_list_head)
                 {
                     task_list_head = NULL;
+                    if (task_count > 0) task_count--;
                     kfree(iter);
                     return;
                 }
@@ -283,6 +299,7 @@ static void reap_dead_tasks(void)
                     last = last->next;
                 last->next = task_list_head;
                 
+                if (task_count > 0) task_count--;
                 kfree(iter);
                 iter = task_list_head;
                 start = task_list_head;
@@ -292,6 +309,7 @@ static void reap_dead_tasks(void)
             if (prev)
                 prev->next = next;
             
+            if (task_count > 0) task_count--;
             kfree(iter);
             iter = next;
             continue;
@@ -326,11 +344,13 @@ void sched_yield(void)
     
     uint64_t rflags;
     asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
+    spinlock_acquire(&sched_lock);
     
     reap_dead_tasks();
     
     if (!current_task)
     {
+        spinlock_release(&sched_lock);
         if (rflags & 0x200) asm volatile("sti");
         return;
     }
@@ -340,6 +360,7 @@ void sched_yield(void)
     
     if (new_task == old_task)
     {
+        spinlock_release(&sched_lock);
         if (rflags & 0x200) asm volatile("sti");
         return;
     }
@@ -360,6 +381,7 @@ void sched_yield(void)
     
     task_t *prev_task = current_task;
     current_task = new_task;
+    spinlock_release(&sched_lock);
     task_switch(&prev_task->regs, &new_task->regs);
 }
 

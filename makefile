@@ -97,8 +97,6 @@ deps:
 run:
 	virtualboxvm --startvm "ZenOS" &
 
-# -display gtk,gl=on //TODO: Re-add
-
 qemu:
 	qemu-system-x86_64 \
 	-cdrom ZenOS.iso \
@@ -112,7 +110,7 @@ qemu:
 	-netdev user,id=net0 \
 	-device e1000,netdev=net0 \
 	-device virtio-gpu-pci \
-	-display none \
+	-display gtk,gl=on \
 	-enable-kvm \
 	-cpu host
 
