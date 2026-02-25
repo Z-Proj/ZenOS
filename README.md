@@ -3,7 +3,7 @@
 <img width="100%" alt="ZenOS Logo" src="https://github.com/user-attachments/assets/4a3141c6-4223-465a-9b38-9f5d851f0b83" />
 
 > [!WARNING]
-> There WILL be dragons and bugs, I assure you dude
+> There might be dragons and bugs.
 
 ## Overview
 
@@ -18,7 +18,7 @@ The project focuses on clean design, correctness, and practical experimentation 
 ### Kernel
 
 - 64-bit x86_64 monolithic kernel
-- Symmetric Multiprocessing (SMP) with AP startup
+- Symmetric Multiprocessing (SMP) with full AP startup
 - Pre-emptive round-robin scheduler
 - Kernel ↔ userspace context switching
 - Custom syscall ABI with assembly entry path
@@ -38,6 +38,7 @@ The project focuses on clean design, correctness, and practical experimentation 
 - PC speaker support
 - Serial output for debugging and logging
 - ATA disk driver (PIO, 28-bit LBA)
+- Socket read/write
 - PCI bus enumeration
 - Intel e1000 Ethernet driver (early-stage networking)
 - Others include RTC, HPET, Keyboard (PS/2), Mouse (PS/2)
