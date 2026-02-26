@@ -100,6 +100,8 @@ run:
 qemu:
 	qemu-system-x86_64 \
 	-cdrom ZenOS.iso \
+	-audiodev pa,id=snd0 \
+	-machine pcspk-audiodev=snd0 \
 	-m 128M \
 	-drive file=ZenOS.vhd,if=ide,index=0 \
 	-boot d \
