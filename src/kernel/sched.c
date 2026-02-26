@@ -131,7 +131,8 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
     task->regs.rdi = (uint64_t)entry;
     task->regs.rsi = user_stack_top;
     task->regs.rbp = task->kernel_stack + TASK_STACK_SIZE - 16;
-    task->regs.userrsp = task->kernel_stack + TASK_STACK_SIZE - 16;
+    task->regs.userrsp = user_stack_top;
+    task->regs.rbp     = user_stack_top;
     task->regs.rflags = 0x202;
     task->regs.cs = 0x08;
     task->regs.ss = 0x10;

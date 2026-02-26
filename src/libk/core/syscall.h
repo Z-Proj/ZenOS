@@ -74,6 +74,9 @@
 // Filesystem listing
 #define SYSCALL_LS          44
 
+// Graphics
+#define SYSCALL_GET_FRAMEBUFFER 45
+
 // stat structure for file info
 typedef struct {
     uint32_t st_dev;        // device ID
@@ -90,6 +93,14 @@ typedef struct {
     uint64_t st_mtime;      // last modification time
     uint64_t st_ctime;      // last status change time
 } stat_t;
+
+typedef struct {
+    uint64_t addr;    // mapped userspace virtual addr
+    uint64_t width;
+    uint64_t height;
+    uint8_t  bpp;
+    uint32_t pitch; 
+} fb_info_t;
 
 // timeval structure
 typedef struct {

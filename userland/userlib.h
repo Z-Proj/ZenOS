@@ -1,14 +1,6 @@
 #ifndef USERLIB_H
 #define USERLIB_H
-
-typedef unsigned long uint64_t;
-typedef unsigned int uint32_t;
-typedef unsigned short uint16_t;
-typedef unsigned char uint8_t;
-typedef long int64_t;
-typedef int int32_t;
-typedef short int16_t;
-typedef char int8_t;
+#include "stdint.h"
 
 typedef uint64_t size_t;
 typedef int64_t ssize_t;
@@ -119,6 +111,14 @@ typedef struct {
     uint32_t available;
     uint8_t in_use;
 } socket_file_t;
+
+typedef struct {
+    uint64_t addr;
+    uint64_t width;
+    uint64_t height;
+    uint8_t  bpp;
+    uint32_t pitch; 
+} fb_info_t;
 
 // ==================== PROCESS MANAGEMENT ====================
 
@@ -350,6 +350,10 @@ static inline void shutdown(void) {
 
 static inline void reboot(void) {
     syscall0(42);
+}
+
+static inline int fbinfo(fb_info_t *fb) {
+    return (int)syscall1(45, (uint64_t)fb);
 }
 
 // ==================== HELPER FUNCTIONS ====================

@@ -37,6 +37,40 @@ cleanup() {
 
 trap cleanup EXIT
 
+# ── pre-build: compile .sfn fonts and pick up .o libs from userland/libs ──
+LIBS_DIR="userland/libs"
+EXTRA_OBJS=""
+if [ -d "$LIBS_DIR" ]; then
+    # convert any .sfn fonts to .o blobs (auto-decompresses gzip if needed)
+    for SFN in "$LIBS_DIR"/*.sfn; do
+        [ -f "$SFN" ] || continue
+        FNAME="$(basename "$SFN" .sfn)"
+        FOBJ="$LIBS_DIR/${FNAME}.o"
+        if [ ! -f "$FOBJ" ] || [ "$SFN" -nt "$FOBJ" ]; then
+            echo "[*] Compiling font: ${SFN} -> ${FOBJ}"
+            # auto-detect gzip magic bytes and decompress in-place
+            MAGIC="$(xxd -l2 "$SFN" | awk '{print $2$3}')"
+            if [ "$MAGIC" = "1f8b" ]; then
+                echo "[*] Detected gzip, decompressing ${SFN}..."
+                cp "$SFN" "${SFN}.gz"
+                gunzip -f "${SFN}.gz"
+            fi
+            objcopy -I binary -O elf64-x86-64 -B i386:x86-64 "$SFN" "$FOBJ" \
+                || die "objcopy failed for ${SFN}"
+            echo "[✓] Font compiled: $(basename "$FOBJ")"
+        else
+            echo "[*] Font up to date: $(basename "$FOBJ")"
+        fi
+    done
+
+    # pick up all .o files (fonts + any manually placed libs)
+    for LOBJ in "$LIBS_DIR"/*.o; do
+        [ -f "$LOBJ" ] || continue
+        echo "[*] Including lib: $(basename "$LOBJ")"
+        EXTRA_OBJS="$EXTRA_OBJS $LOBJ"
+    done
+fi
+
 for SRC in "$@"; do
     [ -f "$SRC" ] || die "Source file '$SRC' does not exist"
 
@@ -55,6 +89,7 @@ for SRC in "$@"; do
     echo "[*] Compiling ${SRC} -> ${OBJ}"
     clang -m64 -ffreestanding -fno-stack-protector \
           -nostdlib -fno-pie -fPIC \
+          -I userland -I userland/libs \
           -c "$SRC" -o "$OBJ" \
           || die "Compilation failed for ${SRC}"
 
@@ -62,7 +97,7 @@ for SRC in "$@"; do
     ld.lld -m elf_x86_64 \
            -e main \
            -T userland/userelf.ld \
-           "$OBJ" -o "$ELF" \
+           "$OBJ" $EXTRA_OBJS -o "$ELF" \
            --warn-unresolved-symbols \
            --noinhibit-exec \
            || die "Linking failed for ${BASENAME}"

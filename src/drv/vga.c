@@ -140,7 +140,7 @@ void vga_init(void)
         kmalloc,
         flanterm_kfree_wrapper,
         (uint32_t *)framebuffer_addr,
-        framebuffer_width,
+        framebuffer_width/2,
         framebuffer_height,
         framebuffer_pitch,
         red_size, red_shift,
@@ -162,6 +162,10 @@ void vga_init(void)
     {
         log("Failed to initialize flanterm", 3, 0);
         return;
+    }
+    for(int i = 0; i < framebuffer_height; i++){
+        put_pixel((framebuffer_width/2)+1, i, 0xFFFFFF);
+        put_pixel((framebuffer_width/2)+2, i, 0xFFFFFF);
     }
     
     flanterm = true;

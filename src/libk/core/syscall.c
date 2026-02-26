@@ -493,6 +493,35 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                 __asm__ __volatile__("cli; hlt");
             }
         }
+
+        case SYSCALL_GET_FRAMEBUFFER: {
+            fb_info_t *info = (fb_info_t*)arg1;
+            if (!info) return -1;
+
+            task_t *current = sched_current_task();
+            if (!current || !current->pml4) return -1;
+            uint64_t fb_phys = virt_to_phys(get_kernel_pml4(), (uint64_t)framebuffer_addr);
+            if (!fb_phys) return -1;
+
+            uint64_t fb_size = framebuffer_width * framebuffer_height * (framebuffer_bpp / 8);
+            size_t pages = (fb_size + PAGE_SIZE - 1) / PAGE_SIZE;
+
+            uint64_t user_fb_vaddr = 0x0000600000000000ULL;
+
+            for (size_t i = 0; i < pages; i++) {
+                uint64_t virt = user_fb_vaddr + i * PAGE_SIZE;
+                uint64_t phys = fb_phys + i * PAGE_SIZE;
+                map_page(current->pml4, virt, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+            }
+
+            info->addr   = user_fb_vaddr;
+            info->width  = framebuffer_width;
+            info->height = framebuffer_height;
+            info->bpp    = framebuffer_bpp;
+            info->pitch  = framebuffer_width * (framebuffer_bpp / 8);
+
+            return 0;
+        }
         
         default:
             log("Unknown syscall: %lu", 2, 0, num);
