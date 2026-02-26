@@ -5,9 +5,9 @@
 #include "../cpu/isr.h"
 #include "../libk/core/mem.h"
 
-#define TASK_STACK_SIZE (256 * 1024)
+#define TASK_STACK_SIZE (256*1024)
 #define TIME_SLICE 4
-#define MAX_TASKS 256
+#define MAX_TASKS 32
 
 typedef enum
 {

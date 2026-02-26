@@ -88,16 +88,22 @@ for SRC in "$@"; do
 
     echo "[*] Compiling ${SRC} -> ${OBJ}"
     clang -m64 -ffreestanding -fno-stack-protector \
-          -nostdlib -fno-pie -fPIC \
+          -nostdlib -fno-pie -fPIC -O1 \
           -I userland -I userland/libs \
           -c "$SRC" -o "$OBJ" \
           || die "Compilation failed for ${SRC}"
+
+    if [ "$BASENAME" = "gfxserver" ]; then
+        LINK_OBJS="$OBJ $EXTRA_OBJS"
+    else
+        LINK_OBJS="$OBJ"
+    fi
 
     echo "[*] Linking ${OBJ} -> ${ELF}"
     ld.lld -m elf_x86_64 \
            -e main \
            -T userland/userelf.ld \
-           "$OBJ" $EXTRA_OBJS -o "$ELF" \
+           $LINK_OBJS -o "$ELF" \
            --warn-unresolved-symbols \
            --noinhibit-exec \
            || die "Linking failed for ${BASENAME}"

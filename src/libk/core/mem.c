@@ -241,7 +241,7 @@ uint64_t get_free_memory(void)
 void init_kernel_heap(void)
 {
     spinlock_init(&heap_lock);
-    uint64_t heap_pages = 16384;
+    uint64_t heap_pages = 8192;
     uint64_t heap_phys = alloc_pages(heap_pages);
     if (!heap_phys)
     {
@@ -452,27 +452,27 @@ void switch_page_directory(page_table_t *pml4)
     __asm__ volatile("mov %0, %%cr3" : : "r"(phys) : "memory");
 }
 
-uint64_t virt_to_phys(page_table_t *pml4, uint64_t virt)
-{
+uint64_t virt_to_phys(page_table_t *pml4, uint64_t virt) {
     uint64_t pml4_idx = get_pml4_index(virt);
     uint64_t pdpt_idx = get_pdpt_index(virt);
-    uint64_t pd_idx = get_pd_index(virt);
-    uint64_t pt_idx = get_pt_index(virt);
+    uint64_t pd_idx   = get_pd_index(virt);
+    uint64_t pt_idx   = get_pt_index(virt);
 
-    if (!(pml4->entries[pml4_idx] & PAGE_PRESENT))
-        return 0;
+    if (!(pml4->entries[pml4_idx] & PAGE_PRESENT)) return 0;
     page_table_t *pdpt = (page_table_t *)((pml4->entries[pml4_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
 
-    if (!(pdpt->entries[pdpt_idx] & PAGE_PRESENT))
-        return 0;
+    if (!(pdpt->entries[pdpt_idx] & PAGE_PRESENT)) return 0;
+    if (pdpt->entries[pdpt_idx] & (1ULL << 7))
+        return (pdpt->entries[pdpt_idx] & 0xFFFFFFC000000000) + (virt & 0x3FFFFFFF);
+
     page_table_t *pd = (page_table_t *)((pdpt->entries[pdpt_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
 
-    if (!(pd->entries[pd_idx] & PAGE_PRESENT))
-        return 0;
-    page_table_t *pt = (page_table_t *)((pd->entries[pd_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
+    if (!(pd->entries[pd_idx] & PAGE_PRESENT)) return 0;
+    if (pd->entries[pd_idx] & (1ULL << 7))
+        return (pd->entries[pd_idx] & 0xFFFFFFFFFE000000) + (virt & 0x1FFFFF);
 
-    if (!(pt->entries[pt_idx] & PAGE_PRESENT))
-        return 0;
+    page_table_t *pt = (page_table_t *)((pd->entries[pd_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
+    if (!(pt->entries[pt_idx] & PAGE_PRESENT)) return 0;
     return (pt->entries[pt_idx] & 0xFFFFFFFFFFFFF000) + (virt & 0xFFF);
 }
 

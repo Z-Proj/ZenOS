@@ -88,18 +88,28 @@ int elf_exec(const char *filename, int argc, char **argv)
     for (int i = 0; i < ehdr->e_phnum; i++)
     {
         elf64_phdr_t *phdr = (elf64_phdr_t *)(elf_data + ehdr->e_phoff + i * ehdr->e_phentsize);
-        if (phdr->p_type == PT_LOAD)
-        {
-            for (size_t offset = 0; offset < phdr->p_filesz; offset++)
-            {
-                uint64_t vaddr = phdr->p_vaddr + offset;
-                uint64_t phys = virt_to_phys(pml4, vaddr);
-                if (!phys) continue;
-                
-                uint8_t *dest = (uint8_t*)(phys + KERNEL_VIRT_OFFSET);
-                uint8_t byte = elf_data[phdr->p_offset + offset];
-                *dest = byte;
-            }
+        if (phdr->p_type != PT_LOAD) continue;
+
+        uint8_t *src = elf_data + phdr->p_offset;
+        uint64_t vbase = phdr->p_vaddr;
+        size_t filesz = phdr->p_filesz;
+        size_t copied = 0;
+
+        while (copied < filesz) {
+            uint64_t vaddr = vbase + copied;
+            uint64_t page_base = vaddr & ~(uint64_t)(PAGE_SIZE - 1);
+            uint64_t page_off  = vaddr & (PAGE_SIZE - 1);
+
+            uint64_t phys = virt_to_phys(pml4, page_base); 
+            if (!phys) { copied++; continue; }
+
+            uint8_t *dest = (uint8_t *)(phys + KERNEL_VIRT_OFFSET + page_off);
+
+            size_t chunk = PAGE_SIZE - page_off;
+            if (chunk > filesz - copied) chunk = filesz - copied;
+
+            memcpy(dest, src + copied, chunk); 
+            copied += chunk;
         }
     }
     

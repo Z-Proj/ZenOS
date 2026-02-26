@@ -7,9 +7,9 @@
 
 ## Overview
 
-**ZenOS** is a modern **64-bit SMP custom operating system**, developed entirely from scratch using **C** and **x86_64 assembly**, and bootstrapped with the **Limine** bootloader.
+**ZenOS** is a modern **64-bit SMP Preemptive custom operating system**, developed entirely from scratch using **C** and **x86_64 assembly**, and bootstrapped with the **Limine** bootloader.
 
-The project focuses on clean design, correctness, and practical experimentation with real hardware concepts, while remaining lightweight and understandable. ZenOS is not a fork of an existing OS, nor is it POSIX-complete by design—it is a ground-up system built to explore kernel architecture, hardware interaction, and userspace execution in a controlled and extensible way.
+The project focuses on clean design, correctness, and practical experimentation with real hardware concepts, while remaining lightweight and understandable. ZenOS is not a fork of an existing OS, nor is it POSIX-complete by design - it is a ground-up system built to explore kernel architecture, hardware interaction, and userspace execution in a controlled and extensible way. (Note: This is not a Unix / *nix like OS. My goal is to have the cleanest and well structured OS, while remaining optimized and providing userspace plenty.)
 
 ---
 
@@ -28,15 +28,14 @@ The project focuses on clean design, correctness, and practical experimentation 
 - SSE and FPU initialization and management
 - Spinlock-based synchronization primitives
 - High-resolution timing via HPET
-- Local APIC and IOAPIC interrupt handling
 - ACPI-based hardware discovery and power handling
 
 ### Hardware & Drivers
 
 - VGA output
-- PS/2 keyboard and mouse drivers
 - PC speaker support
 - Serial output for debugging and logging
+- Local APIC and IOAPIC interrupt handling
 - ATA disk driver (PIO, 28-bit LBA)
 - Socket read/write
 - PCI bus enumeration
@@ -51,12 +50,26 @@ The project focuses on clean design, correctness, and practical experimentation 
 
 ### Userspace
 
-- ELF64 userspace programs
-- Minimal userspace C ABI
+- `ELF64` userspace programs
+- Custom syscall interface (Currently 45 present.)
+
+#### Current Apps (Subject to change, this might be outdated):
+
+- Simple Shell (init.c)
+- Exec bomb / Template program (test.c)
+- Unicode with SSFN display (unicode.c)
+- Fibonacci sequence (fibonacci.c)
+- Counter program (counter.c)
+- Memory functions test (memtest.c)
+- Graphics server for Unicode text / shapes (gfxserver.c)
+- Program to test the above server (gfxtest.c)
+
+**The `ZenOS.vhd` file in the repository already usually has these programs in it.**
 
 ### Graphics & I/O
 
 - [Flanterm](https://codeberg.org/mintsuki/flanterm) terminal rendering
+- Unicode and scalable fonts support via [SSFN.](https://gitlab.com/bztsrc/scalable-font2)
 - Structured kernel logging system
 
 ---
@@ -81,17 +94,22 @@ All good contributions are gladly welcome! It is suggested to fix an issue in th
 - Provide a solid foundation for experimentation with:
 
 - [x] Kernel subsystems
+
 - [x] Filesystems
+
 - [x] Scheduling
+
 - [x] SMP
+
 - [x] Userspace ABI design
-- [ ] Support simple dual-boot usage and lightweight utilities such as a **Calculator, Text editor, simple apps, File Manager, System Info, etc.**
+
+- [ ] Support simple dual-boot usage and lightweight utilities such as a **Calculator, Text editor, simple apps, File Manager, System Info, etc.** (Now in progress)
 
 ZenOS is intended as a learning-oriented operating system project, prioritizing understanding the machine over chasing checklists.
 
 ---
 
-## Toolchain
+## Toolchain / Prerequisites
 
 ```bash
 clang
@@ -109,8 +127,8 @@ socat
 
 - The Limine bootloader. https://codeberg.org/Limine/Limine
 - Flanterm Terminal emulator. https://codeberg.org/mintsuki/flanterm
+- Scalable Screen Font 2.0. https://gitlab.com/bztsrc/scalable-font2/
 
 ---
 
 **ZenOS**
-
