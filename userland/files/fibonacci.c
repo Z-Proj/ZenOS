@@ -1,76 +1,44 @@
 #include "../userlib.h"
 
-int fib(int n) {
+static void print_int(int n) {
+    char buf[16];
+    int i = 0;
+    if (n == 0) { prints("0"); return; }
+    while (n > 0) { buf[i++] = '0' + (n % 10); n /= 10; }
+    for (int j = i - 1; j >= 0; j--) {
+        char s[2] = { buf[j], '\0' };
+        prints(s);
+    }
+}
+
+static int fib(int n) {
     if (n <= 1) return n;
     return fib(n - 1) + fib(n - 2);
 }
 
-int main(void) {
+int main(int argc, char *argv[]) {
+    (void)argc; (void)argv;
     pid_t pid = getpid();
-    
+
     prints("\033[35m[Fibonacci PID=");
-    char pidbuf[16];
-    int n = pid;
-    int i = 0;
-    while (n > 0 || i == 0) {
-        pidbuf[i++] = '0' + (n % 10);
-        n /= 10;
-    }
-    pidbuf[i] = '\0';
-    for (int j = 0; j < i/2; j++) {
-        char tmp = pidbuf[j];
-        pidbuf[j] = pidbuf[i-1-j];
-        pidbuf[i-1-j] = tmp;
-    }
-    prints(pidbuf);
+    print_int(pid);
     prints("] Computing...\033[0m\n");
-    
+
     for (int num = 0; num < 15; num++) {
-        int result = fib(num);
-        
         prints("\033[35m[");
-        prints(pidbuf);
+        print_int(pid);
         prints("] fib(");
-        
-        char numbuf[16];
-        int temp = num;
-        i = 0;
-        do {
-            numbuf[i++] = '0' + (temp % 10);
-            temp /= 10;
-        } while (temp > 0);
-        numbuf[i] = '\0';
-        for (int j = 0; j < i/2; j++) {
-            char t = numbuf[j];
-            numbuf[j] = numbuf[i-1-j];
-            numbuf[i-1-j] = t;
-        }
-        prints(numbuf);
-        
+        print_int(num);
         prints(") = ");
-        
-        temp = result;
-        i = 0;
-        do {
-            numbuf[i++] = '0' + (temp % 10);
-            temp /= 10;
-        } while (temp > 0);
-        numbuf[i] = '\0';
-        for (int j = 0; j < i/2; j++) {
-            char t = numbuf[j];
-            numbuf[j] = numbuf[i-1-j];
-            numbuf[i-1-j] = t;
-        }
-        prints(numbuf);
+        print_int(fib(num));
         prints("\033[0m\n");
-        
         yield();
     }
-    
+
     prints("\033[32m[Fibonacci ");
-    prints(pidbuf);
+    print_int(pid);
     prints("] Complete!\033[0m\n");
-    
+
     exit(0);
     return 0;
 }

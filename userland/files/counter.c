@@ -1,62 +1,38 @@
 #include "../userlib.h"
 
-int main(void) {
-    pid_t pid = getpid();
-    prints("\033[33m[Counter ");
-    char pidbuf[16];
-    int n = pid;
+static void print_int(int n) {
+    char buf[16];
     int i = 0;
-    if (n == 0) {
-        pidbuf[i++] = '0';
-    } else {
-        while (n > 0) {
-            pidbuf[i++] = '0' + (n % 10);
-            n /= 10;
-        }
+    if (n == 0) { prints("0"); return; }
+    while (n > 0) { buf[i++] = '0' + (n % 10); n /= 10; }
+    for (int j = i - 1; j >= 0; j--) {
+        char s[2] = { buf[j], '\0' };
+        prints(s);
     }
-    pidbuf[i] = '\0';
-    for (int j = 0; j < i/2; j++) {
-        char tmp = pidbuf[j];
-        pidbuf[j] = pidbuf[i-1-j];
-        pidbuf[i-1-j] = tmp;
-    }
-    prints(pidbuf);
+}
+
+int main(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    pid_t pid = getpid();
+
+    prints("\033[33m[Counter ");
+    print_int(pid);
     prints("] Starting...\033[0m\n");
-    int count = 0;
-    while (count < 20) {
+
+    for (int count = 0; count < 20; count++) {
         prints("\033[36m[");
-        prints(pidbuf);
+        print_int(pid);
         prints("] Count: ");
-        
-        char countbuf[16];
-        n = count;
-        i = 0;
-        if (n == 0) {
-            countbuf[i++] = '0';
-        } else {
-            while (n > 0) {
-                countbuf[i++] = '0' + (n % 10);
-                n /= 10;
-            }
-        }
-        countbuf[i] = '\0';
-        for (int j = 0; j < i/2; j++) {
-            char tmp = countbuf[j];
-            countbuf[j] = countbuf[i-1-j];
-            countbuf[i-1-j] = tmp;
-        }
-        prints(countbuf);
+        print_int(count);
         prints("\033[0m\n");
-        
-        count++;
         sleep(100);
         yield();
     }
-    
+
     prints("\033[32m[Counter ");
-    prints(pidbuf);
+    print_int(pid);
     prints("] Finished!\033[0m\n");
-    
+
     exit(0);
     return 0;
 }

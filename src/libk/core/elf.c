@@ -6,8 +6,6 @@
 
 int elf_exec(const char *filename, int argc, char **argv)
 {
-    (void)argc;
-    (void)argv;
     zfs_file_t file;
     if (zfs_open(filename, &file) != ZFS_OK)
         return -1;
@@ -117,7 +115,7 @@ int elf_exec(const char *filename, int argc, char **argv)
     uint64_t entry_point = ehdr->e_entry;
     kfree(elf_data);
     
-    task_t *task = task_create_user((void(*)(void))entry_point, filename, pml4);
+    task_t *task = task_create_user((void(*)(void))entry_point, filename, pml4, argc, argv);
     if (!task)
     {
         for (size_t i = 0; i < pages; i++)

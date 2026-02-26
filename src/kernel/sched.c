@@ -65,7 +65,7 @@ void sched_start(void)
     scheduler_enabled = 1;
 }
 
-task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pml4)
+task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pml4, int argc, char **argv)
 {
     spinlock_acquire(&sched_lock);
     if (task_count >= MAX_TASKS)
@@ -88,6 +88,8 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
     task->stack_size = TASK_STACK_SIZE;
     task->is_kernel_task = 0;
     task->pml4 = pml4;
+    task->argc = argc;
+    task->argv = argv;
     
     task->kernel_stack = (uint64_t)kmalloc(TASK_STACK_SIZE);
     if (!task->kernel_stack)
@@ -125,14 +127,56 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
     memset(&task->regs, 0, sizeof(registers_t));
     uint64_t user_stack_top = user_stack_base + TASK_STACK_SIZE;
     user_stack_top &= ~0xFULL;
-    user_stack_top -= 8;
-    
-    task->regs.rip = (uint64_t)user_task_entry;
-    task->regs.rdi = (uint64_t)entry;
-    task->regs.rsi = user_stack_top;
-    task->regs.rbp = task->kernel_stack + TASK_STACK_SIZE - 16;
+
+    uint64_t argv_user[argc + 1];
+    for (int i = 0; i < argc; i++)
+    {
+        size_t len = 0;
+        while (argv[i][len]) len++;
+        len++;
+        user_stack_top -= len;
+        uint64_t page_base = user_stack_top & ~(uint64_t)(PAGE_SIZE - 1);
+        uint64_t page_off  = user_stack_top & (PAGE_SIZE - 1);
+        uint64_t str_phys  = virt_to_phys(pml4, page_base);
+        if (str_phys)
+        {
+            char *dest = (char *)(str_phys + KERNEL_VIRT_OFFSET + page_off);
+            for (size_t j = 0; j < len; j++) dest[j] = argv[i][j];
+        }
+        argv_user[i] = user_stack_top;
+    }
+    argv_user[argc] = 0;
+
+    user_stack_top &= ~0xFULL;
+
+    // (argc+1) pointers + 1 argc = (argc+2) total 8-byte slots
+    // for rsp to be 16-byte aligned after all pushes, we need (argc+2) to be even
+    // i.e. argc must be even. if odd, add one padding slot above the argv array.
+    if ((argc & 1) == 1)
+        user_stack_top -= sizeof(uint64_t);
+
+    for (int i = argc; i >= 0; i--)
+    {
+        user_stack_top -= sizeof(uint64_t);
+        uint64_t phys = virt_to_phys(pml4, user_stack_top & ~(uint64_t)(PAGE_SIZE - 1));
+        if (phys)
+            *(uint64_t *)(phys + KERNEL_VIRT_OFFSET + (user_stack_top & (PAGE_SIZE - 1))) = argv_user[i];
+    }
+
+    user_stack_top -= sizeof(uint64_t);
+    {
+        uint64_t phys = virt_to_phys(pml4, user_stack_top & ~(uint64_t)(PAGE_SIZE - 1));
+        if (phys)
+            *(uint64_t *)(phys + KERNEL_VIRT_OFFSET + (user_stack_top & (PAGE_SIZE - 1))) = (uint64_t)argc;
+    }
+
+    user_stack_top &= ~0xFULL;
+
+    task->regs.rip    = (uint64_t)user_task_entry;
+    task->regs.rdi    = (uint64_t)entry;
+    task->regs.rsi    = user_stack_top;
+    task->regs.rbp    = user_stack_top;
     task->regs.userrsp = user_stack_top;
-    task->regs.rbp     = user_stack_top;
     task->regs.rflags = 0x202;
     task->regs.cs = 0x08;
     task->regs.ss = 0x10;

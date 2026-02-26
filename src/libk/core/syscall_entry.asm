@@ -6,9 +6,12 @@ extern tss
 
 syscall_entry:
     swapgs
+    push r15
     mov r15, qword [rel tss + 4]
     xchg rsp, r15
     push r15
+    mov r15, [r15]
+
     push rcx
     push r11
     push rax
@@ -26,15 +29,16 @@ syscall_entry:
     push r13
     push r14
     push r15
+
     mov r9, r8
     mov r8, r10
     mov rcx, rdx
     mov rdx, rsi
     mov rsi, rdi
     mov rdi, rax
-    
+
     call syscall_handler
-    
+
     pop r15
     pop r14
     pop r13
@@ -53,8 +57,9 @@ syscall_entry:
     pop r11
     pop rcx
     pop r15
-    
+
     mov rsp, r15
+    pop r15
     swapgs
-    
+
     o64 sysret

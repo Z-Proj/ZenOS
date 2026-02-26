@@ -181,7 +181,8 @@ static void handle(gfx_msg_t *m) {
     }
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+    (void)argc; (void)argv;
     fb_info_t fb;
     if (fbinfo(&fb) != 0) { prints("gfxserver: fbinfo failed\n"); exit(1); }
 

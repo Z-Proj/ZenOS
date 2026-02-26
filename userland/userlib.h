@@ -13,32 +13,32 @@ typedef int32_t pid_t;
 
 static inline uint64_t syscall0(uint64_t num) {
     uint64_t ret;
-    __asm__ volatile("syscall" : "=a"(ret) : "a"(num) : "rcx", "r11", "memory");
+    __asm__ volatile("syscall" : "=a"(ret) : "a"(num) : "rcx", "r11", "rdi", "rsi", "rdx", "r10", "r8", "r9", "memory");
     return ret;
 }
 
 static inline uint64_t syscall1(uint64_t num, uint64_t arg1) {
     uint64_t ret;
-    __asm__ volatile("syscall" : "=a"(ret) : "a"(num), "D"(arg1) : "rcx", "r11", "memory");
+    __asm__ volatile("syscall" : "=a"(ret) : "a"(num), "D"(arg1) : "rcx", "r11", "rsi", "rdx", "r10", "r8", "r9", "memory");
     return ret;
 }
 
 static inline uint64_t syscall2(uint64_t num, uint64_t arg1, uint64_t arg2) {
     uint64_t ret;
-    __asm__ volatile("syscall" : "=a"(ret) : "a"(num), "D"(arg1), "S"(arg2) : "rcx", "r11", "memory");
+    __asm__ volatile("syscall" : "=a"(ret) : "a"(num), "D"(arg1), "S"(arg2) : "rcx", "r11", "rdx", "r10", "r8", "r9", "memory");
     return ret;
 }
 
 static inline uint64_t syscall3(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t arg3) {
     uint64_t ret;
-    __asm__ volatile("syscall" : "=a"(ret) : "a"(num), "D"(arg1), "S"(arg2), "d"(arg3) : "rcx", "r11", "memory");
+    __asm__ volatile("syscall" : "=a"(ret) : "a"(num), "D"(arg1), "S"(arg2), "d"(arg3) : "rcx", "r11", "r10", "r8", "r9", "memory");
     return ret;
 }
 
 static inline uint64_t syscall4(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4) {
     uint64_t ret;
     register uint64_t r10 __asm__("r10") = arg4;
-    __asm__ volatile("syscall" : "=a"(ret) : "a"(num), "D"(arg1), "S"(arg2), "d"(arg3), "r"(r10) : "rcx", "r11", "memory");
+    __asm__ volatile("syscall" : "=a"(ret) : "a"(num), "D"(arg1), "S"(arg2), "d"(arg3), "r"(r10) : "rcx", "r11", "r8", "r9", "memory");
     return ret;
 }
 
@@ -46,7 +46,7 @@ static inline uint64_t syscall5(uint64_t num, uint64_t arg1, uint64_t arg2, uint
     uint64_t ret;
     register uint64_t r10 __asm__("r10") = arg4;
     register uint64_t r8 __asm__("r8") = arg5;
-    __asm__ volatile("syscall" : "=a"(ret) : "a"(num), "D"(arg1), "S"(arg2), "d"(arg3), "r"(r10), "r"(r8) : "rcx", "r11", "memory");
+    __asm__ volatile("syscall" : "=a"(ret) : "a"(num), "D"(arg1), "S"(arg2), "d"(arg3), "r"(r10), "r"(r8) : "rcx", "r11", "r9", "memory");
     return ret;
 }
 
@@ -118,7 +118,9 @@ static inline int exec(const char *filename) {
 }
 
 static inline int execv(const char *filename, char *const argv[]) {
-    return (int)syscall3(0, (uint64_t)filename, 0, (uint64_t)argv);
+    int argc = 0;
+    if (argv) { while (argv[argc]) argc++; }
+    return (int)syscall3(0, (uint64_t)filename, (uint64_t)argc, (uint64_t)argv);
 }
 
 static inline void exit(int code) {

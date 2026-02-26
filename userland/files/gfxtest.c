@@ -1,7 +1,8 @@
 #include "userlib.h"
 #include "gfx.h"
 
-int main() {
+int main(int argc, char *argv[]) {
+    (void)argc; (void)argv;
     socket_file_t *gfx;
     int tries = 0;
     socket_open(GFX_SOCKET_NAME, &gfx);

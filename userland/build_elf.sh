@@ -24,6 +24,12 @@ fi
 
 mkdir -p "$OUT_DIR"
 
+CRT0_SRC="userland/crt0.asm"
+CRT0_OBJ="${OUT_DIR}/crt0.o"
+[ -f "$CRT0_SRC" ] || die "crt0.asm not found at ${CRT0_SRC}"
+echo "[*] Assembling ${CRT0_SRC} -> ${CRT0_OBJ}"
+nasm -f elf64 "$CRT0_SRC" -o "$CRT0_OBJ" || die "nasm failed for crt0.asm"
+
 BUILD_OK=0
 
 cleanup() {
@@ -83,21 +89,21 @@ for SRC in "$@"; do
     "$ZFS_MAN" "$VHD_PATH" delete "/${BASENAME}" || true
 
     echo "[*] Compiling ${SRC} -> ${OBJ}"
-    clang -m64 -ffreestanding -fno-stack-protector \
+    clang -m64 -ffreestanding -fno-stack-protector -mno-red-zone \
           -nostdlib -fno-pie -fPIC -O1 \
           -I userland -I userland/libs \
           -c "$SRC" -o "$OBJ" \
           || die "Compilation failed for ${SRC}"
 
     if [ "$BASENAME" = "gfxserver" ]; then
-        LINK_OBJS="$OBJ $EXTRA_OBJS"
+        LINK_OBJS="$CRT0_OBJ $OBJ $EXTRA_OBJS"
     else
-        LINK_OBJS="$OBJ"
+        LINK_OBJS="$CRT0_OBJ $OBJ"
     fi
 
     echo "[*] Linking ${OBJ} -> ${ELF}"
     ld.lld -m elf_x86_64 \
-           -e main \
+           -e _start \
            -T userland/userelf.ld \
            $LINK_OBJS -o "$ELF" \
            --warn-unresolved-symbols \

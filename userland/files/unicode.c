@@ -68,7 +68,8 @@ static void hline(uint32_t *fbp, uint32_t pitch_px, uint32_t half, uint32_t righ
         fbp[y * pitch_px + half + x] = col;
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+    (void)argc; (void)argv;
     fb_info_t fb;
     if (fbinfo(&fb) != 0) { prints("fbinfo failed\n"); exit(1); }
 

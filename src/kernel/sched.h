@@ -29,13 +29,15 @@ typedef struct task
     uint64_t time_slice_remaining;
     int is_kernel_task;
     page_table_t *pml4;
+    int argc;
+    char **argv;
     struct task *next;
 } task_t;
 
 void sched_init(void);
 void sched_start(void);
 task_t *task_create(void (*entry)(void), const char *name);
-task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pml4);
+task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pml4, int argc, char **argv);
 void sched_yield(void);
 void sched_tick(void);
 task_t *sched_current_task(void);

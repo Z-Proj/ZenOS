@@ -504,7 +504,7 @@ static void cmd_ps(void) {
 
 static void cmd_exec(int argc, char* argv[]) {
     if (argc < 2) {
-        prints(COLOR_RED "Usage: exec <filename>\n" COLOR_RESET);
+        prints(COLOR_RED "Usage: exec <filename> [args...]\n" COLOR_RESET);
         return;
     }
     
@@ -512,7 +512,7 @@ static void cmd_exec(int argc, char* argv[]) {
     prints(argv[1]);
     prints("\n");
     
-    int result = exec(argv[1]);
+    int result = execv(argv[1], &argv[1]);
     
     if (result != 0) {
         prints(COLOR_RED "Failed to execute: " COLOR_RESET);
@@ -943,7 +943,7 @@ static void show_banner(void) {
     prints("Type 'help' for commands.\n\n");
 }
 
-int main(void) {
+int main(int argc, char *argv[]) {
     memset(command_buffer, 0, MAX_COMMAND_LENGTH);
     memset(lastcmd, 0, MAX_COMMAND_LENGTH);
     

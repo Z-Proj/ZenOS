@@ -91,7 +91,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             uint32_t len = arg2;
             if (!str || len > 4096) return -1;
             for (uint32_t i = 0; i < len && str[i]; i++) {
-                printc(str[i]);
+                serial_write_char(str[i]);
             }
             return 0;
         }
