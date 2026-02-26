@@ -50,9 +50,6 @@ static inline uint64_t syscall5(uint64_t num, uint64_t arg1, uint64_t arg2, uint
     return ret;
 }
 
-// ==================== STRUCTURES ====================
-
-// File stat structure
 typedef struct {
     uint32_t st_dev;
     uint32_t st_ino;
@@ -69,7 +66,6 @@ typedef struct {
     uint64_t st_ctime;
 } stat_t;
 
-// Time structures
 typedef struct {
     int64_t tv_sec;
     int64_t tv_usec;
@@ -80,7 +76,6 @@ typedef struct {
     int64_t tv_nsec;
 } timespec_t;
 
-// System info
 typedef struct {
     char sysname[65];
     char nodename[65];
@@ -89,7 +84,6 @@ typedef struct {
     char machine[65];
 } utsname_t;
 
-// ZFS file structure (matches kernel)
 #define ZFS_MAX_FILENAME 28
 typedef struct {
     char name[ZFS_MAX_FILENAME];
@@ -100,7 +94,6 @@ typedef struct {
     uint8_t is_open;
 } zfs_file_t;
 
-// Socket file structure (matches kernel)
 #define SOCKET_NAME_MAX 64
 typedef struct {
     char name[SOCKET_NAME_MAX];
@@ -119,8 +112,6 @@ typedef struct {
     uint8_t  bpp;
     uint32_t pitch; 
 } fb_info_t;
-
-// ==================== PROCESS MANAGEMENT ====================
 
 static inline int exec(const char *filename) {
     return (int)syscall1(0, (uint64_t)filename);
@@ -144,8 +135,6 @@ static inline void yield(void) {
     syscall0(43);
 }
 
-// ==================== INPUT/OUTPUT ====================
-
 static inline char getkey(void) {
     return (char)syscall0(3);
 }
@@ -162,8 +151,6 @@ static inline void putchar(char c) {
     prints(buf);
 }
 
-// ==================== MOUSE ====================
-
 static inline uint32_t mouse_x(void) {
     return (uint32_t)syscall0(5);
 }
@@ -176,8 +163,6 @@ static inline uint8_t mouse_button(void) {
     return (uint8_t)syscall0(7);
 }
 
-// ==================== SPEAKER ====================
-
 static inline void speaker_play(uint32_t hz) {
     syscall1(8, hz);
 }
@@ -185,8 +170,6 @@ static inline void speaker_play(uint32_t hz) {
 static inline void speaker_stop(void) {
     syscall0(9);
 }
-
-// ==================== FILE OPERATIONS ====================
 
 static inline int open(const char *filename, zfs_file_t *file) {
     return (int)syscall2(10, (uint64_t)filename, (uint64_t)file);
@@ -227,8 +210,6 @@ static inline int fstat(zfs_file_t *file, stat_t *statbuf) {
     return (int)syscall2(18, (uint64_t)file, (uint64_t)statbuf);
 }
 
-// ==================== DIRECTORY OPERATIONS ====================
-
 static inline int chdir(const char *path) {
     return (int)syscall1(19, (uint64_t)path);
 }
@@ -250,8 +231,6 @@ static inline int ls(void) {
     return (int)syscall0(44);
 }
 
-// ==================== MEMORY MANAGEMENT ====================
-
 static inline int brk(void *addr) {
     return (int)syscall1(23, (uint64_t)addr);
 }
@@ -270,15 +249,12 @@ static inline int munmap(void *addr, size_t length) {
     return (int)syscall2(26, (uint64_t)addr, length);
 }
 
-// mmap flags
 #define PROT_READ  0x1
 #define PROT_WRITE 0x2
 #define PROT_EXEC  0x4
 #define MAP_SHARED    0x01
 #define MAP_PRIVATE   0x02
 #define MAP_ANONYMOUS 0x20
-
-// ==================== TIME ====================
 
 static inline int gettimeofday(timeval_t *tv, void *tz) {
     (void)tz;
@@ -297,8 +273,6 @@ static inline int nanosleep(const timespec_t *req, timespec_t *rem) {
 static inline void sleep(uint32_t ms) {
     syscall1(30, ms);
 }
-
-// ==================== IPC - SOCKET (your custom system) ====================
 
 static inline int socket_create(const char *name) {
     return (int)syscall1(31, (uint64_t)name);
@@ -332,13 +306,9 @@ static inline uint32_t socket_available(socket_file_t *file) {
     return (uint32_t)syscall1(38, (uint64_t)file);
 }
 
-// ==================== SYSTEM INFO ====================
-
 static inline int uname(utsname_t *buf) {
     return (int)syscall1(39, (uint64_t)buf);
 }
-
-// ==================== LOGGING AND SYSTEM ====================
 
 static inline void log(const char *msg, uint32_t level, uint32_t visibility) {
     syscall3(40, (uint64_t)msg, level, visibility);
@@ -356,16 +326,12 @@ static inline int fbinfo(fb_info_t *fb) {
     return (int)syscall1(45, (uint64_t)fb);
 }
 
-// ==================== HELPER FUNCTIONS ====================
-
-// Simple strlen
 static inline size_t strlen(const char *s) {
     size_t len = 0;
     while (s[len]) len++;
     return len;
 }
 
-// Simple memcpy
 static inline void* memcpy(void *dest, const void *src, size_t n) {
     char *d = dest;
     const char *s = src;
@@ -375,7 +341,6 @@ static inline void* memcpy(void *dest, const void *src, size_t n) {
     return dest;
 }
 
-// Simple memset
 static inline void* memset(void *s, int c, size_t n) {
     unsigned char *p = s;
     for (size_t i = 0; i < n; i++) {
@@ -384,7 +349,6 @@ static inline void* memset(void *s, int c, size_t n) {
     return s;
 }
 
-// Simple strcmp
 static inline int strcmp(const char *s1, const char *s2) {
     while (*s1 && (*s1 == *s2)) {
         s1++;
@@ -393,14 +357,12 @@ static inline int strcmp(const char *s1, const char *s2) {
     return *(unsigned char*)s1 - *(unsigned char*)s2;
 }
 
-// Simple strcpy
 static inline char* strcpy(char *dest, const char *src) {
     char *d = dest;
     while ((*d++ = *src++));
     return dest;
 }
 
-// Simple strncpy
 static inline char* strncpy(char *dest, const char *src, size_t n) {
     size_t i;
     for (i = 0; i < n && src[i] != '\0'; i++) {
@@ -412,7 +374,6 @@ static inline char* strncpy(char *dest, const char *src, size_t n) {
     return dest;
 }
 
-// Simple strcat
 static inline char* strcat(char *dest, const char *src) {
     char *d = dest;
     while (*d) d++;
@@ -420,7 +381,6 @@ static inline char* strcat(char *dest, const char *src) {
     return dest;
 }
 
-// Simple memcmp
 static inline int memcmp(const void *s1, const void *s2, size_t n) {
     const unsigned char *p1 = s1;
     const unsigned char *p2 = s2;
@@ -432,7 +392,6 @@ static inline int memcmp(const void *s1, const void *s2, size_t n) {
     return 0;
 }
 
-// Simple atoi
 static inline int atoi(const char *str) {
     int result = 0;
     int sign = 1;

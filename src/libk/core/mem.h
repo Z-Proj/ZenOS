@@ -45,7 +45,6 @@ void unmap_page(page_table_t* pml4, uint64_t virt);
 page_table_t* clone_page_directory(page_table_t* src);
 page_table_t* get_kernel_pml4(void);
 
-// New functions for proper cleanup
 void free_page_directory(page_table_t* pml4);
 void free_task_address_space(page_table_t* pml4, uint64_t user_start, uint64_t user_end);
 

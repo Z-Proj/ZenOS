@@ -25,7 +25,6 @@ int main(void) {
     prints(pidbuf);
     prints("] Computing...\033[0m\n");
     
-    // Compute first 15 fibonacci numbers
     for (int num = 0; num < 15; num++) {
         int result = fib(num);
         
@@ -65,7 +64,7 @@ int main(void) {
         prints(numbuf);
         prints("\033[0m\n");
         
-        yield();  // Give other tasks a chance
+        yield();
     }
     
     prints("\033[32m[Fibonacci ");

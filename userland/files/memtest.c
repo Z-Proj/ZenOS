@@ -21,7 +21,6 @@ int main(void) {
     prints(pidbuf);
     prints("] Testing memory allocation...\033[0m\n");
     
-    // Test sbrk allocation
     void *ptr1 = sbrk(4096);
     if (ptr1 == (void*)-1) {
         prints("\033[31m[MemTest ");
@@ -35,7 +34,6 @@ int main(void) {
     prints(pidbuf);
     prints("] sbrk: allocated 4096 bytes at 0x");
     
-    // Print address
     uint64_t addr = (uint64_t)ptr1;
     char hex[20];
     int idx = 0;
@@ -47,14 +45,12 @@ int main(void) {
     prints(hex);
     prints("\033[0m\n");
     
-    // Write pattern to memory
     for (int j = 0; j < 256; j++) {
         ((char*)ptr1)[j] = 'A' + (j % 26);
     }
     
     yield();
     
-    // Verify pattern
     int ok = 1;
     for (int j = 0; j < 256; j++) {
         if (((char*)ptr1)[j] != 'A' + (j % 26)) {
@@ -75,7 +71,6 @@ int main(void) {
     
     yield();
     
-    // Test mmap
     void *ptr2 = mmap(NULL, 8192, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (ptr2 == (void*)-1) {
         prints("\033[31m[MemTest ");
@@ -86,12 +81,10 @@ int main(void) {
         prints(pidbuf);
         prints("] mmap: allocated 8192 bytes\033[0m\n");
         
-        // Write to mmap'd memory
         memset(ptr2, 0xAA, 512);
         
         yield();
         
-        // Verify
         ok = 1;
         for (int j = 0; j < 512; j++) {
             if (((unsigned char*)ptr2)[j] != 0xAA) {
@@ -110,7 +103,6 @@ int main(void) {
             prints("] mmap verification: FAIL\033[0m\n");
         }
         
-        // Unmap
         if (munmap(ptr2, 8192) == 0) {
             prints("\033[32m[MemTest ");
             prints(pidbuf);

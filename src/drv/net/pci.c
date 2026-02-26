@@ -75,7 +75,6 @@ void pci_enable_msi(pci_device_t *dev, uint8_t vector, isr_handler_t handler, co
     register_interrupt_handler(vector, handler, handler_name);
     
     uint16_t control = pci_read16(dev->bus, dev->slot, dev->func, dev->msi_offset + 2);
-    // uint8_t multi_msg = (control >> 1) & 7;
     
     uint32_t msi_addr = 0xFEE00000 | (LocalApicGetId() << 12);
     uint32_t msi_data = vector;
@@ -98,7 +97,6 @@ void pci_enable_msix(pci_device_t *dev, uint8_t vector, isr_handler_t handler, c
     register_interrupt_handler(vector, handler, handler_name);
     
     uint16_t control = pci_read16(dev->bus, dev->slot, dev->func, dev->msix_offset + 2);
-    // uint16_t table_size = (control & 0x7FF) + 1;
     
     uint32_t table_offset = pci_read(dev->bus, dev->slot, dev->func, dev->msix_offset + 4);
     uint8_t table_bar = table_offset & 7;

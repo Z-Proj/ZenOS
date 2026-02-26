@@ -14,7 +14,6 @@ extern char _binary_FreeSansB_sfn_start;
 #define SSFN_free free
 #include "ssfn.h"
 
-// ── bump allocator ──
 static uint8_t heap[256 * 1024];
 static uint32_t heap_pos = 0;
 void *malloc(size_t sz) {
@@ -29,16 +28,14 @@ void *realloc(void *p, size_t sz) {
     return n;
 }
 
-// ── globals ──
 static ssfn_t     ssfn_ctx;
 static ssfn_buf_t ssfn_buf;
 
 static uint32_t *fbp;
 static uint32_t  fb_w, fb_h, pitch_px;
-static uint32_t  rx;   // right half start x
-static uint32_t  rw;   // right half width
+static uint32_t  rx;
+static uint32_t  rw;
 
-// ── math helpers (no libm) ──
 static int32_t iabs(int32_t x) { return x < 0 ? -x : x; }
 
 static int32_t isqrt(int32_t n) {
@@ -48,34 +45,29 @@ static int32_t isqrt(int32_t n) {
     return x;
 }
 
-// ── pixel (clipped to right half) ──
 static inline void px(int x, int y, uint32_t col) {
     if (x < 0 || x >= (int)rw) return;
     if (y < 0 || y >= (int)fb_h) return;
     fbp[y * pitch_px + rx + x] = col;
 }
 
-// ── clear right half ──
 static void do_clear(uint32_t col) {
     for (uint32_t y = 0; y < fb_h; y++)
         for (uint32_t x = 0; x < rw; x++)
             fbp[y * pitch_px + rx + x] = col;
 }
 
-// ── filled rect ──
 static void do_rect(int x, int y, int w, int h, uint32_t col) {
     for (int row = 0; row < h; row++)
         for (int col2 = 0; col2 < w; col2++)
             px(x + col2, y + row, col);
 }
 
-// ── outline rect ──
 static void do_rect_out(int x, int y, int w, int h, uint32_t col) {
     for (int i = 0; i < w; i++) { px(x+i, y,     col); px(x+i, y+h-1, col); }
     for (int i = 0; i < h; i++) { px(x,   y+i,   col); px(x+w-1, y+i, col); }
 }
 
-// ── line (Bresenham) ──
 static void do_line(int x0, int y0, int x1, int y1, uint32_t col) {
     int dx = iabs(x1-x0), sx = x0 < x1 ? 1 : -1;
     int dy = -iabs(y1-y0), sy = y0 < y1 ? 1 : -1;
@@ -89,7 +81,6 @@ static void do_line(int x0, int y0, int x1, int y1, uint32_t col) {
     }
 }
 
-// ── filled circle (midpoint) ──
 static void do_circle(int cx, int cy, int r, uint32_t col) {
     for (int y = -r; y <= r; y++)
         for (int x = -r; x <= r; x++)
@@ -97,7 +88,6 @@ static void do_circle(int cx, int cy, int r, uint32_t col) {
                 px(cx+x, cy+y, col);
 }
 
-// ── outline circle (midpoint) ──
 static void do_circle_out(int cx, int cy, int r, uint32_t col) {
     int x = 0, y = r, d = 1 - r;
     while (x <= y) {
@@ -111,11 +101,9 @@ static void do_circle_out(int cx, int cy, int r, uint32_t col) {
     }
 }
 
-// ── filled triangle (scanline) ──
 static void triangle_flat(int x0,int y0,int x1,int y1,int x2,int y2,uint32_t col);
 
 static void do_triangle(int x0,int y0,int x1,int y1,int x2,int y2,uint32_t col) {
-    // sort by y
     int tx,ty;
     if (y0 > y1) { tx=x0;ty=y0; x0=x1;y0=y1; x1=tx;y1=ty; }
     if (y0 > y2) { tx=x0;ty=y0; x0=x2;y0=y2; x2=tx;y2=ty; }
@@ -126,7 +114,6 @@ static void do_triangle(int x0,int y0,int x1,int y1,int x2,int y2,uint32_t col) 
     } else if (y0 == y1) {
         triangle_flat(x2,y2,x0,y0,x1,y1,col);
     } else {
-        // split into two flat triangles
         int mx = x0 + (x2-x0)*(y1-y0)/(y2-y0);
         int my = y1;
         triangle_flat(x0,y0,x1,y1,mx,my,col);
@@ -135,7 +122,6 @@ static void do_triangle(int x0,int y0,int x1,int y1,int x2,int y2,uint32_t col) 
 }
 
 static void triangle_flat(int x0,int y0,int x1,int y1,int x2,int y2,uint32_t col) {
-    // x0,y0 is the single vertex; x1y1 x2y2 are the flat edge
     int dir = (y0 < y1) ? 1 : -1;
     float slope1 = (float)(x1-x0)/(float)(y1-y0+1);
     float slope2 = (float)(x2-x0)/(float)(y2-y0+1);
@@ -147,7 +133,6 @@ static void triangle_flat(int x0,int y0,int x1,int y1,int x2,int y2,uint32_t col
     }
 }
 
-// ── text ──
 static void do_text(int x, int y, uint32_t fg, uint32_t bg, uint8_t size, const char *str) {
     ssfn_select(&ssfn_ctx, SSFN_FAMILY_SANS, NULL, SSFN_STYLE_REGULAR, size ? size : 14);
     ssfn_buf.x  = x;
@@ -162,7 +147,6 @@ static void do_text(int x, int y, uint32_t fg, uint32_t bg, uint8_t size, const 
     }
 }
 
-// ── dispatch ──
 static void handle(gfx_msg_t *m) {
     switch (m->cmd) {
         case CMD_CLEAR:
@@ -198,7 +182,6 @@ static void handle(gfx_msg_t *m) {
 }
 
 int main() {
-    // ── framebuffer ──
     fb_info_t fb;
     if (fbinfo(&fb) != 0) { prints("gfxserver: fbinfo failed\n"); exit(1); }
 
@@ -208,8 +191,6 @@ int main() {
     pitch_px = fb.pitch / 4;
     rx       = fb_w / 2;
     rw       = fb_w - rx;
-
-    // ── ssfn ──
     memset(&ssfn_ctx, 0, sizeof(ssfn_ctx));
     if (ssfn_load(&ssfn_ctx, (const void *)&_binary_FreeSansB_sfn_start) != SSFN_OK) {
         prints("gfxserver: ssfn_load failed\n"); exit(1);
@@ -219,13 +200,9 @@ int main() {
     ssfn_buf.w   = (int)rw;
     ssfn_buf.h   = (int)fb_h;
     ssfn_buf.bg  = 0;
-
-    // ── clear to dark bg + left border ──
-    do_clear(0xFF12121E);
+    do_clear(0xFF12121E); // cool darkish blue
     for (uint32_t y = 0; y < fb_h; y++)
         fbp[y * pitch_px + rx] = 0xFF3333AA;
-
-    // ── create socket ──
     if (socket_create(GFX_SOCKET_NAME) != 0) {
         prints("gfxserver: socket_create failed\n"); exit(1);
     }
@@ -234,8 +211,6 @@ int main() {
     if (socket_open(GFX_SOCKET_NAME, &sock) != 0) {
         prints("gfxserver: socket_open failed\n"); exit(1);
     }
-
-    // ── main loop ──
     gfx_msg_t msg;
     uint32_t bytes_read = 0;
 

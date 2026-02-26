@@ -152,6 +152,4 @@ void detect_cpu_info(int vis) {
             log("NX Bit: Supported", 1, vis);
         }
     }
-    
-    log("CPU detection complete", 4, vis);
 }

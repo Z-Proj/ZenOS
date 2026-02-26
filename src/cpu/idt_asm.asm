@@ -22,7 +22,6 @@ isr%1:
     jmp isr_stub
 %endmacro
 
-; Define all ISRs
 isr_noerr 0     ; Divide by zero
 isr_noerr 1     ; Debug
 isr_noerr 2     ; NMI

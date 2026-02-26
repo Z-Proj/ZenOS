@@ -9,7 +9,6 @@
 #include "stdbool.h"
 #include "../../drv/vga.h"
 
-
 typedef struct {
     uint32_t signature;
     uint32_t length;

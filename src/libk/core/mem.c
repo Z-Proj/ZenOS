@@ -162,7 +162,7 @@ void init_pmm(void)
     spinlock_init(&pmm_lock);
     
     uint64_t total_mem = get_total_memory();
-    total_mem += 1024*1024; // account for the minor difference
+    total_mem += 1024*1024; //TODO: its hacky but we account for the minor difference
     if (total_mem < (80 * 1024 * 1024)) {
         serial_write_string("\x1b[38;2;255;50;50m\nInduced Kernel Panic\n\n    - At : src/libk/core/mem.c\n    - Line : ???\n\n    - Error Log : Minimum 80MB RAM required (found ");
         char mem_str[32];
@@ -258,7 +258,7 @@ void init_kernel_heap(void)
 
 void print_mem_info(int vis)
 {
-    log("\n -> Memory Statistics:\n\n - Total Memory:\n   %lu MBs.\n\n - Free Memory:\n   %lu MBs.\n\n - Used Memory:\n   %lu MBs.\n", 1, vis, get_total_memory() / 1048576, get_free_memory() / 1048576, (get_total_memory() - get_free_memory()) / 1048576);
+    log("\nMemory Statistics:\n\n - Total Memory:\n   %lu MBs.\n\n - Free Memory:\n   %lu MBs.\n\n - Used Memory:\n   %lu MBs.\n", 1, vis, get_total_memory() / 1048576, get_free_memory() / 1048576, (get_total_memory() - get_free_memory()) / 1048576);
 }
 
 void *kmalloc(size_t size)
@@ -507,16 +507,10 @@ page_table_t *clone_page_directory(page_table_t *src)
     if (!src)
         return new_pml4;
 
-    // Share kernel half directly.
     for (int i = 256; i < 512; i++)
     {
         new_pml4->entries[i] = src->entries[i];
     }
-
-    /*
-     * Clone lower-half paging structures so task-local mappings don't
-     * overwrite shared kernel/other-task mappings.
-     */
     for (int pml4_idx = 0; pml4_idx < 256; pml4_idx++)
     {
         uint64_t src_pml4e = src->entries[pml4_idx];
@@ -588,10 +582,6 @@ page_table_t *clone_page_directory(page_table_t *src)
     return new_pml4;
 }
 
-/**
- * Free a single page table structure (PT, PD, PDPT)
- * Does NOT free the pages it points to - only the table itself
- */
 static void free_page_table_struct(page_table_t *table)
 {
     if (!table) return;
@@ -599,17 +589,9 @@ static void free_page_table_struct(page_table_t *table)
     free_page(phys);
 }
 
-/**
- * Free an entire page directory hierarchy
- * This ONLY frees the page table structures themselves, NOT user pages
- * User pages should be freed separately before calling this
- */
 void free_page_directory(page_table_t *pml4)
 {
     if (!pml4) return;
-    
-    // Only free user space (lower half, entries 0-255)
-    // Kernel space (upper half, entries 256-511) is shared and shouldn't be freed
     for (int pml4_idx = 0; pml4_idx < 256; pml4_idx++)
     {
         if (!(pml4->entries[pml4_idx] & PAGE_PRESENT))
@@ -622,7 +604,6 @@ void free_page_directory(page_table_t *pml4)
             if (!(pdpt->entries[pdpt_idx] & PAGE_PRESENT))
                 continue;
 
-            // 1GB huge page at PDPT level; no lower page-table struct to free.
             if (pdpt->entries[pdpt_idx] & (1ULL << 7))
                 continue;
                 
@@ -633,37 +614,22 @@ void free_page_directory(page_table_t *pml4)
                 if (!(pd->entries[pd_idx] & PAGE_PRESENT))
                     continue;
                 
-                // Check if this is a 2MB page (bit 7 set)
                 if (pd->entries[pd_idx] & (1ULL << 7))
-                    continue;  // Don't free PT for huge pages
+                    continue;
                     
                 page_table_t *pt = (page_table_t *)((pd->entries[pd_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
-                
-                // Free the PT structure (not the pages it points to!)
                 free_page_table_struct(pt);
             }
-            
-            // Free the PD structure
             free_page_table_struct(pd);
         }
-        
-        // Free the PDPT structure
         free_page_table_struct(pdpt);
     }
-    
-    // Finally free the PML4 itself
     free_page_table_struct(pml4);
 }
 
-/**
- * Free all user-space pages and page tables for a task
- * Call this when a task dies to reclaim all its memory
- */
 void free_task_address_space(page_table_t *pml4, uint64_t user_start, uint64_t user_end)
 {
     if (!pml4) return;
-    
-    // Free all user pages in the range
     for (uint64_t virt = user_start; virt < user_end; virt += PAGE_SIZE)
     {
         uint64_t phys = virt_to_phys(pml4, virt);
@@ -673,8 +639,6 @@ void free_task_address_space(page_table_t *pml4, uint64_t user_start, uint64_t u
             unmap_page(pml4, virt);
         }
     }
-    
-    // Now free the page table structures
     free_page_directory(pml4);
 }
 

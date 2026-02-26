@@ -11,6 +11,7 @@ isr_handler_t interrupt_handlers[256];
 
 void register_interrupt_handler(uint8_t interrupt, isr_handler_t handler, const char* handler_name)
 {
+    (void)handler_name;
     interrupt_handlers[interrupt] = handler;
 }
 
