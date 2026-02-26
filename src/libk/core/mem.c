@@ -469,7 +469,7 @@ uint64_t virt_to_phys(page_table_t *pml4, uint64_t virt) {
 
     if (!(pd->entries[pd_idx] & PAGE_PRESENT)) return 0;
     if (pd->entries[pd_idx] & (1ULL << 7))
-        return (pd->entries[pd_idx] & 0xFFFFFFFFFE000000) + (virt & 0x1FFFFF);
+        return (pd->entries[pd_idx] & 0xFFFFFFFFFFE00000) + (virt & 0x1FFFFF);
 
     page_table_t *pt = (page_table_t *)((pd->entries[pd_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
     if (!(pt->entries[pt_idx] & PAGE_PRESENT)) return 0;

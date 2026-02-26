@@ -503,7 +503,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             uint64_t fb_phys = virt_to_phys(get_kernel_pml4(), (uint64_t)framebuffer_addr);
             if (!fb_phys) return -1;
 
-            uint64_t fb_size = framebuffer_width * framebuffer_height * (framebuffer_bpp / 8);
+            uint64_t fb_size = framebuffer_pitch * framebuffer_height;
             size_t pages = (fb_size + PAGE_SIZE - 1) / PAGE_SIZE;
 
             uint64_t user_fb_vaddr = 0x0000600000000000ULL;
@@ -518,7 +518,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             info->width  = framebuffer_width;
             info->height = framebuffer_height;
             info->bpp    = framebuffer_bpp;
-            info->pitch  = framebuffer_width * (framebuffer_bpp / 8);
+            info->pitch  = framebuffer_pitch;
 
             return 0;
         }

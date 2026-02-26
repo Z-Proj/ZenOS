@@ -4,7 +4,7 @@
 #include <stdbool.h>
 
 extern int current_font;
-extern uint64_t framebuffer_width, framebuffer_height;
+extern uint64_t framebuffer_width, framebuffer_height, framebuffer_pitch;
 extern uint8_t framebuffer_bpp;
 extern uint8_t *framebuffer_addr;
 extern bool flanterm;
