@@ -114,10 +114,11 @@ void _start(void)
     print_mem_info(1);
     zfs_list();
 #endif
+    if(!(framebuffer_bpp == 32))
+        log("\nZenOS only supports 32bpp displays right now.\n", 2, 1);
     task_create(idle, "Idle");
-    if(elf_exec("gfxserver", 0, NULL) != ZFS_OK)
-        log("No graphics server found.", 2, 1);
-    if(elf_exec("init", 0, NULL) != ZFS_OK)
+    char *init_argv[] = { "kernel" };
+    if (elf_exec("init", 1, init_argv) != ZFS_OK)
         log("No init program found.", 0, 1);
     asm volatile("sti");
     sched_start();

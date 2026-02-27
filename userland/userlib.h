@@ -114,7 +114,7 @@ typedef struct {
 } fb_info_t;
 
 static inline int exec(const char *filename) {
-    return (int)syscall1(0, (uint64_t)filename);
+    return (int)syscall3(0, (uint64_t)filename, 0, 0);
 }
 
 static inline int execv(const char *filename, char *const argv[]) {

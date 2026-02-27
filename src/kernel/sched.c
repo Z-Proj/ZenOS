@@ -4,6 +4,7 @@
 #include "../libk/debug/log.h"
 #include "../libk/spinlock.h"
 #include "../cpu/gdt.h"
+#include "../drv/keyboard.h"
 
 extern struct tss_struct tss;
 
@@ -305,6 +306,7 @@ static void reap_dead_tasks(void)
         
         if (iter->state == TASK_DEAD && iter != current_task)
         {
+            kbd_transfer_focus(iter->pid);
             if (iter->kernel_stack)
             {
                 kfree((void*)iter->kernel_stack);
