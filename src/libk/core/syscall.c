@@ -91,7 +91,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             uint32_t len = arg2;
             if (!str || len > 4096) return -1;
             for (uint32_t i = 0; i < len && str[i]; i++) {
-                serial_write_char(str[i]);
+                printc(str[i]);
             }
             return 0;
         }
@@ -228,23 +228,20 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             
             if (new_brk < USER_HEAP_START) return -1;
             
-            static uint64_t current_brk = USER_HEAP_START;
-            uint64_t old_brk = current_brk;
+            uint64_t old_brk = current->heap_brk;
             
-            if (new_brk > current_brk) {
-                uint64_t start = (current_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+            if (new_brk > current->heap_brk) {
+                uint64_t start = (current->heap_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
                 uint64_t end = (new_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
                 
                 for (uint64_t virt = start; virt < end; virt += PAGE_SIZE) {
-                    if (virt_to_phys(current->pml4, virt) == 0) {
-                        uint64_t phys = alloc_page();
-                        if (!phys) return -1;
-                        map_page(current->pml4, virt, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
-                    }
+                    uint64_t phys = alloc_page();
+                    if (!phys) return -1;
+                    map_page(current->pml4, virt, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
                 }
             }
             
-            current_brk = new_brk;
+            current->heap_brk = new_brk;
             return old_brk;
         }
         
@@ -253,26 +250,23 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             task_t *current = sched_current_task();
             if (!current || !current->pml4) return -1;
             
-            static uint64_t current_brk = USER_HEAP_START;
-            uint64_t old_brk = current_brk;
-            uint64_t new_brk = current_brk + increment;
+            uint64_t old_brk = current->heap_brk;
+            uint64_t new_brk = current->heap_brk + increment;
             
             if (new_brk < USER_HEAP_START) return -1;
             
             if (increment > 0) {
-                uint64_t start = (current_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+                uint64_t start = (current->heap_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
                 uint64_t end = (new_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
                 
                 for (uint64_t virt = start; virt < end; virt += PAGE_SIZE) {
-                    if (virt_to_phys(current->pml4, virt) == 0) {
-                        uint64_t phys = alloc_page();
-                        if (!phys) return -1;
-                        map_page(current->pml4, virt, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
-                    }
+                    uint64_t phys = alloc_page();
+                    if (!phys) return -1;
+                    map_page(current->pml4, virt, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
                 }
             }
             
-            current_brk = new_brk;
+            current->heap_brk = new_brk;
             return old_brk;
         }
         

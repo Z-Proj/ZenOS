@@ -56,8 +56,7 @@ The project focuses on clean design, correctness, and practical experimentation 
 #### Current Apps (Subject to change, this might be outdated):
 
 - Simple Shell (init.c)
-- Exec bomb / Template program (test.c)
-- Unicode with SSFN display (unicode.c)
+- Template program (test.c)
 - Fibonacci sequence (fibonacci.c)
 - Counter program (counter.c)
 - Memory functions test (memtest.c)

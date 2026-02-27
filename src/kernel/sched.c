@@ -88,6 +88,7 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
     task->stack_size = TASK_STACK_SIZE;
     task->is_kernel_task = 0;
     task->pml4 = pml4;
+    task->heap_brk = USER_HEAP_START;
     task->argc = argc;
     task->argv = argv;
     

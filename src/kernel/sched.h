@@ -29,6 +29,7 @@ typedef struct task
     uint64_t time_slice_remaining;
     int is_kernel_task;
     page_table_t *pml4;
+    uint64_t heap_brk;
     int argc;
     char **argv;
     struct task *next;
