@@ -42,6 +42,9 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
 void sched_yield(void);
 void sched_tick(void);
 task_t *sched_current_task(void);
+task_t *sched_get_task_list(void);
+int sched_kill(uint64_t pid);
+int sched_wait_pid(uint64_t pid);
 extern void task_switch(registers_t *old_regs, registers_t *new_regs);
 
 #endif

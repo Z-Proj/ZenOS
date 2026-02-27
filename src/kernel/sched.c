@@ -446,3 +446,48 @@ task_t *sched_current_task(void)
 {
     return current_task;
 }
+
+task_t *sched_get_task_list(void)
+{
+    return task_list_head;
+}
+
+int sched_kill(uint64_t pid)
+{
+    if (!task_list_head) return -1;
+
+    task_t *t = task_list_head;
+    do {
+        if (t->pid == pid) {
+            if (t->state == TASK_DEAD) return -1;
+            t->state = TASK_DEAD;
+            if (t == current_task)
+                sched_yield();
+            return 0;
+        }
+        t = t->next;
+    } while (t != task_list_head);
+
+    return -1;
+}
+
+int sched_wait_pid(uint64_t pid)
+{
+    if (!task_list_head) return -1;
+
+    while (1) {
+        bool found = false;
+        task_t *t = task_list_head;
+        do {
+            if (t->pid == pid) {
+                found = true;
+                if (t->state == TASK_DEAD) return 0;
+                break;
+            }
+            t = t->next;
+        } while (t != task_list_head);
+
+        if (!found) return 0;
+        sched_yield();
+    }
+}

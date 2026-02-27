@@ -16,7 +16,6 @@
 #define C_FOOD   0xFFFF4466
 #define C_TEXT   0xFFFFFFFF
 #define C_SCORE  0xFF00DDFF
-#define C_OVER   0xFF222233
 
 static int sx[MAX_LEN], sy[MAX_LEN];
 static int slen, dx, dy, fx, fy, score;
@@ -50,17 +49,32 @@ static char *numstr(int n) {
     return nbuf;
 }
 
-static void draw_scene(socket_file_t *g) {
+static void draw_cell_bg(socket_file_t *g, int x, int y) {
+    gfx_rect(g, OX + x*CELL+1, OY + y*CELL+1, CELL-2, CELL-2, C_GRID);
+}
+
+static void draw_cell_snake(socket_file_t *g, int x, int y, uint32_t col) {
+    gfx_rect(g, OX + x*CELL+2, OY + y*CELL+2, CELL-4, CELL-4, col);
+}
+
+static void draw_food(socket_file_t *g) {
+    gfx_circle(g, OX + fx*CELL + CELL/2, OY + fy*CELL + CELL/2, CELL/2-3, C_FOOD);
+}
+
+static void draw_score(socket_file_t *g) {
+    gfx_rect(g, 4, 34, 80, 14, C_BG);
+    gfx_text(g, 4, 34, C_SCORE, 1, numstr(score));
+}
+
+static void draw_full_scene(socket_file_t *g) {
     gfx_clear(g, C_BG);
     for (int y = 0; y < ROWS; y++)
         for (int x = 0; x < COLS; x++)
             gfx_rect(g, OX + x*CELL+1, OY + y*CELL+1, CELL-2, CELL-2, C_GRID);
     gfx_rect_outline(g, OX-2, OY-2, COLS*CELL+4, ROWS*CELL+4, C_WALL);
-    gfx_circle(g, OX + fx*CELL + CELL/2, OY + fy*CELL + CELL/2, CELL/2-3, C_FOOD);
-    for (int i = slen-1; i >= 0; i--) {
-        uint32_t col = (i == 0) ? C_HEAD : C_BODY;
-        gfx_rect(g, OX+sx[i]*CELL+2, OY+sy[i]*CELL+2, CELL-4, CELL-4, col);
-    }
+    draw_food(g);
+    for (int i = slen-1; i >= 0; i--)
+        draw_cell_snake(g, sx[i], sy[i], i == 0 ? C_HEAD : C_BODY);
     gfx_text(g, 4, 18, C_TEXT, 1, "SNAKE");
     gfx_text(g, 4, 34, C_SCORE, 1, numstr(score));
     gfx_text(g, 300, 18, C_TEXT, 1, "WASD / Q quit");
@@ -82,8 +96,10 @@ int main(int argc, char *argv[]) {
     timeval_t tv; gettimeofday(&tv, NULL);
     rng = (uint32_t)(tv.tv_sec ^ tv.tv_usec) | 1;
     place_food();
+
+    draw_full_scene(g);
+
     while (1) {
-        draw_scene(g);
         for (int t = 0; t < 6; t++) {
             char k = getkey();
             if (k=='q'||k=='Q') goto done;
@@ -93,22 +109,36 @@ int main(int argc, char *argv[]) {
             if ((k=='d'||k=='D') && dx!=-1) { dx=1;  dy=0;  }
             yield();
         }
-        int nx=sx[0]+dx, ny=sy[0]+dy;
+
+        int nx = sx[0]+dx, ny = sy[0]+dy;
         if (nx<0||nx>=COLS||ny<0||ny>=ROWS) goto dead;
         for (int i=1; i<slen; i++)
             if (sx[i]==nx && sy[i]==ny) goto dead;
+
         int ate = (nx==fx && ny==fy);
+
         if (!ate) {
+            int tx = sx[slen-1], ty = sy[slen-1];
             for (int i=slen-1; i>0; i--) { sx[i]=sx[i-1]; sy[i]=sy[i-1]; }
+            sx[0]=nx; sy[0]=ny;
+            draw_cell_bg(g, tx, ty);
+            draw_cell_snake(g, sx[1], sy[1], C_BODY);
+            draw_cell_snake(g, sx[0], sy[0], C_HEAD);
         } else {
-            if (slen<MAX_LEN) {
+            if (slen < MAX_LEN) {
                 for (int i=slen; i>0; i--) { sx[i]=sx[i-1]; sy[i]=sy[i-1]; }
                 slen++;
             }
-            score+=10; place_food();
+            sx[0]=nx; sy[0]=ny;
+            score += 10;
+            place_food();
+            draw_cell_snake(g, sx[1], sy[1], C_BODY);
+            draw_cell_snake(g, sx[0], sy[0], C_HEAD);
+            draw_food(g);
+            draw_score(g);
         }
-        sx[0]=nx; sy[0]=ny;
         continue;
+
 dead:
         gfx_clear(g, 0xFF110022);
         gfx_text(g, 140, 320, 0xFFFF3344, 2, "GAME OVER");

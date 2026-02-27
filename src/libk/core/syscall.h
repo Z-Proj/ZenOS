@@ -49,6 +49,10 @@
 #define SYSCALL_YIELD       43
 #define SYSCALL_LS          44
 #define SYSCALL_GET_FRAMEBUFFER 45
+#define SYSCALL_IS_FOCUSED      46
+#define SYSCALL_KILL            47
+#define SYSCALL_WAIT_PID        48
+#define SYSCALL_LIST_TASKS      49
 
 // stat structure for file info
 typedef struct {
@@ -92,6 +96,11 @@ typedef struct {
     char version[65];
     char machine[65];
 } utsname_t;
+
+typedef struct {
+    uint64_t pid;
+    char name[64];
+} task_info_t;
 
 void init_syscalls(void);
 uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5);

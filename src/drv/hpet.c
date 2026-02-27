@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "../cpu/isr.h"
 #include "../drv/local_apic.h"
+#include "../drv/keyboard.h"
 #include "../kernel/sched.h"
 #include "../libk/debug/log.h"
 
@@ -33,6 +34,7 @@ static void hpet_handler(registers_t *r)
     (void)r;
     hpet->int_status = 1;
     LocalApicSendEOI();
+    kbd_switcher_tick();
     sched_tick();
 }
 

@@ -328,6 +328,32 @@ static inline int fbinfo(fb_info_t *fb) {
     return (int)syscall1(45, (uint64_t)fb);
 }
 
+static inline int is_focused(void) {
+    return (int)syscall0(46);
+}
+
+typedef struct {
+    uint64_t pid;
+    char name[64];
+} task_info_t;
+
+static inline int list_tasks(task_info_t *infos, uint32_t max_count) {
+    return (int)syscall2(49, (uint64_t)infos, max_count);
+}
+
+static inline int kill(pid_t pid) {
+    return (int)syscall1(47, (uint64_t)pid);
+}
+
+static inline int wait_pid(pid_t pid) {
+    return (int)syscall1(48, (uint64_t)pid);
+}
+
+#define KEY_ARROW_UP    0x01
+#define KEY_ARROW_DOWN  0x02
+#define KEY_ARROW_LEFT  0x03
+#define KEY_ARROW_RIGHT 0x04
+
 static inline size_t strlen(const char *s) {
     size_t len = 0;
     while (s[len]) len++;

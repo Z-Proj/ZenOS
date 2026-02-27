@@ -5,29 +5,33 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#define SCANCODE_ESC        0x01
-#define SCANCODE_BACKSPACE  0x0E
-#define SCANCODE_TAB        0x0F
-#define SCANCODE_ENTER      0x1C
-#define SCANCODE_CTRL_L     0x1D
-#define SCANCODE_SHIFT_L    0x2A
-#define SCANCODE_SHIFT_R    0x36
-#define SCANCODE_ALT_L      0x38
-#define SCANCODE_SPACE      0x39
-#define SCANCODE_CAPS       0x3A
+#define SCANCODE_ESC        0x76
+#define SCANCODE_BACKSPACE  0x66
+#define SCANCODE_TAB        0x0D
+#define SCANCODE_ENTER      0x5A
+#define SCANCODE_CTRL_L     0x14
+#define SCANCODE_SHIFT_L    0x12
+#define SCANCODE_SHIFT_R    0x59
+#define SCANCODE_ALT_L      0x11
+#define SCANCODE_SPACE      0x29
+#define SCANCODE_CAPS       0x58
 
-#define SCANCODE_F1         0x3B
-#define SCANCODE_F2         0x3C
-#define SCANCODE_F3         0x3D
-#define SCANCODE_F4         0x3E
-#define SCANCODE_F5         0x3F
-#define SCANCODE_F6         0x40
-#define SCANCODE_F7         0x41
-#define SCANCODE_F8         0x42
-#define SCANCODE_F9         0x43
-#define SCANCODE_F10        0x44
+#define KBD_SCANCODE2_F1    0x05
+#define KBD_SCANCODE2_F2    0x06
+#define KBD_SCANCODE2_F3    0x04
+#define KBD_SCANCODE2_F4    0x0C
+#define KBD_SCANCODE2_F5    0x03
+#define KBD_SCANCODE2_F6    0x0B
+#define KBD_SCANCODE2_F7    0x83
+#define KBD_SCANCODE2_F8    0x0A
+#define KBD_SCANCODE2_F9    0x01
+#define KBD_SCANCODE2_F10   0x09
 
 void init_keyboard(void);
+void kbd_init_focus(void);
+void kbd_switcher_tick(void);
+uint64_t kbd_get_focused_pid(void);
+
 char get_key(void);
 char wait_for_key(void);
 void read_line(char *buffer, size_t max_size, bool print);

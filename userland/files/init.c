@@ -478,28 +478,35 @@ static void cmd_socket_delete(int argc, char* argv[]) {
 // ============ PROCESS COMMANDS ============
 
 static void cmd_ps(void) {
-    pid_t pid = getpid();
-    prints(COLOR_CYAN "Current PID: " COLOR_RESET);
-    
-    char num[16];
-    int n = pid;
-    int i = 0;
-    if (n == 0) {
-        num[i++] = '0';
-    } else {
-        while (n > 0) {
-            num[i++] = '0' + (n % 10);
-            n /= 10;
+    task_info_t tasks[32];
+    int count = list_tasks(tasks, 32);
+
+    prints(COLOR_CYAN "PID  NAME\n" COLOR_RESET);
+    prints("---- ----\n");
+
+    for (int i = 0; i < count; i++) {
+        char num[16];
+        int n = (int)tasks[i].pid;
+        int idx = 0;
+        if (n == 0) {
+            num[idx++] = '0';
+        } else {
+            while (n > 0) {
+                num[idx++] = '0' + (n % 10);
+                n /= 10;
+            }
         }
+        num[idx] = '\0';
+        for (int j = 0; j < idx/2; j++) {
+            char tmp = num[j];
+            num[j] = num[idx-1-j];
+            num[idx-1-j] = tmp;
+        }
+        prints(num);
+        prints("  ");
+        prints(tasks[i].name);
+        prints("\n");
     }
-    num[i] = '\0';
-    for (int j = 0; j < i/2; j++) {
-        char tmp = num[j];
-        num[j] = num[i-1-j];
-        num[i-1-j] = tmp;
-    }
-    prints(num);
-    prints("\n");
 }
 
 static void cmd_exec(int argc, char* argv[]) {
@@ -518,6 +525,85 @@ static void cmd_exec(int argc, char* argv[]) {
         prints(COLOR_RED "Failed to execute: " COLOR_RESET);
         prints(argv[1]);
         prints("\n");
+    }
+}
+
+static void cmd_execwait(int argc, char* argv[]) {
+    if (argc < 2) {
+        prints(COLOR_RED "Usage: execwait <filename> [args...]\n" COLOR_RESET);
+        return;
+    }
+
+    task_info_t before[32];
+    int before_count = list_tasks(before, 32);
+
+    prints(COLOR_YELLOW "Executing: " COLOR_RESET);
+    prints(argv[1]);
+    prints("\n");
+
+    int result = execv(argv[1], &argv[1]);
+    if (result != 0) {
+        prints(COLOR_RED "Failed to execute: " COLOR_RESET);
+        prints(argv[1]);
+        prints("\n");
+        return;
+    }
+
+    task_info_t after[32];
+    int after_count = list_tasks(after, 32);
+
+    pid_t new_pid = -1;
+    for (int a = 0; a < after_count; a++) {
+        int found = 0;
+        for (int b = 0; b < before_count; b++) {
+            if (after[a].pid == before[b].pid) { found = 1; break; }
+        }
+        if (!found) { new_pid = (pid_t)after[a].pid; break; }
+    }
+
+    if (new_pid == -1) {
+        prints(COLOR_RED "Could not find spawned task\n" COLOR_RESET);
+        return;
+    }
+
+    wait_pid(new_pid);
+}
+
+static void cmd_kill(int argc, char* argv[]) {
+    if (argc < 2) {
+        prints(COLOR_RED "Usage: kill <pid>\n" COLOR_RESET);
+        return;
+    }
+
+    pid_t pid = atoi(argv[1]);
+    if (pid <= 0) {
+        prints(COLOR_RED "Invalid PID\n" COLOR_RESET);
+        return;
+    }
+
+    if (kill(pid) == 0) {
+        prints(COLOR_GREEN "Killed PID " COLOR_RESET);
+        char num[16];
+        int n = pid;
+        int i = 0;
+        if (n == 0) {
+            num[i++] = '0';
+        } else {
+            while (n > 0) {
+                num[i++] = '0' + (n % 10);
+                n /= 10;
+            }
+        }
+        num[i] = '\0';
+        for (int j = 0; j < i/2; j++) {
+            char tmp = num[j];
+            num[j] = num[i-1-j];
+            num[i-1-j] = tmp;
+        }
+        prints(num);
+        prints("\n");
+    } else {
+        prints(COLOR_RED "Failed — no such PID or already dead\n" COLOR_RESET);
     }
 }
 
@@ -734,6 +820,8 @@ static void cmd_help(void) {
     prints("  sockread <name>      - Read from socket\n");
     prints("  sockdel <name>       - Delete socket\n");
     prints("  exec <file>          - Execute program\n");
+    prints("  execwait <file>      - Execute and wait for exit\n");
+    prints("  kill <pid>           - Kill a process by PID\n");
     prints("  ps                   - Show process info\n");
     prints("  yield                - Yield CPU\n");
     prints("  uname                - System information\n");
@@ -902,6 +990,8 @@ static int execute_command(void) {
     else if (strcmp(argv[0], "sockdel") == 0) cmd_socket_delete(argc, argv);
     // Process
     else if (strcmp(argv[0], "exec") == 0) cmd_exec(argc, argv);
+    else if (strcmp(argv[0], "execwait") == 0) cmd_execwait(argc, argv);
+    else if (strcmp(argv[0], "kill") == 0) cmd_kill(argc, argv);
     else if (strcmp(argv[0], "ps") == 0) cmd_ps();
     else if (strcmp(argv[0], "yield") == 0) cmd_yield_cmd();
     // System

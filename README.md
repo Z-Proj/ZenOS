@@ -51,7 +51,7 @@ The project focuses on clean design, correctness, and practical experimentation 
 ### Userspace
 
 - `ELF64` userspace programs
-- Custom syscall interface (Currently 45 present.)
+- Custom syscall interface (Currently 49 present.)
 
 #### Current Apps (Subject to change, this might be outdated):
 

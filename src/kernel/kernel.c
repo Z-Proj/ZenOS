@@ -121,6 +121,7 @@ void _start(void)
         log("No init program found.", 0, 1);
     asm volatile("sti");
     sched_start();
+    kbd_init_focus();
     for (;;)
         ;
 }

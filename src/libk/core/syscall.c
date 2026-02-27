@@ -3,6 +3,7 @@
 #include "../debug/log.h"
 #include "../debug/serial.h"
 #include "../../drv/keyboard.h"
+#include "../../drv/keyboard.h"
 #include "../../drv/mouse.h"
 #include "../../drv/speaker.h"
 #include "../../drv/vga.h"
@@ -11,6 +12,7 @@
 #include "../../drv/rtc.h"
 #include "../../cpu/acpi/acpi.h"
 #include "../../cpu/gdt.h"
+#include "../string.h"
 #include "mem.h"
 #include "socket.h"
 
@@ -515,6 +517,41 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             info->pitch  = framebuffer_pitch;
 
             return 0;
+        }
+
+        case SYSCALL_IS_FOCUSED: {
+            task_t *current = sched_current_task();
+            if (!current) return 0;
+            return (current->pid == kbd_get_focused_pid()) ? 1 : 0;
+        }
+
+        case SYSCALL_KILL: {
+            uint64_t pid = arg1;
+            return sched_kill(pid);
+        }
+
+        case SYSCALL_WAIT_PID: {
+            uint64_t pid = arg1;
+            return sched_wait_pid(pid);
+        }
+
+        case SYSCALL_LIST_TASKS: {
+            task_info_t *infos = (task_info_t *)arg1;
+            uint32_t max_count = (uint32_t)arg2;
+            if (!infos || max_count == 0) return 0;
+            task_t *head = sched_get_task_list();
+            if (!head) return 0;
+            uint32_t count = 0;
+            task_t *t = head;
+            do {
+                if (count >= max_count) break;
+                infos[count].pid = t->pid;
+                strncpy(infos[count].name, t->name, 63);
+                infos[count].name[63] = '\0';
+                count++;
+                t = t->next;
+            } while (t != head);
+            return count;
         }
         
         default:
