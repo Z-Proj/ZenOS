@@ -74,11 +74,11 @@ void _start(void)
     AcpiInit();
     LocalApicInit();
     IoApicInit();
-    IoApicSetIrqMapped(8, 0x28); //RTC its
-    rtc_initialize();
+    // IoApicSetIrqMapped(8, 0x28); //RTC its
+    // rtc_initialize(); //TODO: Already working but enable when needed
     sched_init();
     IoApicSetIrqMapped(0, 0x22); //HPET
-    hpet_init(1024);
+    hpet_init(10);
     IoApicSetIrqMapped(1, 0x21); //Keyboard
     init_keyboard();
     ata_init();

@@ -45,7 +45,7 @@ int main(int argc, char *argv[]) {
             prints("  ");
             count++;
             if (count % 10 == 0) prints("\n");
-            yield();
+            halt();
         }
     }
 

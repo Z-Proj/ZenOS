@@ -23,29 +23,6 @@ void sound_err()
     speaker_pause();
 }
 
-static void format_time(uint64_t ms, char *out, size_t size)
-{
-    if (ms < 1000) {
-        snprintf(out, size, "%llums", ms);
-        return;
-    }
-
-    uint64_t s = ms / 1000;
-    if (s < 60) {
-        snprintf(out, size, "%llus", s);
-        return;
-    }
-
-    uint64_t m = s / 60;
-    if (m < 60) {
-        snprintf(out, size, "%llumin", m);
-        return;
-    }
-
-    uint64_t h = m / 60;
-    snprintf(out, size, "%lluh", h);
-}
-
 void log_internal(const char *file, int line, const char *fmt, int level, int visibility, ...)
 {
     char *logline = kmalloc(1280);
@@ -104,18 +81,12 @@ void log_internal(const char *file, int line, const char *fmt, int level, int vi
     }
     else
     {
-        uint64_t ticks = rtc_get_ticks();
-        uint64_t ms = (ticks * 1000) / 1024;
-
-        char timebuf[32];
-        format_time(ms, timebuf, sizeof(timebuf));
-
         const char *filename = file;
         const char *slash = strrchr(file, '/');
         if (slash) {
             filename = slash + 1;
         }
-        snprintf(header, 256, "[%s][%s:%d]- ", timebuf, filename, line);
+        snprintf(header, 256, "[%s:%d]- ", filename, line);
     }
 
     char *message = kmalloc(1024);
@@ -132,25 +103,25 @@ void log_internal(const char *file, int line, const char *fmt, int level, int vi
     vsnprintf(message, 1024, fmt, args);
     va_end(args);
 
-    char *cpuid_str = kmalloc(16);
-    if (!cpuid_str)
-    {
-        kfree(message);
-        kfree(header);
-        kfree(logline);
-        spinlock_release(&loglock);
-        if (rflags & 0x200)
-            asm volatile("sti");
-        return;
-    }
+    // char *cpuid_str = kmalloc(16); //TODO: Re-enable upon doing something with SMP
+    // if (!cpuid_str)
+    // {
+    //     kfree(message);
+    //     kfree(header);
+    //     kfree(logline);
+    //     spinlock_release(&loglock);
+    //     if (rflags & 0x200)
+    //         asm volatile("sti");
+    //     return;
+    // }
 
-    if (cpuid != 0)
-        snprintf(cpuid_str, 16, "[CPU%d]- ", cpuid);
-    else
-        cpuid_str[0] = '\0';
+    // if (cpuid != 0)
+    //     snprintf(cpuid_str, 16, "[CPU%d]- ", cpuid);
+    // else
+    //     cpuid_str[0] = '\0';
 
     strcpy(logline, header);
-    strcat(logline, cpuid_str);
+    // strcat(logline, cpuid_str);
     strcat(logline, message);
     strcat(logline, "\n");
 
@@ -165,7 +136,7 @@ void log_internal(const char *file, int line, const char *fmt, int level, int vi
         prints("\x1b[0m");
     }
 
-    kfree(cpuid_str);
+    // kfree(cpuid_str);
     kfree(message);
     kfree(header);
     kfree(logline);

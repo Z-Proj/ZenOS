@@ -133,7 +133,7 @@ int main(int argc, char *argv[]) {
         }
 
         gfx_text(g, 4, 18, 0xFF666688, 1, "figlet - press any key");
-        while (getkey() == 0) { sleep(50); yield(); }
+        while (getkey() == 0) { halt(); }
         gfx_clear(g, C_BG);
         gfx_close(g);
     } else {

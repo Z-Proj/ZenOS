@@ -125,8 +125,7 @@ int main(int argc, char *argv[]) {
             draw_time(g);
             last_sec = sec;
         }
-        sleep(200);
-        yield();
+        for(int i = 0; i < 20; i++)halt();
         if (getkey() != 0) break;
     }
 

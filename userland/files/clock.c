@@ -33,9 +33,7 @@ int main(int argc, char *argv[]) {
 
         char k = getkey();
         if (k != 0) break;
-
-        sleep(200);
-        yield();
+        halt();
     }
 
     prints("\n");

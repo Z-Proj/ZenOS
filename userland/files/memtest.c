@@ -48,8 +48,6 @@ int main(int argc, char *argv[]) {
     for (int j = 0; j < 256; j++)
         ((char *)ptr1)[j] = 'A' + (j % 26);
 
-    yield();
-
     int ok = 1;
     for (int j = 0; j < 256; j++) {
         if (((char *)ptr1)[j] != 'A' + (j % 26)) { ok = 0; break; }
@@ -58,8 +56,6 @@ int main(int argc, char *argv[]) {
     prints(ok ? "\033[32m[MemTest " : "\033[31m[MemTest ");
     print_int(pid);
     prints(ok ? "] Memory verification: PASS\033[0m\n" : "] Memory verification: FAIL\033[0m\n");
-
-    yield();
 
     void *ptr2 = mmap(NULL, 8192, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (ptr2 == (void *)-1) {
@@ -72,7 +68,6 @@ int main(int argc, char *argv[]) {
         prints("] mmap: allocated 8192 bytes\033[0m\n");
 
         memset(ptr2, 0xAA, 512);
-        yield();
 
         ok = 1;
         for (int j = 0; j < 512; j++) {

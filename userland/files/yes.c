@@ -9,12 +9,16 @@ int main(int argc, char *argv[]) {
                     prints(" ");
             }
             prints("\n");
-            yield();
+            halt();
+            halt();
+            halt();
         }
     } else {
         while (1) {
-            prints("y\n");
-            yield();
+            prints("yes\n");
+            halt();
+            halt();
+            halt();
         }
     }
     return 0;

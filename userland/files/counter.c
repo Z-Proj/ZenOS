@@ -26,7 +26,7 @@ int main(int argc, char *argv[]) {
         print_int(count);
         prints("\033[0m\n");
         sleep(100);
-        yield();
+        halt();
     }
 
     prints("\033[32m[Counter ");
