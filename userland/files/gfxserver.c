@@ -31,10 +31,9 @@ void *realloc(void *p, size_t sz) {
 static ssfn_t     ssfn_ctx;
 static ssfn_buf_t ssfn_buf;
 
-static uint32_t *fbp;
-static uint32_t  fb_w, fb_h, pitch_px;
-static uint32_t  rx;
-static uint32_t  rw;
+static uint8_t  *fbp8;
+static uint32_t  fb_w, fb_h, fb_pitch, fb_bpp;
+static uint32_t  rx, rw;
 
 static int32_t iabs(int32_t x) { return x < 0 ? -x : x; }
 
@@ -46,15 +45,28 @@ static int32_t isqrt(int32_t n) {
 }
 
 static inline void px(int x, int y, uint32_t col) {
-    if (x < 0 || x >= (int)rw) return;
-    if (y < 0 || y >= (int)fb_h) return;
-    fbp[y * pitch_px + rx + x] = col;
+    if (x < 0 || (uint32_t)x >= rw) return;
+    if (y < 0 || (uint32_t)y >= fb_h) return;
+    uint32_t bpp_bytes = fb_bpp / 8;
+    uint8_t *p = fbp8 + y * fb_pitch + (rx + x) * bpp_bytes;
+    uint8_t r = (col >> 16) & 0xFF;
+    uint8_t g = (col >>  8) & 0xFF;
+    uint8_t b =  col        & 0xFF;
+    if (fb_bpp == 32) {
+        p[0] = b; p[1] = g; p[2] = r; p[3] = 0xFF;
+    } else if (fb_bpp == 24) {
+        p[0] = b; p[1] = g; p[2] = r;
+    } else if (fb_bpp == 16) {
+        uint16_t rgb565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+        p[0] = rgb565 & 0xFF;
+        p[1] = (rgb565 >> 8) & 0xFF;
+    }
 }
 
 static void do_clear(uint32_t col) {
     for (uint32_t y = 0; y < fb_h; y++)
         for (uint32_t x = 0; x < rw; x++)
-            fbp[y * pitch_px + rx + x] = col;
+            px(x, y, col);
 }
 
 static void do_rect(int x, int y, int w, int h, uint32_t col) {
@@ -186,24 +198,30 @@ int main(int argc, char *argv[]) {
     fb_info_t fb;
     if (fbinfo(&fb) != 0) { prints("gfxserver: fbinfo failed\n"); exit(1); }
 
-    fbp      = (uint32_t *)(uintptr_t)fb.addr;
+    fbp8     = (uint8_t *)(uintptr_t)fb.addr;
     fb_w     = fb.width;
     fb_h     = fb.height;
-    pitch_px = fb.pitch / 4;
+    fb_pitch = fb.pitch;
+    fb_bpp   = fb.bpp;
     rx       = fb_w / 2;
     rw       = fb_w - rx;
+
     memset(&ssfn_ctx, 0, sizeof(ssfn_ctx));
     if (ssfn_load(&ssfn_ctx, (const void *)&_binary_FreeSansB_sfn_start) != SSFN_OK) {
         prints("gfxserver: ssfn_load failed\n"); exit(1);
     }
-    ssfn_buf.ptr = (uint8_t *)&fbp[rx];
+    ssfn_buf.ptr = fbp8 + rx * (fb_bpp / 8);
     ssfn_buf.p   = fb.pitch;
     ssfn_buf.w   = (int)rw;
     ssfn_buf.h   = (int)fb_h;
     ssfn_buf.bg  = 0;
-    do_clear(0xFF12121E); // cool darkish blue
-    for (uint32_t y = 0; y < fb_h; y++)
-        fbp[y * pitch_px + rx] = 0xFF3333AA;
+    do_clear(0xFF12121E);
+    for (uint32_t y = 0; y < fb_h; y++) {
+        uint8_t *p = fbp8 + y * fb_pitch + (rx - 1) * (fb_bpp / 8);
+        if (fb_bpp == 32)      { p[0]=0xAA; p[1]=0x33; p[2]=0x33; p[3]=0xFF; }
+        else if (fb_bpp == 24) { p[0]=0xAA; p[1]=0x33; p[2]=0x33; }
+        else if (fb_bpp == 16) { uint16_t c=0x19A6; p[0]=c&0xFF; p[1]=c>>8; }
+    }
     if (socket_create(GFX_SOCKET_NAME) != 0) {
         prints("gfxserver: socket_create failed\n"); exit(1);
     }

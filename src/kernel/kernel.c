@@ -78,7 +78,7 @@ void _start(void)
     rtc_initialize();
     sched_init();
     IoApicSetIrqMapped(0, 0x22); //HPET
-    hpet_init(100);
+    hpet_init(1024);
     IoApicSetIrqMapped(1, 0x21); //Keyboard
     init_keyboard();
     ata_init();
