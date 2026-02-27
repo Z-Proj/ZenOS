@@ -163,10 +163,6 @@ void vga_init(void)
         log("Failed to initialize flanterm", 3, 0);
         return;
     }
-    for(uint64_t i = 0; i < framebuffer_height; i++){
-        put_pixel((framebuffer_width/2)+1, i, 0xFFFFFF);
-        put_pixel((framebuffer_width/2)+2, i, 0xFFFFFF);
-    }
     
     flanterm = true;
     log("Framebuffer initialized: %ix%i, %i bpp", 4, 0,
