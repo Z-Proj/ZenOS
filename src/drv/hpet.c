@@ -7,34 +7,34 @@
 
 #define HPET_IRQ_VECTOR 0x22
 
-typedef struct {
-    uint64_t cap_id;
-    uint64_t _r0;
-    uint64_t config;
-    uint64_t _r1;
-    uint64_t int_status;
-    uint64_t _r2;
-    uint64_t counter;
-} __attribute__((packed)) hpet_regs_t;
+static uintptr_t hpet_base = 0;
 
-typedef struct {
-    uint64_t config;
-    uint64_t comparator;
-    uint64_t fsb;
-    uint64_t _r;
-} __attribute__((packed)) hpet_timer_t;
+static inline uint64_t hpet_read(uint32_t offset)
+{
+    return *(volatile uint64_t *)(hpet_base + offset);
+}
 
-static volatile hpet_regs_t *hpet = NULL;
-static volatile hpet_timer_t *t0 = NULL;
+static inline void hpet_write(uint32_t offset, uint64_t val)
+{
+    *(volatile uint64_t *)(hpet_base + offset) = val;
+}
 
-static uint64_t ticks_per_irq;
-volatile uint64_t hpet_ticks = 0;
-static uint32_t hpet_freq_hz = 0;
+#define HPET_CAP        0x000
+#define HPET_CFG        0x010
+#define HPET_ISR        0x020
+#define HPET_COUNTER    0x0F0
+#define HPET_T0_CFG     0x100
+#define HPET_T0_CMP     0x108
+
+static uint64_t hpet_period_fs  = 0;
+static uint64_t ticks_per_irq   = 0;
+static uint32_t hpet_freq_hz    = 0;
+volatile uint64_t hpet_ticks    = 0;
 
 static void hpet_handler(registers_t *r)
 {
     (void)r;
-    hpet->int_status = 1;
+    hpet_write(HPET_ISR, 1);
     hpet_ticks++;
     LocalApicSendEOI();
     kbd_switcher_tick();
@@ -43,44 +43,60 @@ static void hpet_handler(registers_t *r)
 
 void SetHpetAddress(uint64_t addr)
 {
-    hpet = (volatile hpet_regs_t *)(uintptr_t)addr;
-    t0 = (volatile hpet_timer_t *)((uintptr_t)addr + 0x100);
+    hpet_base = (uintptr_t)addr;
 }
 
 void hpet_init(uint32_t frequency_hz)
 {
-    if (!hpet || !frequency_hz)
+    if (!hpet_base || !frequency_hz)
         return;
 
-    hpet->config = 0;
-    hpet->counter = 0;
+    hpet_write(HPET_CFG, 0);
+    hpet_write(HPET_COUNTER, 0);
 
-    uint64_t period_fs = hpet->cap_id >> 32;
-    if (!period_fs)
+    hpet_period_fs = hpet_read(HPET_CAP) >> 32;
+    if (!hpet_period_fs)
         return;
 
-    uint64_t ticks_per_sec = 1000000000000000ULL / period_fs;
+    uint64_t ticks_per_sec = 1000000000000000ULL / hpet_period_fs;
     ticks_per_irq = ticks_per_sec / frequency_hz;
     if (!ticks_per_irq)
         ticks_per_irq = 1;
 
-    t0->config = 0;
-    t0->comparator = ticks_per_irq;
-    t0->config = (1ULL << 2) | (1ULL << 4);
+    hpet_write(HPET_T0_CFG, 0);
+    hpet_write(HPET_T0_CMP, ticks_per_irq);
+    hpet_write(HPET_T0_CFG, (1ULL << 2) | (1ULL << 3) | (1ULL << 4));
 
     register_interrupt_handler(HPET_IRQ_VECTOR, hpet_handler, "HPET Timer");
-    hpet->config = 1;
+
+    hpet_write(HPET_CFG, 1);
     hpet_freq_hz = frequency_hz;
+
     log("HPET Initialized.", 4, 0);
 }
-void sleep(uint32_t ms)
+
+void sleep_us(uint64_t us)
 {
-    if (!hpet_freq_hz || !hpet) {
-        for (volatile uint32_t i = 0; i < ms * 10000; i++);
+    if (!hpet_base || !hpet_period_fs) {
+        for (volatile uint64_t i = 0; i < us * 10; i++);
         return;
     }
-    uint64_t ticks_to_wait = ((uint64_t)ms * hpet_freq_hz + 999) / 1000;
-    uint64_t start = hpet_ticks;
-    while ((hpet_ticks - start) < ticks_to_wait)
-        sched_yield();
+
+    uint64_t ticks_needed = (us * 1000000000ULL) / hpet_period_fs;
+    if (!ticks_needed)
+        ticks_needed = 1;
+
+    uint64_t start = hpet_read(HPET_COUNTER);
+    while ((hpet_read(HPET_COUNTER) - start) < ticks_needed)
+        __asm__ volatile("pause" ::: "memory");
+}
+
+void sleep_ms(uint32_t ms)
+{
+    sleep_us((uint64_t)ms * 1000ULL);
+}
+
+void sleep(uint32_t ms)
+{
+    sleep_ms(ms);
 }

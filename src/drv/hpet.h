@@ -8,6 +8,8 @@ extern volatile uint64_t hpet_ticks;
 
 void hpet_init(uint32_t frequency_hz);
 void SetHpetAddress(uint64_t addr);
+void sleep_us(uint64_t us);
+void sleep_ms(uint32_t ms);
 void sleep(uint32_t ms);
 
 #endif
