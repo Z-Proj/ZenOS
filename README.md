@@ -55,13 +55,23 @@ The project focuses on clean design, correctness, and practical experimentation 
 
 #### Current Apps (Subject to change, this might be outdated):
 
-- Simple Shell (init.c)
-- Template program (test.c)
-- Fibonacci sequence (fibonacci.c)
+- Calculator with `+`,`-`,`*`,`/`,`%`,`^` (calc.c)
+- Clock - Live clock (clock.c)
 - Counter program (counter.c)
+- Fibonacci sequence (fibonacci.c)
+- Figlet - Graphical figlet style thingy (figlet.c)
+- GFX Server - Graphics server for Unicode text / shapes (gfxserver.c)
+- GFX Test - Program to test the above server (gfxtest.c)
+- Hello, world! (hello.c)
 - Memory functions test (memtest.c)
-- Graphics server for Unicode text / shapes (gfxserver.c)
-- Program to test the above server (gfxtest.c)
+- Prime numbers till 100 (primes.c)
+- Shell - Simple Shell (init.c)
+- Snake (snake.c)
+- Sysinfo - Graphical + More detailed system info (sysinfo.c)
+- Template program (test.c)
+- Uname - System info (uname.c)
+- Word counter (wc.c)
+- Yes - Spam whatever you say (yes.c)
 
 **The `ZenOS.vhd` file in the repository already usually has these programs in it.**
 
@@ -69,7 +79,7 @@ The project focuses on clean design, correctness, and practical experimentation 
 
 - [Flanterm](https://codeberg.org/mintsuki/flanterm) terminal rendering
 - Unicode and scalable fonts support via [SSFN.](https://gitlab.com/bztsrc/scalable-font2)
-- Structured kernel logging system
+- Clean logging system
 
 ---
 
@@ -77,6 +87,7 @@ The project focuses on clean design, correctness, and practical experimentation 
 
 - **Run** : `make all` at the root of the cloned git repo.
 - Any issues will be reported, to which you can take necessary action, such as missing dependencies.
+- For convenience, (`make funcs`) has been provided, running it will generate `funcs.txt` with all functions defined in the OS.
 
 ---
 
