@@ -904,8 +904,26 @@ static void cmd_reboot(void) {
 // ============ SHELL CORE ============
 
 static void show_prompt(void) {
-    prints(COLOR_BOLD COLOR_GREEN "Zen" COLOR_RESET);
-    prints(COLOR_BOLD COLOR_BLUE "~$ " COLOR_RESET);
+    utsname_t uts;
+    char hostname[65];
+    if (uname(&uts) == 0) {
+        strncpy(hostname, uts.nodename, 64);
+        hostname[64] = '\0';
+    } else {
+        strcpy(hostname, "zen");
+    }
+
+    char cwd[256];
+    if (!getcwd(cwd, sizeof(cwd))) {
+        strcpy(cwd, "~");
+    }
+
+    prints(COLOR_BOLD COLOR_GREEN "root@");
+    prints(hostname);
+    prints(COLOR_RESET COLOR_BOLD ":");
+    prints(COLOR_BOLD COLOR_BLUE);
+    prints(cwd);
+    prints(COLOR_RESET "$ ");
 }
 
 static void read_command(void) {

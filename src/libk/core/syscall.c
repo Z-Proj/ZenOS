@@ -416,7 +416,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             
             const char *sysname = "ZenOS";
             const char *machine = "x86_64";
-            const char *nodename = "zen";
+            const char *nodename = "Zen";
             
             int i = 0;
             while (sysname[i] && i < 64) {
