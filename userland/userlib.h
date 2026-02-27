@@ -229,8 +229,8 @@ static inline int rmdir(const char *pathname) {
     return (int)syscall1(22, (uint64_t)pathname);
 }
 
-static inline int ls(void) {
-    return (int)syscall0(44);
+static inline int ls(char *buf, size_t buf_size) {
+    return (int)syscall2(44, (uint64_t)buf, buf_size);
 }
 
 static inline int brk(void *addr) {
@@ -352,6 +352,111 @@ static inline int wait_pid(pid_t pid) {
 static inline void halt(void){
     syscall0(50);
     return;
+}
+
+
+#define _UHEAP_ALIGN   16
+#define _UHEAP_MINSZ   _UHEAP_ALIGN
+#define _UBLK_HDR_SZ   sizeof(_ublk_t)
+#define _UBLK_FOOT_SZ  sizeof(size_t)
+#define _UBLK_OVERHEAD (_UBLK_HDR_SZ + _UBLK_FOOT_SZ)
+
+typedef struct _ublk {
+    size_t       size;
+    int          used;
+    struct _ublk *prev;
+    struct _ublk *next;
+} _ublk_t;
+
+static _ublk_t *_uheap_head = (void*)0;
+static _ublk_t *_uheap_tail = (void*)0;
+
+static inline size_t *_ufoot(_ublk_t *b) {
+    return (size_t*)((uint8_t*)b + _UBLK_HDR_SZ + b->size);
+}
+
+static inline void _uwrtags(_ublk_t *b) {
+    *_ufoot(b) = b->size;
+}
+
+static _ublk_t *_ucoalesce(_ublk_t *b) {
+    if (b->prev && !b->prev->used) {
+        b->prev->size += _UBLK_OVERHEAD + b->size;
+        b->prev->next = b->next;
+        if (b->next) b->next->prev = b->prev;
+        else _uheap_tail = b->prev;
+        b = b->prev;
+        _uwrtags(b);
+    }
+    if (b->next && !b->next->used) {
+        b->size += _UBLK_OVERHEAD + b->next->size;
+        b->next = b->next->next;
+        if (b->next) b->next->prev = b;
+        else _uheap_tail = b;
+        _uwrtags(b);
+    }
+    return b;
+}
+
+static void *malloc(size_t size) {
+    if (size == 0) return (void*)0;
+    size_t aligned = (size + _UHEAP_ALIGN - 1) & ~(size_t)(_UHEAP_ALIGN - 1);
+    if (aligned < _UHEAP_MINSZ) aligned = _UHEAP_MINSZ;
+
+    for (_ublk_t *cur = _uheap_head; cur; cur = cur->next) {
+        if (!cur->used && cur->size >= aligned) {
+            if (cur->size >= aligned + _UBLK_OVERHEAD + _UHEAP_MINSZ) {
+                _ublk_t *split = (_ublk_t*)((uint8_t*)cur + _UBLK_HDR_SZ + aligned + _UBLK_FOOT_SZ);
+                split->size = cur->size - aligned - _UBLK_OVERHEAD;
+                split->used = 0;
+                split->prev = cur;
+                split->next = cur->next;
+                if (cur->next) cur->next->prev = split;
+                else _uheap_tail = split;
+                cur->next = split;
+                cur->size = aligned;
+                _uwrtags(split);
+            }
+            cur->used = 1;
+            _uwrtags(cur);
+            return (void*)((uint8_t*)cur + _UBLK_HDR_SZ);
+        }
+    }
+
+    size_t need = _UBLK_OVERHEAD + aligned;
+    _ublk_t *blk = (_ublk_t*)sbrk((int64_t)need);
+    if (blk == (void*)-1) return (void*)0;
+    blk->size = aligned;
+    blk->used = 1;
+    blk->next = (void*)0;
+    blk->prev = _uheap_tail;
+    if (_uheap_tail) _uheap_tail->next = blk;
+    else _uheap_head = blk;
+    _uheap_tail = blk;
+    _uwrtags(blk);
+    return (void*)((uint8_t*)blk + _UBLK_HDR_SZ);
+}
+
+static void free(void *ptr) {
+    if (!ptr) return;
+    _ublk_t *b = (_ublk_t*)((uint8_t*)ptr - _UBLK_HDR_SZ);
+    b->used = 0;
+    _ucoalesce(b);
+}
+
+static void *realloc(void *ptr, size_t size) {
+    if (!ptr) return malloc(size);
+    if (size == 0) { free(ptr); return (void*)0; }
+    _ublk_t *b = (_ublk_t*)((uint8_t*)ptr - _UBLK_HDR_SZ);
+    size_t aligned = (size + _UHEAP_ALIGN - 1) & ~(size_t)(_UHEAP_ALIGN - 1);
+    if (b->size >= aligned) return ptr;
+    void *n = malloc(size);
+    if (!n) return (void*)0;
+    size_t copy = b->size < aligned ? b->size : aligned;
+    for (size_t i = 0; i < copy; i++)
+        ((uint8_t*)n)[i] = ((uint8_t*)ptr)[i];
+    free(ptr);
+    return n;
 }
 
 #define KEY_ARROW_UP    0x01

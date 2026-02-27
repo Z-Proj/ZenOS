@@ -1,4 +1,4 @@
-// gfxserver.c — ZenOS Graphics Server
+// gfxserver.c - ZenOS Graphics Server
 
 #include "userlib.h"
 #include "../libs/gfx.h"
@@ -13,20 +13,6 @@ extern char _binary_FreeSansB_sfn_start;
 #define SSFN_realloc realloc
 #define SSFN_free free
 #include "ssfn.h"
-
-static uint8_t heap[256 * 1024];
-static uint32_t heap_pos = 0;
-void *malloc(size_t sz) {
-    sz = (sz + 7) & ~7ULL;
-    if (heap_pos + sz > sizeof(heap)) return NULL;
-    void *p = &heap[heap_pos]; heap_pos += sz; return p;
-}
-void free(void *p) { (void)p; }
-void *realloc(void *p, size_t sz) {
-    void *n = malloc(sz);
-    if (p && n) memcpy(n, p, sz);
-    return n;
-}
 
 static ssfn_t     ssfn_ctx;
 static ssfn_buf_t ssfn_buf;

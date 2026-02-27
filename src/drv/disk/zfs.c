@@ -721,15 +721,47 @@ zfs_error_t zfs_seek(zfs_file_t *file, uint32_t position)
     return ZFS_OK;
 }
 
-zfs_error_t zfs_list(void)
+static size_t buf_append(char *buf, size_t buf_size, size_t pos, const char *str)
+{
+    while (*str && pos + 1 < buf_size)
+        buf[pos++] = *str++;
+    buf[pos] = '\0';
+    return pos;
+}
+
+static size_t buf_append_uint(char *buf, size_t buf_size, size_t pos, uint32_t val)
+{
+    char tmp[12];
+    int i = 0;
+    if (val == 0) {
+        tmp[i++] = '0';
+    } else {
+        while (val > 0) {
+            tmp[i++] = '0' + (val % 10);
+            val /= 10;
+        }
+    }
+    for (int j = i - 1; j >= 0 && pos + 1 < buf_size; j--)
+        buf[pos++] = tmp[j];
+    buf[pos] = '\0';
+    return pos;
+}
+
+zfs_error_t zfs_list(char *buf, size_t buf_size)
 {
     if (!initialized)
         return ZFS_ERR_NOT_INITIALIZED;
 
+    if (!buf || buf_size == 0)
+        return ZFS_ERR_INVALID_PARAM;
+
+    size_t pos = 0;
     char cwd[256];
     zfs_get_cwd(cwd, sizeof(cwd));
-    log("Directory listing for: %s", 1, 1, cwd);
-    log("", 1, 1);
+
+    pos = buf_append(buf, buf_size, pos, "Directory listing for: ");
+    pos = buf_append(buf, buf_size, pos, cwd);
+    pos = buf_append(buf, buf_size, pos, "\n\n");
 
     int file_count = 0;
     int dir_count = 0;
@@ -741,35 +773,45 @@ zfs_error_t zfs_list(void)
         {
             if (entry_table[i].type == ZFS_TYPE_DIRECTORY)
             {
-                log("[DIR]  %s", 1, 1, entry_table[i].name);
+                pos = buf_append(buf, buf_size, pos, "[DIR]  ");
+                pos = buf_append(buf, buf_size, pos, entry_table[i].name);
+                pos = buf_append(buf, buf_size, pos, "\n");
                 dir_count++;
             }
             else if (entry_table[i].type == ZFS_TYPE_FILE)
             {
-                log("       %s  (%d bytes)", 1, 1,
-                    entry_table[i].name,
-                    entry_table[i].size);
+                pos = buf_append(buf, buf_size, pos, "       ");
+                pos = buf_append(buf, buf_size, pos, entry_table[i].name);
+                pos = buf_append(buf, buf_size, pos, "  (");
+                pos = buf_append_uint(buf, buf_size, pos, entry_table[i].size);
+                pos = buf_append(buf, buf_size, pos, " bytes)\n");
                 file_count++;
             }
         }
     }
 
     if (file_count == 0 && dir_count == 0)
-    {
-        log("(empty)", 1, 1);
-    }
+        pos = buf_append(buf, buf_size, pos, "(empty)\n");
 
-    log("", 1, 1);
-    log("Total: %d directories, %d files", 1, 1, dir_count, file_count);
+    pos = buf_append(buf, buf_size, pos, "\nTotal: ");
+    pos = buf_append_uint(buf, buf_size, pos, (uint32_t)dir_count);
+    pos = buf_append(buf, buf_size, pos, " directories, ");
+    pos = buf_append_uint(buf, buf_size, pos, (uint32_t)file_count);
+    pos = buf_append(buf, buf_size, pos, " files\n");
 
     return ZFS_OK;
 }
 
-void zfs_print_stats(void)
+void zfs_print_stats(char *buf, size_t buf_size)
 {
+    if (!buf || buf_size == 0)
+        return;
+
+    size_t pos = 0;
+
     if (!initialized)
     {
-        log("ZenFS not initialized.", 2, 1);
+        buf_append(buf, buf_size, pos, "ZenFS not initialized.\n");
         return;
     }
 
@@ -784,14 +826,27 @@ void zfs_print_stats(void)
             dir_count++;
     }
 
-    log("ZenFS Statistics:", 1, 1);
-    log("  Total space: %d KB", 1, 1, superblock.total_blocks * 4);
-    log("  Used space: %d KB", 1, 1,
-        (superblock.total_blocks - superblock.free_blocks) * 4);
-    log("  Free space: %d KB", 1, 1, superblock.free_blocks * 4);
-    log("  Entries: %d / %d", 1, 1, superblock.entry_count, ZFS_MAX_ENTRIES);
-    log("  Directories: %d", 1, 1, dir_count);
-    log("  Files: %d", 1, 1, file_count);
+    pos = buf_append(buf, buf_size, pos, "ZenFS Statistics:\n");
+    pos = buf_append(buf, buf_size, pos, "  Total space: ");
+    pos = buf_append_uint(buf, buf_size, pos, superblock.total_blocks * 4);
+    pos = buf_append(buf, buf_size, pos, " KB\n");
+    pos = buf_append(buf, buf_size, pos, "  Used space: ");
+    pos = buf_append_uint(buf, buf_size, pos, (superblock.total_blocks - superblock.free_blocks) * 4);
+    pos = buf_append(buf, buf_size, pos, " KB\n");
+    pos = buf_append(buf, buf_size, pos, "  Free space: ");
+    pos = buf_append_uint(buf, buf_size, pos, superblock.free_blocks * 4);
+    pos = buf_append(buf, buf_size, pos, " KB\n");
+    pos = buf_append(buf, buf_size, pos, "  Entries: ");
+    pos = buf_append_uint(buf, buf_size, pos, superblock.entry_count);
+    pos = buf_append(buf, buf_size, pos, " / ");
+    pos = buf_append_uint(buf, buf_size, pos, ZFS_MAX_ENTRIES);
+    pos = buf_append(buf, buf_size, pos, "\n");
+    pos = buf_append(buf, buf_size, pos, "  Directories: ");
+    pos = buf_append_uint(buf, buf_size, pos, (uint32_t)dir_count);
+    pos = buf_append(buf, buf_size, pos, "\n");
+    pos = buf_append(buf, buf_size, pos, "  Files: ");
+    pos = buf_append_uint(buf, buf_size, pos, (uint32_t)file_count);
+    pos = buf_append(buf, buf_size, pos, "\n");
 }
 
 zfs_error_t zfs_unmount(void)

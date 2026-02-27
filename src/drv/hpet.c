@@ -28,11 +28,14 @@ static volatile hpet_regs_t *hpet = NULL;
 static volatile hpet_timer_t *t0 = NULL;
 
 static uint64_t ticks_per_irq;
+volatile uint64_t hpet_ticks = 0;
+static uint32_t hpet_freq_hz = 0;
 
 static void hpet_handler(registers_t *r)
 {
     (void)r;
     hpet->int_status = 1;
+    hpet_ticks++;
     LocalApicSendEOI();
     kbd_switcher_tick();
     sched_tick();
@@ -67,5 +70,17 @@ void hpet_init(uint32_t frequency_hz)
 
     register_interrupt_handler(HPET_IRQ_VECTOR, hpet_handler, "HPET Timer");
     hpet->config = 1;
+    hpet_freq_hz = frequency_hz;
     log("HPET Initialized.", 4, 0);
+}
+void sleep(uint32_t ms)
+{
+    if (!hpet_freq_hz || !hpet) {
+        for (volatile uint32_t i = 0; i < ms * 10000; i++);
+        return;
+    }
+    uint64_t ticks_to_wait = ((uint64_t)ms * hpet_freq_hz + 999) / 1000;
+    uint64_t start = hpet_ticks;
+    while ((hpet_ticks - start) < ticks_to_wait)
+        sched_yield();
 }

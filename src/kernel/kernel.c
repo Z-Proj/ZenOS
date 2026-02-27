@@ -78,7 +78,7 @@ void _start(void)
     // rtc_initialize(); //TODO: Already working but enable when needed
     sched_init();
     IoApicSetIrqMapped(0, 0x22); //HPET
-    hpet_init(10);
+    hpet_init(200);
     IoApicSetIrqMapped(1, 0x21); //Keyboard
     init_keyboard();
     ata_init();
@@ -112,7 +112,7 @@ void _start(void)
     log("Running In Debug Mode.", 2, 1);
     detect_cpu_info(0);
     print_mem_info(1);
-    zfs_list();
+    char zfs_debug_buf[4096]; zfs_list(zfs_debug_buf, sizeof(zfs_debug_buf)); log(zfs_debug_buf, 1, 1);
 #endif
     if(!(framebuffer_bpp == 32))
         log("\nZenOS only supports 32bpp displays right now.\n", 2, 1);

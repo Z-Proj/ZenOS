@@ -1,11 +1,11 @@
 #include "../userlib.h"
 #include "../libs/gfx.h"
 
-#define COLS     25
-#define ROWS     22
+#define COLS     16
+#define ROWS     16
 #define CELL     22
 #define OX       ((512 - COLS * CELL) / 2)
-#define OY       40
+#define OY       58
 #define MAX_LEN  (COLS * ROWS)
 
 #define C_BG     0xFF0D1117
@@ -62,8 +62,8 @@ static void draw_food(socket_file_t *g) {
 }
 
 static void draw_score(socket_file_t *g) {
-    gfx_rect(g, 4, 34, 80, 14, C_BG);
-    gfx_text(g, 4, 34, C_SCORE, 1, numstr(score));
+    gfx_rect(g, 4, 20, 50, 56, C_BG);
+    gfx_text(g, 4, 40, C_SCORE, 1, numstr(score));
 }
 
 static void draw_full_scene(socket_file_t *g) {
@@ -75,9 +75,9 @@ static void draw_full_scene(socket_file_t *g) {
     draw_food(g);
     for (int i = slen-1; i >= 0; i--)
         draw_cell_snake(g, sx[i], sy[i], i == 0 ? C_HEAD : C_BODY);
-    gfx_text(g, 4, 18, C_TEXT, 1, "SNAKE");
-    gfx_text(g, 4, 34, C_SCORE, 1, numstr(score));
-    gfx_text(g, 300, 18, C_TEXT, 1, "WASD / Q quit");
+    gfx_text(g, 4, 20,  C_TEXT, 1, "SNAKE");
+    draw_score(g);
+    gfx_text(g, 300, 20, C_TEXT, 1, "WASD / Q quit");
 }
 
 int main(int argc, char *argv[]) {

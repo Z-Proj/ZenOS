@@ -257,27 +257,44 @@ static void cmd_rmdir(int argc, char* argv[]) {
 }
 
 static void cmd_ls(int argc, char* argv[]) {
+    size_t ls_buf_size = 4096;
+    char *ls_buf = (char*)malloc(ls_buf_size);
+    if (!ls_buf) {
+        prints(COLOR_RED "Out of memory\n" COLOR_RESET);
+        return;
+    }
+
     if (argc < 2) {
-        if (ls() != 0) {
+        if (ls(ls_buf, ls_buf_size) != 0) {
             prints(COLOR_RED "Failed to list directory\n" COLOR_RESET);
+            free(ls_buf);
+            return;
         }
+        prints(ls_buf);
+        free(ls_buf);
         return;
     }
 
     char cwd[256];
     if (!getcwd(cwd, sizeof(cwd))) {
         prints(COLOR_RED "Failed to get current directory\n" COLOR_RESET);
+        free(ls_buf);
         return;
     }
 
     if (chdir(argv[1]) != 0) {
         prints(COLOR_RED "Failed to change directory\n" COLOR_RESET);
+        free(ls_buf);
         return;
     }
 
-    if (ls() != 0) {
+    if (ls(ls_buf, ls_buf_size) != 0) {
         prints(COLOR_RED "Failed to list directory\n" COLOR_RESET);
+    } else {
+        prints(ls_buf);
     }
+
+    free(ls_buf);
 
     if (chdir(cwd) != 0) {
         prints(COLOR_RED "Failed to restore current directory\n" COLOR_RESET);
@@ -816,10 +833,10 @@ static void cmd_help(void) {
     prints("  malloc <size>        - Test sbrk allocation\n");
     prints("  mmap <size>          - Test mmap allocation\n");
     prints("  sockcreate <name>    - Create IPC socket\n");
-    prints("  sockwrite <name> <msg> - Write to socket\n");
+    prints("  sockwrite <name><msg>- Write to socket\n");
     prints("  sockread <name>      - Read from socket\n");
     prints("  sockdel <name>       - Delete socket\n");
-    prints("  exec <file>          - Execute program\n");
+    prints("  exec <file>          - Execute program (or just type progname)\n");
     prints("  execwait <file>      - Execute and wait for exit\n");
     prints("  kill <pid>           - Kill a process by PID\n");
     prints("  ps                   - Show process info\n");
@@ -960,6 +977,38 @@ static void read_command(void) {
     }
 }
 
+static int is_builtin(const char *name) {
+    const char *builtins[] = {
+        "help","clear","echo","version","exit",
+        "touch","rm","cat","write","stat",
+        "pwd","ls","cd","mkdir","rmdir",
+        "malloc","mmap",
+        "sockcreate","sockwrite","sockread","sockdel",
+        "exec","execwait","kill","ps","yield",
+        "uname","time","sleep","mouse","beep",
+        "shutdown","reboot","z",
+    };
+    for (int i = 0; i < (int)(sizeof(builtins)/sizeof(builtins[0])); i++) {
+        if (strcmp(name, builtins[i]) == 0) return 1;
+    }
+    return 0;
+}
+
+static int file_exists(const char *name) {
+    zfs_file_t f;
+    if (open(name, &f) == 0) { close(&f); return 1; }
+    return 0;
+}
+
+static void run_file(int argc, char *argv[]) {
+    int result = execv(argv[0], argv);
+    if (result != 0) {
+        prints(COLOR_RED "Failed to execute: " COLOR_RESET);
+        prints(argv[0]);
+        prints("\n");
+    }
+}
+
 static int execute_command(void) {
     char cmd_copy[MAX_COMMAND_LENGTH];
     char* argv[MAX_ARGS];
@@ -973,11 +1022,29 @@ static int execute_command(void) {
     int argc = parse_command(cmd_copy, argv, MAX_ARGS);
     
     if (argc == 0 || !argv[0]) return 1;
-    
+
     if (strcmp(argv[0], "z") != 0) {
         strcpy(lastcmd, command_buffer);
     }
-    
+
+    if (is_builtin(argv[0]) && file_exists(argv[0])) {
+        prints(COLOR_YELLOW "'" COLOR_RESET);
+        prints(argv[0]);
+        prints(COLOR_YELLOW "' is both a builtin and a file.\n" COLOR_RESET);
+        prints("  [b] Run builtin   [f] Run file\n> ");
+        char choice = '\0';
+        while (choice != 'b' && choice != 'f') {
+            choice = getkey();
+        }
+        if (choice == 'b') {
+            prints("builtin\n");
+        } else {
+            prints("file\n");
+            run_file(argc, argv);
+            return 1;
+        }
+    }
+
     // Command dispatch
     if (strcmp(argv[0], "help") == 0) cmd_help();
     else if (strcmp(argv[0], "clear") == 0) cmd_clear();
@@ -1031,9 +1098,14 @@ static int execute_command(void) {
         execute_command();
     }
     else {
-        prints(COLOR_RED "Unknown: " COLOR_RESET);
-        prints(argv[0]);
-        prints("\nType 'help' for commands.\n");
+        int has_file = file_exists(argv[0]);
+        if (has_file) {
+            run_file(argc, argv);
+        } else {
+            prints(COLOR_RED "Unknown: " COLOR_RESET);
+            prints(argv[0]);
+            prints("\nType 'help' for commands.\n");
+        }
     }
     
     return 1;

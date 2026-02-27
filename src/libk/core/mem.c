@@ -16,15 +16,113 @@ static uint64_t bitmap_size = 0;
 static uint64_t memory_base = 0;
 static uint64_t memory_top = 0;
 
-typedef struct header
-{
-    size_t size;
-    int free;
-    struct header *next;
-} header_t;
+#define HEAP_ALIGN          16
+#define HEAP_MIN_BLOCK      (HEAP_ALIGN * 2)
+#define NUM_SIZE_CLASSES    12
+#define HEAP_MAGIC          0xDEADBEEFCAFEBABEULL
 
-#define HEADER_SIZE sizeof(header_t)
-static header_t *heap_start = NULL;
+#define BLK_OVERHEAD        (sizeof(blk_hdr_t) + sizeof(size_t))
+
+typedef struct blk_hdr {
+    size_t          size;
+    uint8_t         used;
+    uint8_t         _pad[7];
+    struct blk_hdr *prev_free;
+    struct blk_hdr *next_free;
+} blk_hdr_t;
+
+static blk_hdr_t *free_lists[NUM_SIZE_CLASSES];
+static uint8_t   *heap_base  = NULL;
+static uint8_t   *heap_end   = NULL;
+
+static int size_class(size_t sz)
+{
+    if (sz <= 32)   return 0;
+    if (sz <= 64)   return 1;
+    if (sz <= 128)  return 2;
+    if (sz <= 256)  return 3;
+    if (sz <= 512)  return 4;
+    if (sz <= 1024) return 5;
+    if (sz <= 2048) return 6;
+    if (sz <= 4096) return 7;
+    if (sz <= 8192) return 8;
+    if (sz <= 16384) return 9;
+    if (sz <= 32768) return 10;
+    return 11;
+}
+
+static inline size_t *blk_footer(blk_hdr_t *b)
+{
+    return (size_t *)((uint8_t *)b + sizeof(blk_hdr_t) + b->size);
+}
+
+static inline blk_hdr_t *blk_next(blk_hdr_t *b)
+{
+    return (blk_hdr_t *)((uint8_t *)b + sizeof(blk_hdr_t) + b->size + sizeof(size_t));
+}
+
+static inline blk_hdr_t *blk_prev(blk_hdr_t *b)
+{
+    size_t *prev_foot = (size_t *)((uint8_t *)b - sizeof(size_t));
+    return (blk_hdr_t *)((uint8_t *)b - sizeof(blk_hdr_t) - *prev_foot - sizeof(size_t));
+}
+
+static void fl_insert(blk_hdr_t *b)
+{
+    int c = size_class(b->size);
+    b->next_free = free_lists[c];
+    b->prev_free = NULL;
+    if (free_lists[c])
+        free_lists[c]->prev_free = b;
+    free_lists[c] = b;
+}
+
+static void fl_remove(blk_hdr_t *b)
+{
+    int c = size_class(b->size);
+    if (b->prev_free)
+        b->prev_free->next_free = b->next_free;
+    else
+        free_lists[c] = b->next_free;
+    if (b->next_free)
+        b->next_free->prev_free = b->prev_free;
+    b->prev_free = b->next_free = NULL;
+}
+
+static void write_tags(blk_hdr_t *b)
+{
+    *blk_footer(b) = b->size;
+}
+
+static blk_hdr_t *coalesce(blk_hdr_t *b)
+{
+    uint8_t can_prev = ((uint8_t *)b > heap_base);
+    uint8_t can_next = ((uint8_t *)blk_next(b) < heap_end);
+
+    blk_hdr_t *prev = can_prev ? blk_prev(b) : NULL;
+    blk_hdr_t *next = can_next ? blk_next(b) : NULL;
+
+    int merge_prev = (prev && !prev->used);
+    int merge_next = (next && !next->used);
+
+    if (merge_prev) fl_remove(prev);
+    if (merge_next) fl_remove(next);
+
+    if (merge_prev && merge_next) {
+        prev->size += BLK_OVERHEAD + b->size + BLK_OVERHEAD + next->size;
+        write_tags(prev);
+        b = prev;
+    } else if (merge_prev) {
+        prev->size += BLK_OVERHEAD + b->size;
+        write_tags(prev);
+        b = prev;
+    } else if (merge_next) {
+        b->size += BLK_OVERHEAD + next->size;
+        write_tags(b);
+    }
+
+    return b;
+}
 
 static page_table_t *kernel_pml4 = NULL;
 
@@ -241,18 +339,29 @@ uint64_t get_free_memory(void)
 void init_kernel_heap(void)
 {
     spinlock_init(&heap_lock);
+
+    for (int i = 0; i < NUM_SIZE_CLASSES; i++)
+        free_lists[i] = NULL;
+
     uint64_t heap_pages = 8192;
-    uint64_t heap_phys = alloc_pages(heap_pages);
-    if (!heap_phys)
-    {
+    uint64_t heap_phys  = alloc_pages(heap_pages);
+    if (!heap_phys) {
         serial_write_string("[0ms][mem.c:???]- Failed to allocate heap pages!\n");
         return;
     }
-    uint64_t heap_virt = heap_phys + KERNEL_VIRT_OFFSET;
-    heap_start = (header_t *)heap_virt;
-    heap_start->size = (heap_pages * PAGE_SIZE) - HEADER_SIZE;
-    heap_start->free = 1;
-    heap_start->next = NULL;
+
+    heap_base = (uint8_t *)(heap_phys + KERNEL_VIRT_OFFSET);
+    size_t total = heap_pages * PAGE_SIZE;
+    heap_end  = heap_base + total;
+
+    blk_hdr_t *blk = (blk_hdr_t *)heap_base;
+    blk->size      = total - BLK_OVERHEAD;
+    blk->used      = 0;
+    blk->prev_free = NULL;
+    blk->next_free = NULL;
+    write_tags(blk);
+    fl_insert(blk);
+
     log("Kernel heap initialized.", 4, 0);
 }
 
@@ -263,38 +372,43 @@ void print_mem_info(int vis)
 
 void *kmalloc(size_t size)
 {
-    if (!heap_start)
-    {
+    if (!heap_base || size == 0)
         return NULL;
-    }
-    if (size == 0)
-    {
-        return NULL;
-    }
+
+    size = (size + HEAP_ALIGN - 1) & ~(size_t)(HEAP_ALIGN - 1);
+    if (size < HEAP_MIN_BLOCK)
+        size = HEAP_MIN_BLOCK;
+
     spinlock_acquire(&heap_lock);
-    size = (size + 7) & ~7;
 
-    header_t *curr = heap_start;
-    while (curr)
-    {
-        if (curr->free && curr->size >= size)
-        {
-            if (curr->size > size + HEADER_SIZE + 8)
-            {
-                header_t *next = (header_t *)((uint8_t *)curr + HEADER_SIZE + size);
-                next->size = curr->size - size - HEADER_SIZE;
-                next->free = 1;
-                next->next = curr->next;
-                curr->size = size;
-                curr->next = next;
+    for (int c = size_class(size); c < NUM_SIZE_CLASSES; c++) {
+        blk_hdr_t *b = free_lists[c];
+        while (b) {
+            if (b->size >= size) {
+                fl_remove(b);
+
+                if (b->size >= size + BLK_OVERHEAD + HEAP_MIN_BLOCK) {
+                    blk_hdr_t *split = (blk_hdr_t *)((uint8_t *)b + sizeof(blk_hdr_t) + size + sizeof(size_t));
+                    split->size      = b->size - size - BLK_OVERHEAD;
+                    split->used      = 0;
+                    split->prev_free = NULL;
+                    split->next_free = NULL;
+                    b->size          = size;
+                    write_tags(b);
+                    write_tags(split);
+                    fl_insert(split);
+                } else {
+                    write_tags(b);
+                }
+
+                b->used = 1;
+                spinlock_release(&heap_lock);
+                return (void *)((uint8_t *)b + sizeof(blk_hdr_t));
             }
-
-            curr->free = 0;
-            spinlock_release(&heap_lock);
-            return (void *)((uint8_t *)curr + HEADER_SIZE);
+            b = b->next_free;
         }
-        curr = curr->next;
     }
+
     serial_write_string("\x1b[38;2;255;50;50m[0ms][mem.c:???]- No suitable block found.\n");
     spinlock_release(&heap_lock);
     return NULL;
@@ -304,24 +418,14 @@ void kfree(void *ptr)
 {
     if (!ptr)
         return;
+
     spinlock_acquire(&heap_lock);
-    header_t *block = (header_t *)((uint8_t *)ptr - HEADER_SIZE);
-    block->free = 1;
-    if (block->next && block->next->free)
-    {
-        block->size += HEADER_SIZE + block->next->size;
-        block->next = block->next->next;
-    }
-    header_t *curr = heap_start;
-    while (curr && curr->next != block)
-    {
-        curr = curr->next;
-    }
-    if (curr && curr->free)
-    {
-        curr->size += HEADER_SIZE + block->size;
-        curr->next = block->next;
-    }
+
+    blk_hdr_t *b = (blk_hdr_t *)((uint8_t *)ptr - sizeof(blk_hdr_t));
+    b->used = 0;
+    b = coalesce(b);
+    fl_insert(b);
+
     spinlock_release(&heap_lock);
 }
 
@@ -329,24 +433,21 @@ void *krealloc(void *ptr, size_t size)
 {
     if (!ptr)
         return kmalloc(size);
-    if (size == 0)
-    {
+    if (size == 0) {
         kfree(ptr);
         return NULL;
     }
-    header_t *block = (header_t *)((uint8_t *)ptr - HEADER_SIZE);
-    if (block->size >= size)
-    {
+
+    blk_hdr_t *b = (blk_hdr_t *)((uint8_t *)ptr - sizeof(blk_hdr_t));
+    size_t aligned = (size + HEAP_ALIGN - 1) & ~(size_t)(HEAP_ALIGN - 1);
+
+    if (b->size >= aligned)
         return ptr;
-    }
+
     void *new_mem = kmalloc(size);
-    if (new_mem)
-    {
-        size_t copy_size = (block->size < size) ? block->size : size;
-        for (size_t i = 0; i < copy_size; i++)
-        {
-            ((char *)new_mem)[i] = ((char *)ptr)[i];
-        }
+    if (new_mem) {
+        size_t copy_size = b->size < aligned ? b->size : aligned;
+        memcpy(new_mem, ptr, copy_size);
         kfree(ptr);
     }
     return new_mem;

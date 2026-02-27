@@ -77,14 +77,3 @@ rtc_time_t rtc_boottime(void)
 {
     return boot_time;
 }
-
-void sleep(uint32_t ms)
-{
-    uint64_t start_tick = tick;
-    uint64_t ticks_to_wait = (ms * 1000) / 1024;
-    
-    while ((tick - start_tick) < ticks_to_wait)
-    {
-        sched_yield();
-    }
-}

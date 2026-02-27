@@ -91,10 +91,10 @@ zfs_error_t zfs_delete(const char* filename);
 zfs_error_t zfs_seek(zfs_file_t* file, uint32_t position);
 
 
-zfs_error_t zfs_list(void);  
-void zfs_print_stats(void);
+zfs_error_t zfs_list(char *buf, size_t buf_size);
+void zfs_print_stats(char *buf, size_t buf_size);
 
 
 zfs_error_t zfs_unmount(void);
 
-#endif 
+#endif

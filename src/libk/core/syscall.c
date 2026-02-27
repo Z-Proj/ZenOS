@@ -9,7 +9,7 @@
 #include "../../drv/vga.h"
 #include "../../drv/disk/zfs.h"
 #include "../../kernel/sched.h"
-#include "../../drv/rtc.h"
+#include "../../drv/hpet.h"
 #include "../../cpu/acpi/acpi.h"
 #include "../../cpu/gdt.h"
 #include "../string.h"
@@ -82,7 +82,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         }
 
         case SYSCALL_LS: {
-            return zfs_list();
+            char *buf = (char*)arg1;
+            size_t buf_size = (size_t)arg2;
+            if (!buf || buf_size == 0) return ZFS_ERR_INVALID_PARAM;
+            return zfs_list(buf, buf_size);
         }
         
         case SYSCALL_GETKEY:
@@ -335,7 +338,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             (void)clk_id;
             if (!tp) return -1;
             
-            uint64_t ticks = rtc_get_ticks();
+            uint64_t ticks = hpet_ticks;
             tp->tv_sec = ticks / 1000;
             tp->tv_nsec = (ticks % 1000) * 1000000;
             return 0;
