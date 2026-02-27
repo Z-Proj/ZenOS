@@ -57,7 +57,7 @@
 // }
 
 void idle(void){
-    for(;;)sched_yield();
+    for(;;)asm volatile("sti; hlt");
 }
 
 void _start(void)

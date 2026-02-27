@@ -42,17 +42,18 @@
 #define SYSCALL_SOCKET_DELETE 36
 #define SYSCALL_SOCKET_EXISTS 37
 #define SYSCALL_SOCKET_AVAILABLE 38
-#define SYSCALL_UNAME       39
-#define SYSCALL_LOG         40
-#define SYSCALL_SHUTDOWN    41
-#define SYSCALL_REBOOT      42
-#define SYSCALL_YIELD       43
-#define SYSCALL_LS          44
+#define SYSCALL_UNAME           39
+#define SYSCALL_LOG             40
+#define SYSCALL_SHUTDOWN        41
+#define SYSCALL_REBOOT          42
+#define SYSCALL_YIELD           43
+#define SYSCALL_LS              44
 #define SYSCALL_GET_FRAMEBUFFER 45
 #define SYSCALL_IS_FOCUSED      46
 #define SYSCALL_KILL            47
 #define SYSCALL_WAIT_PID        48
 #define SYSCALL_LIST_TASKS      49
+#define SYSCALL_HALT            50
 
 // stat structure for file info
 typedef struct {

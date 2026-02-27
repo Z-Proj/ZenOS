@@ -349,6 +349,11 @@ static inline int wait_pid(pid_t pid) {
     return (int)syscall1(48, (uint64_t)pid);
 }
 
+static inline void halt(void){
+    syscall0(50);
+    return;
+}
+
 #define KEY_ARROW_UP    0x01
 #define KEY_ARROW_DOWN  0x02
 #define KEY_ARROW_LEFT  0x03

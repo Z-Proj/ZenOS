@@ -931,6 +931,7 @@ static void read_command(void) {
     memset(command_buffer, 0, MAX_COMMAND_LENGTH);
     
     while (1) {
+        halt();
         char c = getkey();
         
         if (c == '\0') {

@@ -4,7 +4,7 @@
 
 void ap_main(void)
 {
-    __asm__ __volatile__("sti");
+    __asm__ __volatile__("cli");
     for (;;)
         __asm__ __volatile__("hlt");
 }

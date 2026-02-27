@@ -234,13 +234,12 @@ int main(int argc, char *argv[]) {
     uint32_t bytes_read = 0;
 
     while (1) {
+        halt();
         if (socket_available(sock) >= sizeof(gfx_msg_t)) {
             int r = socket_read(sock, &msg, sizeof(gfx_msg_t), &bytes_read);
             if (r == 0 && bytes_read == sizeof(gfx_msg_t)) {
                 handle(&msg);
             }
-        } else {
-            yield();
         }
     }
 

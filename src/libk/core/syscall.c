@@ -553,6 +553,12 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             } while (t != head);
             return count;
         }
+
+        case SYSCALL_HALT: {
+            asm volatile("sti; hlt");
+            asm volatile("cli");
+            return 0;
+        }
         
         default:
             log("Unknown syscall: %lu", 2, 0, num);
