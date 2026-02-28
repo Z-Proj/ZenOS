@@ -437,6 +437,8 @@ static void switcher_move(int direction)
     }
 }
 
+int font_id = 3;
+
 static void kbd_interrupt_handler(registers_t *regs)
 {
     (void)regs;
@@ -489,6 +491,12 @@ static void kbd_interrupt_handler(registers_t *regs)
 
         if (scancode == KBD_SCANCODE2_F1) {
             switcher_show(shift ? -1 : 1);
+            return;
+        }
+        
+        if (scancode == KBD_SCANCODE2_F2) {
+            font(font_id++);
+            if(font_id > 3) font_id = 0;
             return;
         }
 

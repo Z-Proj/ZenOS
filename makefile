@@ -109,7 +109,6 @@ qemu:
 	-serial stdio \
 	-netdev user,id=net0 \
 	-device e1000,netdev=net0 \
-	-device virtio-gpu-pci \
 	-display gtk,gl=on \
 	-enable-kvm \
 	-cpu host

@@ -13,6 +13,7 @@ void vga_init(void);
 void clr(void);
 void ft_run(bool set);
 void printc(char c);
+void font(uint32_t num);
 void prints(const char *str);
 void setcolor(uint32_t fg, uint32_t bg);
 void put_pixel(uint32_t x, uint32_t y, uint32_t color);

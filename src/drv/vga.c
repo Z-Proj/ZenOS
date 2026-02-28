@@ -9,6 +9,8 @@
 #include "term/flanterm.h"
 #include "term/flanterm_backends/fb.h"
 #include "../libk/gfx/font_8x16.h"
+#include "../libk/gfx/font1_8x16.h"
+#include "../libk/gfx/font2_8x16.h"
 
 static volatile struct limine_framebuffer_request framebuffer_request = {
     .id = {0xc7b1dd30df4c8b88, 0x0a82e883a194f07b, 0x9d5827dcd881dd75, 0xa3148604f6fab11b},
@@ -21,6 +23,8 @@ uint8_t framebuffer_bpp;
 static spinlock_t vga_lock;
 bool flanterm = false;
 static struct flanterm_context *ft_ctx = NULL;
+uint8_t red_shift = 0, green_shift = 0, blue_shift = 0;
+uint8_t red_size = 0, green_size = 0, blue_size = 0;
 
 static void flanterm_kfree_wrapper(void *ptr, size_t size)
 {
@@ -104,9 +108,6 @@ void vga_init(void)
         log("Unsupported BPP: %i", 3, 1, framebuffer_bpp);
         return;
     }
-    
-    uint8_t red_shift = 0, green_shift = 0, blue_shift = 0;
-    uint8_t red_size = 0, green_size = 0, blue_size = 0;
 
     if (framebuffer_bpp == 32)
     {
@@ -150,7 +151,7 @@ void vga_init(void)
         NULL, NULL,
         NULL, NULL,
         NULL, NULL,
-        font_8x16,
+        NULL,
         8, 16,
         0,
         0, 0,
@@ -167,6 +168,38 @@ void vga_init(void)
     flanterm = true;
     log("Framebuffer initialized: %ix%i, %i bpp", 4, 0,
         framebuffer_width, framebuffer_height, framebuffer_bpp);
+}
+
+void font(uint32_t num)
+{
+    if (!ft_ctx || !flanterm)
+        return;
+
+    spinlock_acquire(&vga_lock);
+    flanterm_write(ft_ctx, "\033[2J\033[H", 7);
+    flanterm_deinit(ft_ctx, flanterm_kfree_wrapper);
+        ft_ctx = flanterm_fb_init(
+        kmalloc,
+        flanterm_kfree_wrapper,
+        (uint32_t *)framebuffer_addr,
+        framebuffer_width/2,
+        framebuffer_height,
+        framebuffer_pitch,
+        red_size, red_shift,
+        green_size, green_shift,
+        blue_size, blue_shift,
+        NULL,
+        NULL, NULL,
+        NULL, NULL,
+        NULL, NULL,
+        (num==0?font_8x16:(num==1?font1_8x16:(num==2?font2_8x16:NULL))),
+        8, 16,
+        0,
+        0, 0,
+        0,
+        0
+    );
+    spinlock_release(&vga_lock);
 }
 
 void plotchar(char c, uint32_t x, uint32_t y, uint32_t fg)
