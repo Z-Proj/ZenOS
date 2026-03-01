@@ -1,17 +1,18 @@
 #include "../userlib.h"
+#include "../libs/lib.h"
 
 #define MAX_N 100000
 
 static uint8_t sieve[MAX_N];
 
 static void print_num(uint64_t n) {
-    if (n == 0) { prints("0"); return; }
+    if (n == 0) { fputs("0", stdout); return; }
     char buf[20];
     int i = 0;
     while (n > 0) { buf[i++] = '0' + (n % 10); n /= 10; }
     for (int j = i - 1; j >= 0; j--) {
         char s[2] = { buf[j], '\0' };
-        prints(s);
+        fputs(s, stdout);
     }
 }
 
@@ -34,26 +35,26 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    prints("\033[33mPrimes up to ");
+    fputs("\033[33mPrimes up to ", stdout);
     print_num(limit);
-    prints(":\033[0m\n");
+    fputs(":\033[0m\n", stdout);
 
     int count = 0;
     for (int i = 2; i <= limit; i++) {
         if (sieve[i]) {
             print_num(i);
-            prints("  ");
+            fputs("  ", stdout);
             count++;
-            if (count % 10 == 0) prints("\n");
-            halt();
+            if (count % 10 == 0) fputs("\n", stdout);
+            zen_halt();
         }
     }
 
-    if (count % 10 != 0) prints("\n");
+    if (count % 10 != 0) fputs("\n", stdout);
 
-    prints("\033[32mFound ");
+    fputs("\033[32mFound ", stdout);
     print_num(count);
-    prints(" primes.\033[0m\n");
+    fputs(" primes.\033[0m\n", stdout);
 
     exit(0);
     return 0;

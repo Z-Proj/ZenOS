@@ -1,4 +1,5 @@
 #include "../userlib.h"
+#include "../libs/lib.h"
 
 #define COLOR_RESET   "\033[0m"
 #define COLOR_RED     "\033[31m"
@@ -12,26 +13,26 @@
 static void print_int(int n) {
     char buf[32];
     int i = 0;
-    if (n == 0) { prints("0"); return; }
-    if (n < 0) { prints("-"); n = -n; }
+    if (n == 0) { fputs("0", stdout); return; }
+    if (n < 0) { fputs("-", stdout); n = -n; }
     while (n > 0) { buf[i++] = '0' + (n % 10); n /= 10; }
     for (int j = i - 1; j >= 0; j--) {
         char s[2] = { buf[j], '\0' };
-        prints(s);
+        fputs(s, stdout);
     }
 }
 
 int main(int argc, char *argv[]) {
-    prints(COLOR_BOLD COLOR_CYAN "argc: " COLOR_RESET);
+    fputs(COLOR_BOLD COLOR_CYAN "argc: " COLOR_RESET, stdout);
     print_int(argc);
-    prints("\n");
+    fputs("\n", stdout);
 
     for (int i = 0; i < argc; i++) {
-        prints(COLOR_YELLOW "argv[" COLOR_RESET);
+        fputs(COLOR_YELLOW "argv[" COLOR_RESET, stdout);
         print_int(i);
-        prints(COLOR_YELLOW "] = " COLOR_RESET);
-        prints(argv[i]);
-        prints("\n");
+        fputs(COLOR_YELLOW "] = " COLOR_RESET, stdout);
+        fputs(argv[i], stdout);
+        fputs("\n", stdout);
     }
 
     exit(0);

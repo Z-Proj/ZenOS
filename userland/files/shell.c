@@ -1,4 +1,5 @@
 #include "../userlib.h"
+#include "../libs/lib.h"
 
 #define COLOR_RESET   "\033[0m"
 #define COLOR_RED     "\033[31m"
@@ -48,71 +49,68 @@ static int parse_command(char* command, char* args[], int max_args) {
 
 static void cmd_touch(int argc, char* argv[]) {
     if (argc < 2) {
-        prints(COLOR_RED "Usage: touch <filename>\n" COLOR_RESET);
+        fputs(COLOR_RED "Usage: touch <filename>\n" COLOR_RESET, stdout);
         return;
     }
     
-    int ret = create(argv[1]);
+    int ret = zen_create(argv[1]);
     if (ret == 0) {
-        prints(COLOR_GREEN "Created: " COLOR_RESET);
-        prints(argv[1]);
-        prints("\n");
+        fputs(COLOR_GREEN "Created: " COLOR_RESET, stdout);
+        fputs(argv[1], stdout);
+        fputs("\n", stdout);
     } else {
-        prints(COLOR_RED "Failed to create file\n" COLOR_RESET);
+        fputs(COLOR_RED "Failed to create file\n" COLOR_RESET, stdout);
     }
 }
 
 static void cmd_rm(int argc, char* argv[]) {
     if (argc < 2) {
-        prints(COLOR_RED "Usage: rm <filename>\n" COLOR_RESET);
+        fputs(COLOR_RED "Usage: rm <filename>\n" COLOR_RESET, stdout);
         return;
     }
     
-    int ret = delete(argv[1]);
+    int ret = unlink(argv[1]);
     if (ret == 0) {
-        prints(COLOR_GREEN "Deleted: " COLOR_RESET);
-        prints(argv[1]);
-        prints("\n");
+        fputs(COLOR_GREEN "Deleted: " COLOR_RESET, stdout);
+        fputs(argv[1], stdout);
+        fputs("\n", stdout);
     } else {
-        prints(COLOR_RED "Failed to delete file\n" COLOR_RESET);
+        fputs(COLOR_RED "Failed to delete file\n" COLOR_RESET, stdout);
     }
 }
 
 static void cmd_cat(int argc, char* argv[]) {
     if (argc < 2) {
-        prints(COLOR_RED "Usage: cat <filename>\n" COLOR_RESET);
+        fputs("Usage: cat <filename>\n", stdout);
         return;
     }
-    
-    
-    int file = open(argv[1], 0);
-    if (file < 0) {
-        prints(COLOR_RED "Failed to open file\n" COLOR_RESET);
+
+    int fd = open(argv[1], 0);
+    if (fd < 0) {
+        fputs("Failed to open file\n", stdout);
         return;
     }
-    
-    char buffer[256];
+
+    char buffer[512];
     ssize_t bytes;
-    
-    while ((bytes = read(file, buffer, sizeof(buffer) - 1)) > 0) {
-        buffer[bytes] = '\0';
-        prints(buffer);
+
+    while ((bytes = read(fd, buffer, sizeof(buffer))) > 0) {
+        write(1, buffer, bytes);
     }
-    
-    close(file);
-    prints("\n");
+
+    close(fd);
 }
 
 static void cmd_write(int argc, char* argv[]) {
     if (argc < 3) {
-        prints(COLOR_RED "Usage: write <filename> <text>\n" COLOR_RESET);
+        fputs(COLOR_RED "Usage: write <filename> <text>\n" COLOR_RESET, stdout);
         return;
     }
     
     
     int file = open(argv[1], 1);
     if (file < 0) {
-        prints(COLOR_RED "Failed to open file\n" COLOR_RESET);
+        fputs(COLOR_RED "Failed to open file\n" COLOR_RESET, stdout);
         return;
     }
     
@@ -130,30 +128,30 @@ static void cmd_write(int argc, char* argv[]) {
     
     int success = write(file, text, strlen(text));
     if (!success) {
-        prints(COLOR_GREEN "Write successful.\n" COLOR_RESET);
+        fputs(COLOR_GREEN "Write successful.\n" COLOR_RESET, stdout);
     } else {
-        prints(COLOR_RED "Write failed\n" COLOR_RESET);
+        fputs(COLOR_RED "Write failed\n" COLOR_RESET, stdout);
     }
     close(file);
 }
 
 static void cmd_stat(int argc, char* argv[]) {
     if (argc < 2) {
-        prints(COLOR_RED "Usage: stat <filename>\n" COLOR_RESET);
+        fputs(COLOR_RED "Usage: stat <filename>\n" COLOR_RESET, stdout);
         return;
     }
     
     stat_t st;
     if (stat(argv[1], &st) != 0) {
-        prints(COLOR_RED "Failed to stat file\n" COLOR_RESET);
+        fputs(COLOR_RED "Failed to stat file\n" COLOR_RESET, stdout);
         return;
     }
     
-    prints(COLOR_CYAN "File: " COLOR_RESET);
-    prints(argv[1]);
-    prints("\n");
+    fputs(COLOR_CYAN "File: " COLOR_RESET, stdout);
+    fputs(argv[1], stdout);
+    fputs("\n", stdout);
     
-    prints("  Size: ");
+    fputs("  Size: ", stdout);
     char num[32];
     int n = st.st_size;
     int i = 0;
@@ -171,10 +169,10 @@ static void cmd_stat(int argc, char* argv[]) {
         num[j] = num[i-1-j];
         num[i-1-j] = tmp;
     }
-    prints(num);
-    prints(" bytes\n");
+    fputs(num, stdout);
+    fputs(" bytes\n", stdout);
     
-    prints("  Blocks: ");
+    fputs("  Blocks: ", stdout);
     n = st.st_blocks;
     i = 0;
     if (n == 0) {
@@ -191,8 +189,8 @@ static void cmd_stat(int argc, char* argv[]) {
         num[j] = num[i-1-j];
         num[i-1-j] = tmp;
     }
-    prints(num);
-    prints("\n");
+    fputs(num, stdout);
+    fputs("\n", stdout);
 }
 
 // ============ DIRECTORY COMMANDS ============
@@ -200,56 +198,56 @@ static void cmd_stat(int argc, char* argv[]) {
 static void cmd_pwd(void) {
     char cwd[256];
     if (getcwd(cwd, sizeof(cwd))) {
-        prints(COLOR_CYAN);
-        prints(cwd);
-        prints(COLOR_RESET "\n");
+        fputs(COLOR_CYAN, stdout);
+        fputs(cwd, stdout);
+        fputs(COLOR_RESET "\n", stdout);
     } else {
-        prints(COLOR_RED "Failed to get current directory\n" COLOR_RESET);
+        fputs(COLOR_RED "Failed to get current directory\n" COLOR_RESET, stdout);
     }
 }
 
 static void cmd_cd(int argc, char* argv[]) {
     if (argc < 2) {
-        prints(COLOR_RED "Usage: cd <directory>\n" COLOR_RESET);
+        fputs(COLOR_RED "Usage: cd <directory>\n" COLOR_RESET, stdout);
         return;
     }
     
     if (chdir(argv[1]) == 0) {
-        prints(COLOR_GREEN "Changed to: " COLOR_RESET);
-        prints(argv[1]);
-        prints("\n");
+        fputs(COLOR_GREEN "Changed to: " COLOR_RESET, stdout);
+        fputs(argv[1], stdout);
+        fputs("\n", stdout);
     } else {
-        prints(COLOR_RED "Failed to change directory\n" COLOR_RESET);
+        fputs(COLOR_RED "Failed to change directory\n" COLOR_RESET, stdout);
     }
 }
 
 static void cmd_mkdir(int argc, char* argv[]) {
     if (argc < 2) {
-        prints(COLOR_RED "Usage: mkdir <directory>\n" COLOR_RESET);
+        fputs(COLOR_RED "Usage: mkdir <directory>\n" COLOR_RESET, stdout);
         return;
     }
     
-    if (mkdir(argv[1]) == 0) {
-        prints(COLOR_GREEN "Created directory: " COLOR_RESET);
-        prints(argv[1]);
-        prints("\n");
+    if (mkdir(argv[1], 0755) == 0) {
+        fputs(COLOR_GREEN "Created directory: " COLOR_RESET, stdout);
+        fputs(argv[1], stdout);
+        fputs("\n", stdout);
     } else {
-        prints(COLOR_RED "Failed to create directory\n" COLOR_RESET);
+        fputs(COLOR_RED "Failed to create directory\n" COLOR_RESET, stdout);
     }
 }
 
 static void cmd_rmdir(int argc, char* argv[]) {
     if (argc < 2) {
-        prints(COLOR_RED "Usage: rmdir <directory>\n" COLOR_RESET);
+        fputs(COLOR_RED "Usage: rmdir <directory>\n" COLOR_RESET, stdout);
         return;
     }
     
     if (rmdir(argv[1]) == 0) {
-        prints(COLOR_GREEN "Removed directory: " COLOR_RESET);
-        prints(argv[1]);
-        prints("\n");
+        fputs(COLOR_GREEN "Removed directory: " COLOR_RESET, stdout);
+        fputs(argv[1], stdout);
+        fputs("\n", stdout);
     } else {
-        prints(COLOR_RED "Failed to remove directory\n" COLOR_RESET);
+        fputs(COLOR_RED "Failed to remove directory\n" COLOR_RESET, stdout);
     }
 }
 
@@ -257,44 +255,44 @@ static void cmd_ls(int argc, char* argv[]) {
     size_t ls_buf_size = 4096;
     char *ls_buf = (char*)malloc(ls_buf_size);
     if (!ls_buf) {
-        prints(COLOR_RED "Out of memory\n" COLOR_RESET);
+        fputs(COLOR_RED "Out of memory\n" COLOR_RESET, stdout);
         return;
     }
 
     if (argc < 2) {
-        if (ls(ls_buf, ls_buf_size) != 0) {
-            prints(COLOR_RED "Failed to list directory\n" COLOR_RESET);
+        if (zen_ls(ls_buf, ls_buf_size) != 0) {
+            fputs(COLOR_RED "Failed to list directory\n" COLOR_RESET, stdout);
             free(ls_buf);
             return;
         }
-        prints(ls_buf);
+        fputs(ls_buf, stdout);
         free(ls_buf);
         return;
     }
 
     char cwd[256];
     if (!getcwd(cwd, sizeof(cwd))) {
-        prints(COLOR_RED "Failed to get current directory\n" COLOR_RESET);
+        fputs(COLOR_RED "Failed to get current directory\n" COLOR_RESET, stdout);
         free(ls_buf);
         return;
     }
 
     if (chdir(argv[1]) != 0) {
-        prints(COLOR_RED "Failed to change directory\n" COLOR_RESET);
+        fputs(COLOR_RED "Failed to change directory\n" COLOR_RESET, stdout);
         free(ls_buf);
         return;
     }
 
-    if (ls(ls_buf, ls_buf_size) != 0) {
-        prints(COLOR_RED "Failed to list directory\n" COLOR_RESET);
+    if (zen_ls(ls_buf, ls_buf_size) != 0) {
+        fputs(COLOR_RED "Failed to list directory\n" COLOR_RESET, stdout);
     } else {
-        prints(ls_buf);
+        fputs(ls_buf, stdout);
     }
 
     free(ls_buf);
 
     if (chdir(cwd) != 0) {
-        prints(COLOR_RED "Failed to restore current directory\n" COLOR_RESET);
+        fputs(COLOR_RED "Failed to restore current directory\n" COLOR_RESET, stdout);
     }
 }
 
@@ -306,7 +304,7 @@ static void cmd_malloc_test(int argc, char* argv[]) {
         size = atoi(argv[1]);
     }
     
-    prints(COLOR_YELLOW "Allocating " COLOR_RESET);
+    fputs(COLOR_YELLOW "Allocating " COLOR_RESET, stdout);
     char num[16];
     int n = size;
     int i = 0;
@@ -320,12 +318,12 @@ static void cmd_malloc_test(int argc, char* argv[]) {
         num[j] = num[i-1-j];
         num[i-1-j] = tmp;
     }
-    prints(num);
-    prints(" bytes via sbrk...\n");
+    fputs(num, stdout);
+    fputs(" bytes via sbrk...\n", stdout);
     
     void* ptr = sbrk(size);
     if (ptr != (void*)-1) {
-        prints(COLOR_GREEN "Allocated at: 0x" COLOR_RESET);
+        fputs(COLOR_GREEN "Allocated at: 0x" COLOR_RESET, stdout);
         
         // Print hex address
         uint64_t addr = (uint64_t)ptr;
@@ -336,14 +334,14 @@ static void cmd_malloc_test(int argc, char* argv[]) {
             hex[idx++] = digit < 10 ? '0' + digit : 'a' + (digit - 10);
         }
         hex[idx] = '\0';
-        prints(hex);
-        prints("\n");
+        fputs(hex, stdout);
+        fputs("\n", stdout);
         
         // Write to memory to test
         memset(ptr, 0x42, size > 16 ? 16 : size);
-        prints(COLOR_GREEN "Memory test successful\n" COLOR_RESET);
+        fputs(COLOR_GREEN "Memory test successful\n" COLOR_RESET, stdout);
     } else {
-        prints(COLOR_RED "Allocation failed\n" COLOR_RESET);
+        fputs(COLOR_RED "Allocation failed\n" COLOR_RESET, stdout);
     }
 }
 
@@ -353,7 +351,7 @@ static void cmd_mmap_test(int argc, char* argv[]) {
         size = atoi(argv[1]);
     }
     
-    prints(COLOR_YELLOW "Mapping " COLOR_RESET);
+    fputs(COLOR_YELLOW "Mapping " COLOR_RESET, stdout);
     char num[16];
     int n = size;
     int i = 0;
@@ -367,12 +365,12 @@ static void cmd_mmap_test(int argc, char* argv[]) {
         num[j] = num[i-1-j];
         num[i-1-j] = tmp;
     }
-    prints(num);
-    prints(" bytes via mmap...\n");
+    fputs(num, stdout);
+    fputs(" bytes via mmap...\n", stdout);
     
     void* ptr = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (ptr != (void*)-1) {
-        prints(COLOR_GREEN "Mapped at: 0x" COLOR_RESET);
+        fputs(COLOR_GREEN "Mapped at: 0x" COLOR_RESET, stdout);
         
         uint64_t addr = (uint64_t)ptr;
         char hex[20];
@@ -382,18 +380,18 @@ static void cmd_mmap_test(int argc, char* argv[]) {
             hex[idx++] = digit < 10 ? '0' + digit : 'a' + (digit - 10);
         }
         hex[idx] = '\0';
-        prints(hex);
-        prints("\n");
+        fputs(hex, stdout);
+        fputs("\n", stdout);
         
         memset(ptr, 0xAA, size > 16 ? 16 : size);
-        prints(COLOR_GREEN "Memory test successful\n" COLOR_RESET);
+        fputs(COLOR_GREEN "Memory test successful\n" COLOR_RESET, stdout);
         
         // Unmap it
         if (munmap(ptr, size) == 0) {
-            prints(COLOR_GREEN "Unmapped successfully\n" COLOR_RESET);
+            fputs(COLOR_GREEN "Unmapped successfully\n" COLOR_RESET, stdout);
         }
     } else {
-        prints(COLOR_RED "mmap failed\n" COLOR_RESET);
+        fputs(COLOR_RED "mmap failed\n" COLOR_RESET, stdout);
     }
 }
 
@@ -401,28 +399,28 @@ static void cmd_mmap_test(int argc, char* argv[]) {
 
 static void cmd_socket_create(int argc, char* argv[]) {
     if (argc < 2) {
-        prints(COLOR_RED "Usage: sockcreate <name>\n" COLOR_RESET);
+        fputs(COLOR_RED "Usage: sockcreate <name>\n" COLOR_RESET, stdout);
         return;
     }
     
     if (socket_create(argv[1]) == 0) {
-        prints(COLOR_GREEN "Created socket: " COLOR_RESET);
-        prints(argv[1]);
-        prints("\n");
+        fputs(COLOR_GREEN "Created socket: " COLOR_RESET, stdout);
+        fputs(argv[1], stdout);
+        fputs("\n", stdout);
     } else {
-        prints(COLOR_RED "Failed to create socket\n" COLOR_RESET);
+        fputs(COLOR_RED "Failed to create socket\n" COLOR_RESET, stdout);
     }
 }
 
 static void cmd_socket_write(int argc, char* argv[]) {
     if (argc < 3) {
-        prints(COLOR_RED "Usage: sockwrite <name> <message>\n" COLOR_RESET);
+        fputs(COLOR_RED "Usage: sockwrite <name> <message>\n" COLOR_RESET, stdout);
         return;
     }
     
     socket_file_t *sock;
     if (socket_open(argv[1], &sock) != 0) {
-        prints(COLOR_RED "Failed to open socket\n" COLOR_RESET);
+        fputs(COLOR_RED "Failed to open socket\n" COLOR_RESET, stdout);
         return;
     }
     
@@ -439,9 +437,9 @@ static void cmd_socket_write(int argc, char* argv[]) {
     msg[pos] = '\0';
     
     if (socket_write(sock, msg, strlen(msg)) >= 0) {
-        prints(COLOR_GREEN "Wrote to socket\n" COLOR_RESET);
+        fputs(COLOR_GREEN "Wrote to socket\n" COLOR_RESET, stdout);
     } else {
-        prints(COLOR_RED "Failed to write\n" COLOR_RESET);
+        fputs(COLOR_RED "Failed to write\n" COLOR_RESET, stdout);
     }
     
     socket_close(sock);
@@ -449,13 +447,13 @@ static void cmd_socket_write(int argc, char* argv[]) {
 
 static void cmd_socket_read(int argc, char* argv[]) {
     if (argc < 2) {
-        prints(COLOR_RED "Usage: sockread <name>\n" COLOR_RESET);
+        fputs(COLOR_RED "Usage: sockread <name>\n" COLOR_RESET, stdout);
         return;
     }
     
     socket_file_t *sock;
     if (socket_open(argv[1], &sock) != 0) {
-        prints(COLOR_RED "Failed to open socket\n" COLOR_RESET);
+        fputs(COLOR_RED "Failed to open socket\n" COLOR_RESET, stdout);
         return;
     }
     
@@ -464,11 +462,11 @@ static void cmd_socket_read(int argc, char* argv[]) {
     
     if (socket_read(sock, buffer, sizeof(buffer) - 1, &bytes_read) >= 0 && bytes_read > 0) {
         buffer[bytes_read] = '\0';
-        prints(COLOR_CYAN "Read: " COLOR_RESET);
-        prints(buffer);
-        prints("\n");
+        fputs(COLOR_CYAN "Read: " COLOR_RESET, stdout);
+        fputs(buffer, stdout);
+        fputs("\n", stdout);
     } else {
-        prints(COLOR_YELLOW "No data available\n" COLOR_RESET);
+        fputs(COLOR_YELLOW "No data available\n" COLOR_RESET, stdout);
     }
     
     socket_close(sock);
@@ -476,16 +474,16 @@ static void cmd_socket_read(int argc, char* argv[]) {
 
 static void cmd_socket_delete(int argc, char* argv[]) {
     if (argc < 2) {
-        prints(COLOR_RED "Usage: sockdel <name>\n" COLOR_RESET);
+        fputs(COLOR_RED "Usage: sockdel <name>\n" COLOR_RESET, stdout);
         return;
     }
     
     if (socket_delete(argv[1]) == 0) {
-        prints(COLOR_GREEN "Deleted socket: " COLOR_RESET);
-        prints(argv[1]);
-        prints("\n");
+        fputs(COLOR_GREEN "Deleted socket: " COLOR_RESET, stdout);
+        fputs(argv[1], stdout);
+        fputs("\n", stdout);
     } else {
-        prints(COLOR_RED "Failed to delete socket\n" COLOR_RESET);
+        fputs(COLOR_RED "Failed to delete socket\n" COLOR_RESET, stdout);
     }
 }
 
@@ -493,10 +491,10 @@ static void cmd_socket_delete(int argc, char* argv[]) {
 
 static void cmd_ps(void) {
     task_info_t tasks[32];
-    int count = list_tasks(tasks, 32);
+    int count = zen_list_tasks(tasks, 32);
 
-    prints(COLOR_CYAN "PID  NAME\n" COLOR_RESET);
-    prints("---- ----\n");
+    fputs(COLOR_CYAN "PID  NAME\n" COLOR_RESET, stdout);
+    fputs("---- ----\n", stdout);
 
     for (int i = 0; i < count; i++) {
         char num[16];
@@ -516,55 +514,55 @@ static void cmd_ps(void) {
             num[j] = num[idx-1-j];
             num[idx-1-j] = tmp;
         }
-        prints(num);
-        prints("  ");
-        prints(tasks[i].name);
-        prints("\n");
+        fputs(num, stdout);
+        fputs("  ", stdout);
+        fputs(tasks[i].name, stdout);
+        fputs("\n", stdout);
     }
 }
 
 static void cmd_exec(int argc, char* argv[]) {
     if (argc < 2) {
-        prints(COLOR_RED "Usage: exec <filename> [args...]\n" COLOR_RESET);
+        fputs(COLOR_RED "Usage: exec <filename> [args...]\n" COLOR_RESET, stdout);
         return;
     }
     
-    prints(COLOR_YELLOW "Executing: " COLOR_RESET);
-    prints(argv[1]);
-    prints("\n");
+    fputs(COLOR_YELLOW "Executing: " COLOR_RESET, stdout);
+    fputs(argv[1], stdout);
+    fputs("\n", stdout);
     
     int result = execv(argv[1], &argv[1]);
     
     if (result != 0) {
-        prints(COLOR_RED "Failed to execute: " COLOR_RESET);
-        prints(argv[1]);
-        prints("\n");
+        fputs(COLOR_RED "Failed to execute: " COLOR_RESET, stdout);
+        fputs(argv[1], stdout);
+        fputs("\n", stdout);
     }
 }
 
 static void cmd_execwait(int argc, char* argv[]) {
     if (argc < 2) {
-        prints(COLOR_RED "Usage: execwait <filename> [args...]\n" COLOR_RESET);
+        fputs(COLOR_RED "Usage: execwait <filename> [args...]\n" COLOR_RESET, stdout);
         return;
     }
 
     task_info_t before[32];
-    int before_count = list_tasks(before, 32);
+    int before_count = zen_list_tasks(before, 32);
 
-    prints(COLOR_YELLOW "Executing: " COLOR_RESET);
-    prints(argv[1]);
-    prints("\n");
+    fputs(COLOR_YELLOW "Executing: " COLOR_RESET, stdout);
+    fputs(argv[1], stdout);
+    fputs("\n", stdout);
 
     int result = execv(argv[1], &argv[1]);
     if (result != 0) {
-        prints(COLOR_RED "Failed to execute: " COLOR_RESET);
-        prints(argv[1]);
-        prints("\n");
+        fputs(COLOR_RED "Failed to execute: " COLOR_RESET, stdout);
+        fputs(argv[1], stdout);
+        fputs("\n", stdout);
         return;
     }
 
     task_info_t after[32];
-    int after_count = list_tasks(after, 32);
+    int after_count = zen_list_tasks(after, 32);
 
     pid_t new_pid = -1;
     for (int a = 0; a < after_count; a++) {
@@ -576,27 +574,27 @@ static void cmd_execwait(int argc, char* argv[]) {
     }
 
     if (new_pid == -1) {
-        prints(COLOR_RED "Could not find spawned task\n" COLOR_RESET);
+        fputs(COLOR_RED "Could not find spawned task\n" COLOR_RESET, stdout);
         return;
     }
 
-    wait_pid(new_pid);
+    waitpid(new_pid, NULL, 0);
 }
 
 static void cmd_kill(int argc, char* argv[]) {
     if (argc < 2) {
-        prints(COLOR_RED "Usage: kill <pid>\n" COLOR_RESET);
+        fputs(COLOR_RED "Usage: kill <pid>\n" COLOR_RESET, stdout);
         return;
     }
 
     pid_t pid = atoi(argv[1]);
     if (pid <= 0) {
-        prints(COLOR_RED "Invalid PID\n" COLOR_RESET);
+        fputs(COLOR_RED "Invalid PID\n" COLOR_RESET, stdout);
         return;
     }
 
-    if (kill(pid) == 0) {
-        prints(COLOR_GREEN "Killed PID " COLOR_RESET);
+    if (kill(pid, SIGKILL) == 0) {
+        fputs(COLOR_GREEN "Killed PID " COLOR_RESET, stdout);
         char num[16];
         int n = pid;
         int i = 0;
@@ -614,10 +612,10 @@ static void cmd_kill(int argc, char* argv[]) {
             num[j] = num[i-1-j];
             num[i-1-j] = tmp;
         }
-        prints(num);
-        prints("\n");
+        fputs(num, stdout);
+        fputs("\n", stdout);
     } else {
-        prints(COLOR_RED "Failed — no such PID or already dead\n" COLOR_RESET);
+        fputs(COLOR_RED "Failed — no such PID or already dead\n" COLOR_RESET, stdout);
     }
 }
 
@@ -626,7 +624,7 @@ static void cmd_kill(int argc, char* argv[]) {
 static void cmd_time(void) {
     timeval_t tv;
     if (gettimeofday(&tv, NULL) == 0) {
-        prints(COLOR_CYAN "Time: " COLOR_RESET);
+        fputs(COLOR_CYAN "Time: " COLOR_RESET, stdout);
         
         char num[32];
         int64_t sec = tv.tv_sec;
@@ -645,8 +643,8 @@ static void cmd_time(void) {
             num[j] = num[i-1-j];
             num[i-1-j] = tmp;
         }
-        prints(num);
-        prints(".");
+        fputs(num, stdout);
+        fputs(".", stdout);
         
         int64_t usec = tv.tv_usec;
         i = 0;
@@ -664,19 +662,19 @@ static void cmd_time(void) {
             num[j] = num[i-1-j];
             num[i-1-j] = tmp;
         }
-        prints(num);
-        prints(" seconds\n");
+        fputs(num, stdout);
+        fputs(" seconds\n", stdout);
     }
 }
 
 static void cmd_sleep_cmd(int argc, char* argv[]) {
     if (argc < 2) {
-        prints(COLOR_RED "Usage: sleep <milliseconds>\n" COLOR_RESET);
+        fputs(COLOR_RED "Usage: sleep <milliseconds>\n" COLOR_RESET, stdout);
         return;
     }
     
     uint32_t ms = atoi(argv[1]);
-    prints(COLOR_YELLOW "Sleeping for " COLOR_RESET);
+    fputs(COLOR_YELLOW "Sleeping for " COLOR_RESET, stdout);
     char num[16];
     int n = ms;
     int i = 0;
@@ -690,11 +688,11 @@ static void cmd_sleep_cmd(int argc, char* argv[]) {
         num[j] = num[i-1-j];
         num[i-1-j] = tmp;
     }
-    prints(num);
-    prints("ms...\n");
+    fputs(num, stdout);
+    fputs("ms...\n", stdout);
     
-    sleep(ms);
-    prints(COLOR_GREEN "Done!\n" COLOR_RESET);
+    zen_sleep_ms(ms);
+    fputs(COLOR_GREEN "Done!\n" COLOR_RESET, stdout);
 }
 
 // ============ SYSTEM COMMANDS ============
@@ -702,26 +700,26 @@ static void cmd_sleep_cmd(int argc, char* argv[]) {
 static void cmd_uname(void) {
     utsname_t uts;
     if (uname(&uts) == 0) {
-        prints(COLOR_CYAN);
-        prints(uts.sysname);
-        prints(" ");
-        prints(uts.release);
-        prints(" ");
-        prints(uts.version);
-        prints(" ");
-        prints(uts.machine);
-        prints(COLOR_RESET "\n");
+        fputs(COLOR_CYAN, stdout);
+        fputs(uts.sysname, stdout);
+        fputs(" ", stdout);
+        fputs(uts.release, stdout);
+        fputs(" ", stdout);
+        fputs(uts.version, stdout);
+        fputs(" ", stdout);
+        fputs(uts.machine, stdout);
+        fputs(COLOR_RESET "\n", stdout);
     }
 }
 
 static void cmd_mouse(void) {
-    prints(COLOR_CYAN "Mouse Position: " COLOR_RESET);
+    fputs(COLOR_CYAN "Mouse Position: " COLOR_RESET, stdout);
     
-    uint32_t x = mouse_x();
-    uint32_t y = mouse_y();
-    uint8_t btn = mouse_button();
+    uint32_t x = zen_mouse_x();
+    uint32_t y = zen_mouse_y();
+    uint8_t btn = zen_mouse_btn();
     
-    prints("X=");
+    fputs("X=", stdout);
     char num[16];
     int n = x;
     int i = 0;
@@ -739,9 +737,9 @@ static void cmd_mouse(void) {
         num[j] = num[i-1-j];
         num[i-1-j] = tmp;
     }
-    prints(num);
+    fputs(num, stdout);
     
-    prints(" Y=");
+    fputs(" Y=", stdout);
     n = y;
     i = 0;
     if (n == 0) {
@@ -758,9 +756,9 @@ static void cmd_mouse(void) {
         num[j] = num[i-1-j];
         num[i-1-j] = tmp;
     }
-    prints(num);
+    fputs(num, stdout);
     
-    prints(" Button=");
+    fputs(" Button=", stdout);
     n = btn;
     i = 0;
     if (n == 0) {
@@ -777,8 +775,8 @@ static void cmd_mouse(void) {
         num[j] = num[i-1-j];
         num[i-1-j] = tmp;
     }
-    prints(num);
-    prints("\n");
+    fputs(num, stdout);
+    fputs("\n", stdout);
 }
 
 static void cmd_beep(int argc, char* argv[]) {
@@ -788,7 +786,7 @@ static void cmd_beep(int argc, char* argv[]) {
     if (argc >= 2) freq = atoi(argv[1]);
     if (argc >= 3) duration = atoi(argv[2]);
     
-    prints("Beep ");
+    fputs("Beep ", stdout);
     char num[16];
     int n = freq;
     int i = 0;
@@ -802,117 +800,117 @@ static void cmd_beep(int argc, char* argv[]) {
         num[j] = num[i-1-j];
         num[i-1-j] = tmp;
     }
-    prints(num);
-    prints("Hz...\n");
+    fputs(num, stdout);
+    fputs("Hz...\n", stdout);
     
-    speaker_play(freq);
-    sleep(duration);
-    speaker_stop();
+    zen_speaker(freq);
+    zen_sleep_ms(duration);
+    zen_speaker_off();
 }
 
 static void cmd_yield_cmd(void) {
-    prints(COLOR_YELLOW "Yielding CPU...\n" COLOR_RESET);
-    yield();
-    prints(COLOR_GREEN "Back from yield\n" COLOR_RESET);
+    fputs(COLOR_YELLOW "Yielding CPU...\n" COLOR_RESET, stdout);
+    sched_yield();
+    fputs(COLOR_GREEN "Back from yield\n" COLOR_RESET, stdout);
 }
 
 static void cmd_help(void) {
-    prints("  touch <file> [size]  - Create file\n");
-    prints("  rm <file>            - Delete file\n");
-    prints("  cat <file>           - Display file contents\n");
-    prints("  write <file> <text>  - Write to file\n");
-    prints("  stat <file>          - Show file info\n");
-    prints("  pwd                  - Print working directory\n");
-    prints("  ls [dir]             - List directory contents\n");
-    prints("  cd <dir>             - Change directory\n");
-    prints("  mkdir <dir>          - Create directory\n");
-    prints("  rmdir <dir>          - Remove directory\n");
-    prints("  malloc <size>        - Test sbrk allocation\n");
-    prints("  mmap <size>          - Test mmap allocation\n");
-    prints("  sockcreate <name>    - Create IPC socket\n");
-    prints("  sockwrite <name><msg>- Write to socket\n");
-    prints("  sockread <name>      - Read from socket\n");
-    prints("  sockdel <name>       - Delete socket\n");
-    prints("  exec <file>          - Execute program (or just type progname)\n");
-    prints("  execwait <file>      - Execute and wait for exit\n");
-    prints("  kill <pid>           - Kill a process by PID\n");
-    prints("  ps                   - Show process info\n");
-    prints("  yield                - Yield CPU\n");
-    prints("  uname                - System information\n");
-    prints("  time                 - Show current time\n");
-    prints("  sleep <ms>           - Sleep for milliseconds\n");
-    prints("  mouse                - Show mouse position\n");
-    prints("  beep [freq] [dur]    - Play sound\n");
-    prints("  help                 - Show this help\n");
-    prints("  clear                - Clear screen\n");
-    prints("  echo <text>          - Print text\n");
-    prints("  version              - Show OS version\n");
-    prints("  z                    - Repeat last command\n");
-    prints("  exit                 - Exit shell\n");
-    prints("  shutdown <sec>       - Shutdown system\n");
-    prints("  reboot               - Reboot system\n");
+    fputs("  touch <file> [size]  - Create file\n", stdout);
+    fputs("  rm <file>            - Delete file\n", stdout);
+    fputs("  cat <file>           - Display file contents\n", stdout);
+    fputs("  write <file> <text>  - Write to file\n", stdout);
+    fputs("  stat <file>          - Show file info\n", stdout);
+    fputs("  pwd                  - Print working directory\n", stdout);
+    fputs("  ls [dir]             - List directory contents\n", stdout);
+    fputs("  cd <dir>             - Change directory\n", stdout);
+    fputs("  mkdir <dir>          - Create directory\n", stdout);
+    fputs("  rmdir <dir>          - Remove directory\n", stdout);
+    fputs("  malloc <size>        - Test sbrk allocation\n", stdout);
+    fputs("  mmap <size>          - Test mmap allocation\n", stdout);
+    fputs("  sockcreate <name>    - Create IPC socket\n", stdout);
+    fputs("  sockwrite <name><msg>- Write to socket\n", stdout);
+    fputs("  sockread <name>      - Read from socket\n", stdout);
+    fputs("  sockdel <name>       - Delete socket\n", stdout);
+    fputs("  exec <file>          - Execute program (or just type progname)\n", stdout);
+    fputs("  execwait <file>      - Execute and wait for exit\n", stdout);
+    fputs("  kill <pid>           - Kill a process by PID\n", stdout);
+    fputs("  ps                   - Show process info\n", stdout);
+    fputs("  yield                - Yield CPU\n", stdout);
+    fputs("  uname                - System information\n", stdout);
+    fputs("  time                 - Show current time\n", stdout);
+    fputs("  sleep <ms>           - Sleep for milliseconds\n", stdout);
+    fputs("  mouse                - Show mouse position\n", stdout);
+    fputs("  beep [freq] [dur]    - Play sound\n", stdout);
+    fputs("  help                 - Show this help\n", stdout);
+    fputs("  clear                - Clear screen\n", stdout);
+    fputs("  echo <text>          - Print text\n", stdout);
+    fputs("  version              - Show OS version\n", stdout);
+    fputs("  z                    - Repeat last command\n", stdout);
+    fputs("  exit                 - Exit shell\n", stdout);
+    fputs("  shutdown <sec>       - Shutdown system\n", stdout);
+    fputs("  reboot               - Reboot system\n", stdout);
 }
 
 static void cmd_clear(void) {
-    prints("\033[2J\033[H");
+    fputs("\033[2J\033[H", stdout);
 }
 
 static void cmd_echo(int argc, char* argv[]) {
     for (int i = 1; i < argc && i < MAX_ARGS; i++) {
         if (argv[i]) {
-            prints(argv[i]);
-            if (i < argc - 1) prints(" ");
+            fputs(argv[i], stdout);
+            if (i < argc - 1) fputs(" ", stdout);
         }
     }
-    prints("\n");
+    fputs("\n", stdout);
 }
 
 static void cmd_version(void) {
-    prints(COLOR_BOLD COLOR_CYAN);
-    prints(" _____           ___  ____  \n");
-    prints("|__  /___ _ __  / _ \\/ ___| \n");
-    prints("  / // _ \\ '_ \\| | | \\___ \\ \n");
-    prints(" / /|  __/ | | | |_| |___) |\n");
-    prints("/____\\___|_| |_|\\___/|____/ \n\n");
+    fputs(COLOR_BOLD COLOR_CYAN, stdout);
+    fputs(" _____           ___  ____  \n", stdout);
+    fputs("|__  /___ _ __  / _ \\/ ___| \n", stdout);
+    fputs("  / // _ \\ '_ \\| | | \\___ \\ \n", stdout);
+    fputs(" / /|  __/ | | | |_| |___) |\n", stdout);
+    fputs("/____\\___|_| |_|\\___/|____/ \n\n", stdout);
     cmd_uname();
-    prints(COLOR_RESET);
+    fputs(COLOR_RESET, stdout);
 }
 
 static int shutdown_accept = 0;
 static void cmd_shutdown(int argc, char* argv[]) {
     if (argc < 2) {
-        prints(COLOR_RED "Usage: shutdown <delay_seconds>\n" COLOR_RESET);
+        fputs(COLOR_RED "Usage: shutdown <delay_seconds>\n" COLOR_RESET, stdout);
         return;
     }
     
     int time = atoi(argv[1]) * 1000;
     if (time < 0) {
-        prints(COLOR_RED "Invalid delay\n" COLOR_RESET);
+        fputs(COLOR_RED "Invalid delay\n" COLOR_RESET, stdout);
         return;
     }
     
     if (time > 50000 && !shutdown_accept) {
-        prints(COLOR_YELLOW "Large delay. Run again to confirm.\n" COLOR_RESET);
+        fputs(COLOR_YELLOW "Large delay. Run again to confirm.\n" COLOR_RESET, stdout);
         shutdown_accept = 1;
         return;
     }
     
     if (time == 0) {
-        log("Shutting down", 2, 1);
-        shutdown();
+        zen_log("Shutting down", 2, 1);
+        zen_shutdown();
     }
     
-    sleep(time - 1000);
-    log("Shutting down", 2, 1);
-    sleep(1000);
-    shutdown();
+    zen_sleep_ms(time - 1000);
+    zen_log("Shutting down", 2, 1);
+    zen_sleep_ms(1000);
+    zen_shutdown();
 }
 
 static void cmd_reboot(void) {
-    prints(COLOR_YELLOW "Rebooting system in 2 seconds...\n" COLOR_RESET);
-    sleep(2000);
-    log("Rebooting", 2, 1);
-    reboot();
+    fputs(COLOR_YELLOW "Rebooting system in 2 seconds...\n" COLOR_RESET, stdout);
+    zen_sleep_ms(2000);
+    zen_log("Rebooting", 2, 1);
+    zen_reboot();
 }
 
 // ============ SHELL CORE ============
@@ -932,12 +930,12 @@ static void show_prompt(void) {
         strcpy(cwd, "~");
     }
 
-    prints(COLOR_BOLD COLOR_GREEN "root@");
-    prints(hostname);
-    prints(COLOR_RESET COLOR_BOLD ":");
-    prints(COLOR_BOLD COLOR_BLUE);
-    prints(cwd);
-    prints(COLOR_RESET "$ ");
+    fputs(COLOR_BOLD COLOR_GREEN "root@", stdout);
+    fputs(hostname, stdout);
+    fputs(COLOR_RESET COLOR_BOLD ":", stdout);
+    fputs(COLOR_BOLD COLOR_BLUE, stdout);
+    fputs(cwd, stdout);
+    fputs(COLOR_RESET "$ ", stdout);
 }
 
 static void read_command(void) {
@@ -945,8 +943,8 @@ static void read_command(void) {
     memset(command_buffer, 0, MAX_COMMAND_LENGTH);
     
     while (1) {
-        halt();
-        char c = getkey();
+        zen_halt();
+        char c = zen_getkey();
         
         if (c == '\0') {
             continue;
@@ -954,21 +952,21 @@ static void read_command(void) {
         
         if (c == '\n' || c == '\r') {
             command_buffer[buffer_pos] = '\0';
-            prints("\n");
+            fputs("\n", stdout);
             break;
         }
         else if (c == '\b' || c == 127) {
             if (buffer_pos > 0) {
                 buffer_pos--;
                 command_buffer[buffer_pos] = '\0';
-                prints("\b \b");
+                fputs("\b \b", stdout);
             }
         }
         else if (c >= 32 && c < 127) {
             if (buffer_pos < MAX_COMMAND_LENGTH - 1) {
                 command_buffer[buffer_pos++] = c;
                 char buf[2] = {c, '\0'};
-                prints(buf);
+                fputs(buf, stdout);
             }
         }
     }
@@ -1000,9 +998,9 @@ static int file_exists(const char *name) {
 static void run_file(int argc, char *argv[]) {
     int result = execv(argv[0], argv);
     if (result != 0) {
-        prints(COLOR_RED "Failed to execute: " COLOR_RESET);
-        prints(argv[0]);
-        prints("\n");
+        fputs(COLOR_RED "Failed to execute: " COLOR_RESET, stdout);
+        fputs(argv[0], stdout);
+        fputs("\n", stdout);
     }
 }
 
@@ -1025,18 +1023,18 @@ static int execute_command(void) {
     }
 
     if (is_builtin(argv[0]) && file_exists(argv[0])) {
-        prints(COLOR_YELLOW "'" COLOR_RESET);
-        prints(argv[0]);
-        prints(COLOR_YELLOW "' is both a builtin and a file.\n" COLOR_RESET);
-        prints("  [b] Run builtin   [f] Run file\n> ");
+        fputs(COLOR_YELLOW "'" COLOR_RESET, stdout);
+        fputs(argv[0], stdout);
+        fputs(COLOR_YELLOW "' is both a builtin and a file.\n" COLOR_RESET, stdout);
+        fputs("  [b] Run builtin   [f] Run file\n> ", stdout);
         char choice = '\0';
         while (choice != 'b' && choice != 'f') {
-            choice = getkey();
+            choice = zen_getkey();
         }
         if (choice == 'b') {
-            prints("builtin\n");
+            fputs("builtin\n", stdout);
         } else {
-            prints("file\n");
+            fputs("file\n", stdout);
             run_file(argc, argv);
             return 1;
         }
@@ -1048,7 +1046,7 @@ static int execute_command(void) {
     else if (strcmp(argv[0], "echo") == 0) cmd_echo(argc, argv);
     else if (strcmp(argv[0], "version") == 0) cmd_version();
     else if (strcmp(argv[0], "exit") == 0) {
-        prints(COLOR_YELLOW "Exiting...\n" COLOR_RESET);
+        fputs(COLOR_YELLOW "Exiting...\n" COLOR_RESET, stdout);
         return 0;
     }
     // File ops
@@ -1088,7 +1086,7 @@ static int execute_command(void) {
     // Special
     else if (strcmp(argv[0], "z") == 0) {
         if (lastcmd[0] == '\0') {
-            prints(COLOR_RED "No previous command\n" COLOR_RESET);
+            fputs(COLOR_RED "No previous command\n" COLOR_RESET, stdout);
             return 1;
         }
         strcpy(command_buffer, lastcmd);
@@ -1099,9 +1097,9 @@ static int execute_command(void) {
         if (has_file) {
             run_file(argc, argv);
         } else {
-            prints(COLOR_RED "Unknown: " COLOR_RESET);
-            prints(argv[0]);
-            prints("\nType 'help' for commands.\n");
+            fputs(COLOR_RED "Unknown: " COLOR_RESET, stdout);
+            fputs(argv[0], stdout);
+            fputs("\nType 'help' for commands.\n", stdout);
         }
     }
     
@@ -1110,16 +1108,16 @@ static int execute_command(void) {
 
 static void show_banner(void) {
     cmd_clear();
-    prints(COLOR_CYAN COLOR_BOLD);
-    prints(" _____           ___  ____  \n");
-    prints("|__  /___ _ __  / _ \\/ ___| \n");
-    prints("  / // _ \\ '_ \\| | | \\___ \\ \n");
-    prints(" / /|  __/ | | | |_| |___) |\n");
-    prints("/____\\___|_| |_|\\___/|____/ \n\n");
-    prints(COLOR_RESET);
-    prints(COLOR_YELLOW "ZenOS Shell\n" COLOR_RESET);
-    prints("Type 'help' for commands.\n");
-    prints(COLOR_CYAN "F1 key" COLOR_RESET " to shift keyboard focus.\n\n");
+    fputs(COLOR_CYAN COLOR_BOLD, stdout);
+    fputs(" _____           ___  ____  \n", stdout);
+    fputs("|__  /___ _ __  / _ \\/ ___| \n", stdout);
+    fputs("  / // _ \\ '_ \\| | | \\___ \\ \n", stdout);
+    fputs(" / /|  __/ | | | |_| |___) |\n", stdout);
+    fputs("/____\\___|_| |_|\\___/|____/ \n\n", stdout);
+    fputs(COLOR_RESET, stdout);
+    fputs(COLOR_YELLOW "ZenOS Shell\n" COLOR_RESET, stdout);
+    fputs("Type 'help' for commands.\n", stdout);
+    fputs(COLOR_CYAN "F1 key" COLOR_RESET " to shift keyboard focus.\n\n", stdout);
 }
 
 int main(int argc, char *argv[]) {
@@ -1137,7 +1135,7 @@ int main(int argc, char *argv[]) {
         }
     }
     
-    prints(COLOR_GREEN "Shell exited\n" COLOR_RESET);
+    fputs(COLOR_GREEN "Shell exited\n" COLOR_RESET, stdout);
     exit(0);
     return 0;
 }

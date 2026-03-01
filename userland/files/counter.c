@@ -1,13 +1,14 @@
 #include "../userlib.h"
+#include "../libs/lib.h"
 
 static void print_int(int n) {
     char buf[16];
     int i = 0;
-    if (n == 0) { prints("0"); return; }
+    if (n == 0) { fputs("0", stdout); return; }
     while (n > 0) { buf[i++] = '0' + (n % 10); n /= 10; }
     for (int j = i - 1; j >= 0; j--) {
         char s[2] = { buf[j], '\0' };
-        prints(s);
+        fputs(s, stdout);
     }
 }
 
@@ -15,23 +16,23 @@ int main(int argc, char *argv[]) {
     (void)argc; (void)argv;
     pid_t pid = getpid();
 
-    prints("\033[33m[Counter ");
+    fputs("\033[33m[Counter ", stdout);
     print_int(pid);
-    prints("] Starting...\033[0m\n");
+    fputs("] Starting...\033[0m\n", stdout);
 
     for (int count = 0; count < 20; count++) {
-        prints("\033[36m[");
+        fputs("\033[36m[", stdout);
         print_int(pid);
-        prints("] Count: ");
+        fputs("] Count: ", stdout);
         print_int(count);
-        prints("\033[0m\n");
-        sleep(100);
-        halt();
+        fputs("\033[0m\n", stdout);
+        zen_sleep_ms(100);
+        zen_halt();
     }
 
-    prints("\033[32m[Counter ");
+    fputs("\033[32m[Counter ", stdout);
     print_int(pid);
-    prints("] Finished!\033[0m\n");
+    fputs("] Finished!\033[0m\n", stdout);
 
     exit(0);
     return 0;

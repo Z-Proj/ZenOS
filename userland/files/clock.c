@@ -1,15 +1,16 @@
 #include "../userlib.h"
+#include "../libs/lib.h"
 
 static void print2(int n) {
     char s[3] = { '0' + n / 10, '0' + n % 10, '\0' };
-    prints(s);
+    fputs(s, stdout);
 }
 
 int main(int argc, char *argv[]) {
     (void)argc;
     (void)argv;
 
-    prints("\033[36mZenOS Clock - press any key to exit\033[0m\n");
+    fputs("\033[36mZenOS Clock - press any key to exit\033[0m\n", stdout);
 
     timeval_t tv;
     int last_sec = -1;
@@ -24,19 +25,19 @@ int main(int argc, char *argv[]) {
 
         if (secs != last_sec) {
             last_sec = secs;
-            prints("\r\033[33m");
-            print2(hours); prints(":");
-            print2(mins);  prints(":");
+            fputs("\r\033[33m", stdout);
+            print2(hours); fputs(":", stdout);
+            print2(mins);  fputs(":", stdout);
             print2(secs);
-            prints("\033[0m  ");
+            fputs("\033[0m  ", stdout);
         }
 
-        char k = getkey();
+        char k = zen_getkey();
         if (k != 0) break;
-        halt();
+        zen_halt();
     }
 
-    prints("\n");
+    fputs("\n", stdout);
     exit(0);
     return 0;
 }

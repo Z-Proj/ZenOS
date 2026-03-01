@@ -32,6 +32,7 @@ typedef struct task
     uint64_t heap_brk;
     int argc;
     char **argv;
+    int exit_code;
     struct task *next;
 } task_t;
 

@@ -1,4 +1,5 @@
 #include "../userlib.h"
+#include "../libs/lib.h"
 
 #define COLOR_RESET   "\033[0m"
 #define COLOR_RED     "\033[31m"
@@ -13,11 +14,11 @@ static void print_int(int n) {
     char buf[32];
     int i = 0;
     if (n == 0) { 
-        prints("0"); 
+        fputs("0", stdout); 
         return; 
     }
     if (n < 0) { 
-        prints("-"); 
+        fputs("-", stdout); 
         n = -n; 
     }
     while (n > 0) { 
@@ -26,17 +27,17 @@ static void print_int(int n) {
     }
     for (int j = i - 1; j >= 0; j--) {
         char s[2] = { buf[j], '\0' };
-        prints(s);
+        fputs(s, stdout);
     }
 }
 
 static void print_usage(void) {
-    prints(COLOR_BOLD "Usage: " COLOR_RESET);
-    prints("calc <num1> <operator> <num2>\n");
-    prints(COLOR_CYAN "Operators: " COLOR_RESET);
-    prints("+  -  *  /  %%  ^  (^ for power)\n");
-    prints(COLOR_YELLOW "Example: " COLOR_RESET);
-    prints("calc 5 + 3\n");
+    fputs(COLOR_BOLD "Usage: " COLOR_RESET, stdout);
+    fputs("calc <num1> <operator> <num2>\n", stdout);
+    fputs(COLOR_CYAN "Operators: " COLOR_RESET, stdout);
+    fputs("+  -  *  /  %%  ^  (^ for power)\n", stdout);
+    fputs(COLOR_YELLOW "Example: " COLOR_RESET, stdout);
+    fputs("calc 5 + 3\n", stdout);
 }
 
 static long long power(int base, int exp) {
@@ -48,17 +49,17 @@ static long long power(int base, int exp) {
 }
 
 static void print_result(long long result) {
-    prints(COLOR_GREEN COLOR_BOLD "Result: " COLOR_RESET);
+    fputs(COLOR_GREEN COLOR_BOLD "Result: " COLOR_RESET, stdout);
     
     if (result < 0) {
-        prints("-");
+        fputs("-", stdout);
         result = -result;
     }
     
     char buf[32];
     int i = 0;
     if (result == 0) {
-        prints("0");
+        fputs("0", stdout);
     } else {
         while (result > 0) {
             buf[i++] = '0' + (result % 10);
@@ -66,10 +67,10 @@ static void print_result(long long result) {
         }
         for (int j = i - 1; j >= 0; j--) {
             char s[2] = { buf[j], '\0' };
-            prints(s);
+            fputs(s, stdout);
         }
     }
-    prints("\n");
+    fputs("\n", stdout);
 }
 
 static int is_operator(char c) {
@@ -77,15 +78,15 @@ static int is_operator(char c) {
 }
 
 int main(int argc, char *argv[]) {
-    prints("\n=== Calculator ===\n");
+    fputs("\n=== Calculator ===\n", stdout);
     
     // Check argument count
     if (argc != 4) {
-        prints(COLOR_RED "Error: " COLOR_RESET);
-        prints("Invalid number of arguments!\n");
-        prints("Expected: 3 arguments, got: ");
+        fputs(COLOR_RED "Error: " COLOR_RESET, stdout);
+        fputs("Invalid number of arguments!\n", stdout);
+        fputs("Expected: 3 arguments, got: ", stdout);
         print_int(argc - 1);
-        prints("\n\n");
+        fputs("\n\n", stdout);
         print_usage();
         exit(1);
     }
@@ -97,23 +98,23 @@ int main(int argc, char *argv[]) {
     
     // Validate operator
     if (argv[2][1] != '\0' || !is_operator(op)) {
-        prints(COLOR_RED "Error: " COLOR_RESET);
-        prints("Invalid operator: '");
-        prints(argv[2]);
-        prints("'\n");
-        prints("Valid operators: +, -, *, /, %, ^\n");
+        fputs(COLOR_RED "Error: " COLOR_RESET, stdout);
+        fputs("Invalid operator: '", stdout);
+        fputs(argv[2], stdout);
+        fputs("'\n", stdout);
+        fputs("Valid operators: +, -, *, /, %, ^\n", stdout);
         exit(1);
     }
     
     // Show calculation
-    prints(COLOR_YELLOW "\nCalculation: " COLOR_RESET);
+    fputs(COLOR_YELLOW "\nCalculation: " COLOR_RESET, stdout);
     print_int(num1);
-    prints(" ");
+    fputs(" ", stdout);
     char op_str[2] = { op, '\0' };
-    prints(op_str);
-    prints(" ");
+    fputs(op_str, stdout);
+    fputs(" ", stdout);
     print_int(num2);
-    prints(" = ");
+    fputs(" = ", stdout);
     
     // Perform calculation
     long long result;
@@ -131,7 +132,7 @@ int main(int argc, char *argv[]) {
             break;
         case '/':
             if (num2 == 0) {
-                prints(COLOR_RED "Error: Division by zero!\n" COLOR_RESET);
+                fputs(COLOR_RED "Error: Division by zero!\n" COLOR_RESET, stdout);
                 error = 1;
             } else {
                 result = num1 / num2;
@@ -139,7 +140,7 @@ int main(int argc, char *argv[]) {
             break;
         case '%':
             if (num2 == 0) {
-                prints(COLOR_RED "Error: Modulo by zero!\n" COLOR_RESET);
+                fputs(COLOR_RED "Error: Modulo by zero!\n" COLOR_RESET, stdout);
                 error = 1;
             } else {
                 result = num1 % num2;
@@ -147,14 +148,14 @@ int main(int argc, char *argv[]) {
             break;
         case '^':
             if (num2 < 0) {
-                prints(COLOR_RED "Error: Negative exponent not supported!\n" COLOR_RESET);
+                fputs(COLOR_RED "Error: Negative exponent not supported!\n" COLOR_RESET, stdout);
                 error = 1;
             } else {
                 result = power(num1, num2);
             }
             break;
         default:
-            prints(COLOR_RED "Error: Unknown operator!\n" COLOR_RESET);
+            fputs(COLOR_RED "Error: Unknown operator!\n" COLOR_RESET, stdout);
             error = 1;
     }
     
@@ -163,14 +164,14 @@ int main(int argc, char *argv[]) {
         
         // Show additional info for division
         if (op == '/' && num1 % num2 != 0) {
-            prints(COLOR_MAGENTA "Note: " COLOR_RESET);
-            prints("Integer division truncated (remainder: ");
+            fputs(COLOR_MAGENTA "Note: " COLOR_RESET, stdout);
+            fputs("Integer division truncated (remainder: ", stdout);
             print_int(num1 % num2);
-            prints(")\n");
+            fputs(")\n", stdout);
         }
     }
     
-    prints("\n");
+    fputs("\n", stdout);
     exit(0);
     return 0;
 }

@@ -1,4 +1,5 @@
 #include "../userlib.h"
+#include "../libs/lib.h"
 #include "../libs/gfx.h"
 
 #define C_BG     0xFF0A0E14
@@ -107,12 +108,12 @@ int main(int argc, char *argv[]) {
 
     socket_file_t *g;
     if (gfx_open(&g) != 0) {
-        prints("\033[31msysinfo: no gfxserver\033[0m\n");
+        fputs("\033[31msysinfo: no gfxserver\033[0m\n", stdout);
         exit(1);
     }
 
     utsname_t un; uname(&un);
-    fb_info_t fb; fbinfo(&fb);
+    fb_info_t fb; zen_fbinfo(&fb);
 
     draw_static(g, &un, &fb);
     draw_time(g);
@@ -125,8 +126,8 @@ int main(int argc, char *argv[]) {
             draw_time(g);
             last_sec = sec;
         }
-        for(int i = 0; i < 20; i++)halt();
-        if (getkey() != 0) break;
+        for(int i = 0; i < 20; i++)zen_halt();
+        if (zen_getkey() != 0) break;
     }
 
     gfx_clear(g, C_BG);

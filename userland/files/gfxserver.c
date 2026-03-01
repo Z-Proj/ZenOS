@@ -1,9 +1,11 @@
 // gfxserver.c - ZenOS Graphics Server
 
 #include "userlib.h"
+#include "../libs/lib.h"
 #include "../libs/gfx.h"
 
 extern char _binary_FreeSansB_sfn_start;
+extern char _binary_FreeSansB_sfn_end;
 
 #define SSFN_IMPLEMENTATION
 #define SSFN_MAXLINES 4096
@@ -182,7 +184,7 @@ static void handle(gfx_msg_t *m) {
 int main(int argc, char *argv[]) {
     (void)argc; (void)argv;
     fb_info_t fb;
-    if (fbinfo(&fb) != 0) { prints("gfxserver: fbinfo failed\n"); exit(1); }
+    if (zen_fbinfo(&fb) != 0) { fputs("gfxserver: fbinfo failed\n", stdout); exit(1); }
 
     fbp8     = (uint8_t *)(uintptr_t)fb.addr;
     fb_w     = fb.width;
@@ -193,8 +195,10 @@ int main(int argc, char *argv[]) {
     rw       = fb_w - rx;
 
     memset(&ssfn_ctx, 0, sizeof(ssfn_ctx));
-    if (ssfn_load(&ssfn_ctx, (const void *)&_binary_FreeSansB_sfn_start) != SSFN_OK) {
-        prints("gfxserver: ssfn_load failed\n"); exit(1);
+    const void *font_ptr = (const void *)&_binary_FreeSansB_sfn_start;
+    int ssfn_err = ssfn_load(&ssfn_ctx, font_ptr);
+    if (ssfn_err != SSFN_OK) {
+        fputs("gfxserver: ssfn_load failed\n", stdout); exit(1);
     }
     ssfn_buf.ptr = fbp8 + rx * (fb_bpp / 8);
     ssfn_buf.p   = fb.pitch;
@@ -209,12 +213,12 @@ int main(int argc, char *argv[]) {
         else if (fb_bpp == 16) { uint16_t c=0x19A6; p[0]=c&0xFF; p[1]=c>>8; }
     }
     if (socket_create(GFX_SOCKET_NAME) != 0) {
-        prints("gfxserver: socket_create failed\n"); exit(1);
+        fputs("gfxserver: socket_create failed\n", stdout); exit(1);
     }
 
     socket_file_t *sock = NULL;
     if (socket_open(GFX_SOCKET_NAME, &sock) != 0) {
-        prints("gfxserver: socket_open failed\n"); exit(1);
+        fputs("gfxserver: socket_open failed\n", stdout); exit(1);
     }
     gfx_msg_t msg;
     uint32_t bytes_read = 0;
@@ -226,7 +230,7 @@ int main(int argc, char *argv[]) {
                 handle(&msg);
             }
         } else {
-            halt();
+            zen_halt();
         }
     }
 

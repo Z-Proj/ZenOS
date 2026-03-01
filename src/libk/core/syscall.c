@@ -49,7 +49,6 @@ void init_syscalls(void)
 
 uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg4;
     (void)arg5;
     
     switch(num) {
@@ -65,6 +64,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             log("Task exiting.", 1, 0);
             task_t *current = sched_current_task();
             if (current) {
+                current->exit_code = (int)arg1;
                 current->state = TASK_DEAD;
             }
             sched_yield();
@@ -120,8 +120,13 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         
         case SYSCALL_OPEN: {
             const char *filename = (const char*)arg1;
-            int write_mode = (int)arg2;
+            int flags = (int)arg2;
             if (!filename) return -1;
+            int write_mode = 0;
+            if (flags & 0x01) write_mode = 1;
+            if (flags & 0x02) write_mode = 1;
+            if (flags & 0x200) write_mode = 2;
+            if (flags & 0x40) fat_create(filename);
             return fat_open(filename, write_mode);
         }
         
@@ -129,9 +134,21 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             int fd = (int)arg1;
             void *buffer = (void*)arg2;
             uint32_t size = (uint32_t)arg3;
-            uint32_t *bytes_read = (uint32_t*)arg4;
             if (!buffer) return -1;
-            return fat_read(fd, buffer, size, bytes_read);
+            if (fd == 0) {
+                char *cbuf = (char*)buffer;
+                for (uint32_t i = 0; i < size; i++) {
+                    char c = 0;
+                    while (!c) c = get_key();
+                    cbuf[i] = c;
+                    if (c == '\n') return (int64_t)(i + 1);
+                }
+                return (int64_t)size;
+            }
+            uint32_t bytes_read = 0;
+            int ret = fat_read(fd, buffer, size, &bytes_read);
+            if (ret < 0) return -1;
+            return (int64_t)bytes_read;
         }
         
         case SYSCALL_WRITE: {
@@ -139,7 +156,15 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             const void *buffer = (const void*)arg2;
             uint32_t size = (uint32_t)arg3;
             if (!buffer) return -1;
-            return fat_write(fd, buffer, size);
+            if (fd == 1 || fd == 2) {
+                const char *p = (const char*)buffer;
+                for (uint32_t i = 0; i < size; i++)
+                    printc(p[i]);
+                return (int64_t)size;
+            }
+            int ret = fat_write(fd, buffer, size);
+            if (ret < 0) return -1;
+            return (int64_t)size;
         }
         
         case SYSCALL_CLOSE: {
@@ -530,7 +555,17 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
         case SYSCALL_WAIT_PID: {
             uint64_t pid = arg1;
-            return sched_wait_pid(pid);
+            int *wstatus = (int*)arg2;
+            int ret = sched_wait_pid(pid);
+            if (wstatus) {
+                task_t *head = sched_get_task_list();
+                task_t *t = head;
+                if (t) do {
+                    if (t->pid == pid) { *wstatus = (t->exit_code & 0xff) << 8; break; }
+                    t = t->next;
+                } while (t != head);
+            }
+            return ret;
         }
 
         case SYSCALL_LIST_TASKS: {

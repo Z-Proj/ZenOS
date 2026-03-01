@@ -1,4 +1,5 @@
 #include "../userlib.h"
+#include "../libs/lib.h"
 #include "../libs/gfx.h"
 
 #define FONT_HEIGHT 6
@@ -83,7 +84,7 @@ static int charwidth(int idx) {
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        prints("\033[33mUsage: figlet <text>\033[0m\n");
+        fputs("\033[33mUsage: figlet <text>\033[0m\n", stdout);
         exit(1);
     }
 
@@ -133,21 +134,21 @@ int main(int argc, char *argv[]) {
         }
 
         gfx_text(g, 4, 18, 0xFF666688, 1, "figlet - press any key");
-        while (getkey() == 0) { halt(); }
+        while (zen_getkey() == 0) { zen_halt(); }
         gfx_clear(g, C_BG);
         gfx_close(g);
     } else {
-        prints("\033[36m");
+        fputs("\033[36m", stdout);
         for (int row = 0; row < FONT_HEIGHT; row++) {
             int i = 0;
             while (buf[i]) {
                 int idx = buf[i] - 32;
-                if (idx >= 0 && idx < 59) { prints(font[idx][row]); prints("  "); }
+                if (idx >= 0 && idx < 59) { fputs(font[idx][row], stdout); fputs("  ", stdout); }
                 i++;
             }
-            prints("\n");
+            fputs("\n", stdout);
         }
-        prints("\033[0m");
+        fputs("\033[0m", stdout);
     }
 
     exit(0);

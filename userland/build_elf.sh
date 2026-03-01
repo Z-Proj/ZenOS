@@ -89,8 +89,13 @@ for SRC in "$@"; do
     "$fat_man" "$VHD_PATH" delete "/${BASENAME}" || true
 
     echo "[*] Compiling ${SRC} -> ${OBJ}"
+    if [ "$BASENAME" = "gfxserver" ]; then
+        PIC_FLAG="-fno-pic"
+    else
+        PIC_FLAG="-fPIC"
+    fi
     clang -m64 -ffreestanding -fno-stack-protector -mno-red-zone \
-          -nostdlib -fno-pie -fPIC -O1 \
+          -nostdlib $PIC_FLAG -fno-pie -O1 \
           -I userland -I userland/libs \
           -c "$SRC" -o "$OBJ" \
           || die "Compilation failed for ${SRC}"

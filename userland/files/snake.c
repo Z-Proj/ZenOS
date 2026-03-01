@@ -1,4 +1,5 @@
 #include "../userlib.h"
+#include "../libs/lib.h"
 #include "../libs/gfx.h"
 
 #define COLS     16
@@ -84,7 +85,7 @@ int main(int argc, char *argv[]) {
     (void)argc; (void)argv;
     socket_file_t *g;
     if (gfx_open(&g) != 0) {
-        prints("\033[31msnake: no gfxserver\033[0m\n");
+        fputs("\033[31msnake: no gfxserver\033[0m\n", stdout);
         exit(1);
     }
     slen = 4;
@@ -101,13 +102,13 @@ int main(int argc, char *argv[]) {
 
     while (1) {
         for (int t = 0; t < 6; t++) {
-            char k = getkey();
+            char k = zen_getkey();
             if (k=='q'||k=='Q') goto done;
             if ((k=='w'||k=='W') && dy!=1)  { dx=0;  dy=-1; }
             if ((k=='s'||k=='S') && dy!=-1) { dx=0;  dy=1;  }
             if ((k=='a'||k=='A') && dx!=1)  { dx=-1; dy=0;  }
             if ((k=='d'||k=='D') && dx!=-1) { dx=1;  dy=0;  }
-            yield();
+            sched_yield();
         }
 
         int nx = sx[0]+dx, ny = sy[0]+dy;
@@ -144,7 +145,7 @@ dead:
         gfx_text(g, 140, 320, 0xFFFF3344, 2, "GAME OVER");
         gfx_text(g, 180, 360, 0xFF00DDFF, 1, "Score:");
         gfx_text(g, 260, 360, 0xFF00DDFF, 1, numstr(score));
-        sleep(3000);
+        zen_sleep_ms(3000);
         goto done;
     }
 done:

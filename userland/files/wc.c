@@ -1,27 +1,28 @@
 #include "../userlib.h"
+#include "../libs/lib.h"
 
 static void print_num(uint64_t n) {
-    if (n == 0) { prints("0"); return; }
+    if (n == 0) { fputs("0", stdout); return; }
     char buf[20];
     int i = 0;
     while (n > 0) { buf[i++] = '0' + (n % 10); n /= 10; }
     for (int j = i - 1; j >= 0; j--) {
         char s[2] = { buf[j], '\0' };
-        prints(s);
+        fputs(s, stdout);
     }
 }
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        prints("\033[31mUsage: wc <file>\033[0m\n");
+        fputs("\033[31mUsage: wc <file>\033[0m\n", stdout);
         exit(1);
     }
 
     int file = open(argv[1], 0);
     if (file < 0) {
-        prints("\033[31mwc: cannot open: ");
-        prints(argv[1]);
-        prints("\033[0m\n");
+        fputs("\033[31mwc: cannot open: ", stdout);
+        fputs(argv[1], stdout);
+        fputs("\033[0m\n", stdout);
         exit(1);
     }
 
@@ -46,11 +47,11 @@ int main(int argc, char *argv[]) {
 
     close(file);
 
-    print_num(lines); prints(" ");
-    print_num(words); prints(" ");
-    print_num(chars); prints(" ");
-    prints(argv[1]);
-    prints("\n");
+    print_num(lines); fputs(" ", stdout);
+    print_num(words); fputs(" ", stdout);
+    print_num(chars); fputs(" ", stdout);
+    fputs(argv[1], stdout);
+    fputs("\n", stdout);
     exit(0);
     return 0;
 }

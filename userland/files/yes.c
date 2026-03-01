@@ -1,24 +1,25 @@
 #include "../userlib.h"
+#include "../libs/lib.h"
 
 int main(int argc, char *argv[]) {
     if (argc > 1) {
         while (1) {
             for (int i = 1; i < argc; i++) {
-                prints(argv[i]);
+                fputs(argv[i], stdout);
                 if (i < argc - 1)
-                    prints(" ");
+                    fputs(" ", stdout);
             }
-            prints("\n");
-            halt();
-            halt();
-            halt();
+            fputs("\n", stdout);
+            zen_halt();
+            zen_halt();
+            zen_halt();
         }
     } else {
         while (1) {
-            prints("yes\n");
-            halt();
-            halt();
-            halt();
+            fputs("yes\n", stdout);
+            zen_halt();
+            zen_halt();
+            zen_halt();
         }
     }
     return 0;
