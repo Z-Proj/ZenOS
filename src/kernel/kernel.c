@@ -30,7 +30,7 @@
 #include "../libk/core/elf.h"
 #include "../drv/keyboard.h"
 #include "../drv/disk/ata.h"
-#include "../drv/disk/zfs.h"
+#include "../drv/disk/fat.h"
 
 // void play_bootup_sequence() //Probably going to be deprecated
 // {
@@ -90,17 +90,17 @@ void _start(void)
             break;
         }
     }
-    if (zfs_init(boot_drive) != ZFS_OK) {
-        log("Unable to attach to the drive via ZFS.\nWould you like to format it? (y/*)", 2, 1);
+    if (fat_init(boot_drive) != FAT_OK) {
+        log("Unable to mount FAT. Format drive? (y/*)", 2, 1);
         __asm__ __volatile__("sti");
         char flag = wait_for_key();
         __asm__ __volatile__("cli");
-        if(flag == 'y' || flag == 'Y'){
+        if (flag == 'y' || flag == 'Y') {
             log("Formatting drive %d...", 1, 0, boot_drive);
-            zfs_format(boot_drive);
-            zfs_init(boot_drive);
+            fat_format(boot_drive);
+        } else {
+            log("Leaving drive unattached.", 1, 0);
         }
-        else log("Leaving drive unattached.", 1, 0);
     }
     IoApicSetIrqMapped(12, 0x2C); //Mouse
     mouse_init();
@@ -112,13 +112,13 @@ void _start(void)
     log("Running In Debug Mode.", 2, 1);
     detect_cpu_info(0);
     print_mem_info(1);
-    char zfs_debug_buf[4096]; zfs_list(zfs_debug_buf, sizeof(zfs_debug_buf)); log(zfs_debug_buf, 1, 1);
+    char fat_debug_buf[4096]; fat_list(fat_debug_buf, sizeof(fat_debug_buf)); log(fat_debug_buf, 1, 1);
 #endif
     if(!(framebuffer_bpp == 32))
         log("\nZenOS only supports 32bpp displays right now.\n", 2, 1);
     task_create(idle, "Idle");
     char *init_argv[] = { "kernel" };
-    if (elf_exec("init", 1, init_argv) != ZFS_OK)
+    if (elf_exec("init", 1, init_argv) < 0)
         log("No init program found.", 0, 1);
     asm volatile("sti");
     sched_start();

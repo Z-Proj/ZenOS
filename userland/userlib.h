@@ -84,16 +84,6 @@ typedef struct {
     char machine[65];
 } utsname_t;
 
-#define ZFS_MAX_FILENAME 28
-typedef struct {
-    char name[ZFS_MAX_FILENAME];
-    uint32_t size;
-    uint32_t start_block;
-    uint32_t position;
-    uint8_t entry_index;
-    uint8_t is_open;
-} zfs_file_t;
-
 #define SOCKET_NAME_MAX 64
 typedef struct {
     char name[SOCKET_NAME_MAX];
@@ -173,31 +163,31 @@ static inline void speaker_stop(void) {
     syscall0(9);
 }
 
-static inline int open(const char *filename, zfs_file_t *file) {
-    return (int)syscall2(10, (uint64_t)filename, (uint64_t)file);
+static inline int open(const char *filename, int write_mode) {
+    return (int)syscall2(10, (uint64_t)filename, (uint64_t)write_mode);
 }
 
-static inline ssize_t read(zfs_file_t *file, void *buffer, size_t size) {
+static inline ssize_t read(int fd, void *buffer, size_t size) {
     uint32_t bytes_read = 0;
-    int ret = (int)syscall4(11, (uint64_t)file, (uint64_t)buffer, size, (uint64_t)&bytes_read);
+    int ret = (int)syscall4(11, (uint64_t)fd, (uint64_t)buffer, size, (uint64_t)&bytes_read);
     if (ret < 0) return ret;
     return bytes_read;
 }
 
-static inline int write(zfs_file_t *file, const void *buffer, size_t size) {
-    return syscall3(12, (uint64_t)file, (uint64_t)buffer, size);
+static inline int write(int fd, const void *buffer, size_t size) {
+    return syscall3(12, (uint64_t)fd, (uint64_t)buffer, size);
 }
 
-static inline int close(zfs_file_t *file) {
-    return (int)syscall1(13, (uint64_t)file);
+static inline int close(int fd) {
+    return (int)syscall1(13, (uint64_t)fd);
 }
 
-static inline off_t lseek(zfs_file_t *file, off_t offset, int whence) {
-    return (off_t)syscall3(14, (uint64_t)file, offset, whence);
+static inline off_t lseek(int fd, off_t offset, int whence) {
+    return (off_t)syscall3(14, (uint64_t)fd, (uint64_t)offset, whence);
 }
 
-static inline int create(const char *filename, uint32_t size) {
-    return (int)syscall2(15, (uint64_t)filename, size);
+static inline int create(const char *filename) {
+    return (int)syscall1(15, (uint64_t)filename);
 }
 
 static inline int delete(const char *filename) {
@@ -208,8 +198,8 @@ static inline int stat(const char *path, stat_t *statbuf) {
     return (int)syscall2(17, (uint64_t)path, (uint64_t)statbuf);
 }
 
-static inline int fstat(zfs_file_t *file, stat_t *statbuf) {
-    return (int)syscall2(18, (uint64_t)file, (uint64_t)statbuf);
+static inline int fstat(int fd, stat_t *statbuf) {
+    return (int)syscall2(18, (uint64_t)fd, (uint64_t)statbuf);
 }
 
 static inline int chdir(const char *path) {

@@ -7,7 +7,7 @@
 #include "../../drv/mouse.h"
 #include "../../drv/speaker.h"
 #include "../../drv/vga.h"
-#include "../../drv/disk/zfs.h"
+#include "../../drv/disk/fat.h"
 #include "../../kernel/sched.h"
 #include "../../drv/hpet.h"
 #include "../../cpu/acpi/acpi.h"
@@ -84,8 +84,8 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         case SYSCALL_LS: {
             char *buf = (char*)arg1;
             size_t buf_size = (size_t)arg2;
-            if (!buf || buf_size == 0) return ZFS_ERR_INVALID_PARAM;
-            return zfs_list(buf, buf_size);
+            if (!buf || buf_size == 0) return -1;
+            return fat_list(buf, buf_size);
         }
         
         case SYSCALL_GETKEY:
@@ -120,110 +120,105 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         
         case SYSCALL_OPEN: {
             const char *filename = (const char*)arg1;
-            zfs_file_t *file = (zfs_file_t*)arg2;
-            if (!filename || !file) return ZFS_ERR_INVALID_PARAM;
-            return zfs_open(filename, file);
+            int write_mode = (int)arg2;
+            if (!filename) return -1;
+            return fat_open(filename, write_mode);
         }
         
         case SYSCALL_READ: {
-            zfs_file_t *file = (zfs_file_t*)arg1;
+            int fd = (int)arg1;
             void *buffer = (void*)arg2;
             uint32_t size = (uint32_t)arg3;
             uint32_t *bytes_read = (uint32_t*)arg4;
-            if (!file || !buffer) return ZFS_ERR_INVALID_PARAM;
-            return zfs_read(file, buffer, size, bytes_read);
+            if (!buffer) return -1;
+            return fat_read(fd, buffer, size, bytes_read);
         }
         
         case SYSCALL_WRITE: {
-            zfs_file_t *file = (zfs_file_t*)arg1;
+            int fd = (int)arg1;
             const void *buffer = (const void*)arg2;
             uint32_t size = (uint32_t)arg3;
-            if (!file || !buffer) return ZFS_ERR_INVALID_PARAM;
-            return zfs_write(file, buffer, size);
+            if (!buffer) return -1;
+            return fat_write(fd, buffer, size);
         }
         
         case SYSCALL_CLOSE: {
-            zfs_file_t *file = (zfs_file_t*)arg1;
-            if (!file) return ZFS_ERR_INVALID_PARAM;
-            return zfs_close(file);
+            int fd = (int)arg1;
+            return fat_close(fd);
         }
         
         case SYSCALL_LSEEK: {
-            zfs_file_t *file = (zfs_file_t*)arg1;
-            uint32_t offset = (uint32_t)arg2;
-            if (!file) return ZFS_ERR_INVALID_PARAM;
-            return zfs_seek(file, offset);
+            int fd = (int)arg1;
+            int32_t offset = (int32_t)arg2;
+            int whence = (int)arg3;
+            return fat_lseek(fd, offset, whence);
         }
         
         case SYSCALL_CREATE: {
             const char *filename = (const char*)arg1;
-            uint32_t size = (uint32_t)arg2;
-            if (!filename) return ZFS_ERR_INVALID_PARAM;
-            return zfs_create(filename, size);
+            if (!filename) return -1;
+            return fat_create(filename);
         }
         
         case SYSCALL_DELETE: {
             const char *filename = (const char*)arg1;
-            if (!filename) return ZFS_ERR_INVALID_PARAM;
-            return zfs_delete(filename);
+            if (!filename) return -1;
+            return fat_delete(filename);
         }
         
         case SYSCALL_STAT: {
             const char *path = (const char*)arg1;
             stat_t *statbuf = (stat_t*)arg2;
             if (!path || !statbuf) return -1;
-            
-            zfs_file_t file;
-            zfs_error_t err = zfs_open(path, &file);
-            if (err != ZFS_OK) return -1;
-            
-            statbuf->st_size = file.size;
+            int fd = fat_open(path, 0);
+            if (fd < 0) return -1;
+            uint32_t sz = fat_size(fd);
+            fat_close(fd);
+            statbuf->st_size = sz;
             statbuf->st_mode = 0644;
             statbuf->st_nlink = 1;
-            statbuf->st_blksize = 4096;
-            statbuf->st_blocks = (file.size + 4096 - 1) / 4096;
-            
-            zfs_close(&file);
+            statbuf->st_blksize = 512;
+            statbuf->st_blocks = (sz + 511) / 512;
             return 0;
         }
         
         case SYSCALL_FSTAT: {
-            zfs_file_t *file = (zfs_file_t*)arg1;
+            int fd = (int)arg1;
             stat_t *statbuf = (stat_t*)arg2;
-            if (!file || !statbuf) return -1;
-            
-            statbuf->st_size = file->size;
+            if (!statbuf) return -1;
+            uint32_t sz = fat_size(fd);
+            statbuf->st_size = sz;
             statbuf->st_mode = 0644;
             statbuf->st_nlink = 1;
-            statbuf->st_blksize = 4096;
-            statbuf->st_blocks = (file->size + 4096 - 1) / 4096;
+            statbuf->st_blksize = 512;
+            statbuf->st_blocks = (sz + 511) / 512;
             return 0;
         }
         
         case SYSCALL_CHDIR: {
             const char *path = (const char*)arg1;
             if (!path) return -1;
-            return zfs_chdir(path);
+            return fat_chdir(path);
         }
         
         case SYSCALL_GETCWD: {
             char *buffer = (char*)arg1;
             size_t size = (size_t)arg2;
             if (!buffer) return -1;
-            zfs_get_cwd(buffer, size);
+            fat_getcwd(buffer, size);
             return 0;
         }
         
         case SYSCALL_MKDIR: {
             const char *path = (const char*)arg1;
             if (!path) return -1;
-            return zfs_mkdir(path);
+            return fat_mkdir(path);
         }
         
         case SYSCALL_RMDIR: {
             const char *path = (const char*)arg1;
             if (!path) return -1;
-            return zfs_rmdir(path);
+            return fat_rmdir(path);
         }
         
         case SYSCALL_BRK: {

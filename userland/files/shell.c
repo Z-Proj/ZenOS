@@ -48,16 +48,11 @@ static int parse_command(char* command, char* args[], int max_args) {
 
 static void cmd_touch(int argc, char* argv[]) {
     if (argc < 2) {
-        prints(COLOR_RED "Usage: touch <filename> [size]\n" COLOR_RESET);
+        prints(COLOR_RED "Usage: touch <filename>\n" COLOR_RESET);
         return;
     }
     
-    uint32_t size = 1024;
-    if (argc >= 3) {
-        size = atoi(argv[2]);
-    }
-    
-    int ret = create(argv[1], size);
+    int ret = create(argv[1]);
     if (ret == 0) {
         prints(COLOR_GREEN "Created: " COLOR_RESET);
         prints(argv[1]);
@@ -89,8 +84,9 @@ static void cmd_cat(int argc, char* argv[]) {
         return;
     }
     
-    zfs_file_t file;
-    if (open(argv[1], &file) != 0) {
+    
+    int file = open(argv[1], 0);
+    if (file < 0) {
         prints(COLOR_RED "Failed to open file\n" COLOR_RESET);
         return;
     }
@@ -98,12 +94,12 @@ static void cmd_cat(int argc, char* argv[]) {
     char buffer[256];
     ssize_t bytes;
     
-    while ((bytes = read(&file, buffer, sizeof(buffer) - 1)) > 0) {
+    while ((bytes = read(file, buffer, sizeof(buffer) - 1)) > 0) {
         buffer[bytes] = '\0';
         prints(buffer);
     }
     
-    close(&file);
+    close(file);
     prints("\n");
 }
 
@@ -113,8 +109,9 @@ static void cmd_write(int argc, char* argv[]) {
         return;
     }
     
-    zfs_file_t file;
-    if (open(argv[1], &file) != 0) {
+    
+    int file = open(argv[1], 1);
+    if (file < 0) {
         prints(COLOR_RED "Failed to open file\n" COLOR_RESET);
         return;
     }
@@ -131,13 +128,13 @@ static void cmd_write(int argc, char* argv[]) {
     }
     text[pos] = '\0';
     
-    int success = write(&file, text, strlen(text));
+    int success = write(file, text, strlen(text));
     if (!success) {
         prints(COLOR_GREEN "Write successful.\n" COLOR_RESET);
     } else {
         prints(COLOR_RED "Write failed\n" COLOR_RESET);
     }
-    close(&file);
+    close(file);
 }
 
 static void cmd_stat(int argc, char* argv[]) {
@@ -995,8 +992,8 @@ static int is_builtin(const char *name) {
 }
 
 static int file_exists(const char *name) {
-    zfs_file_t f;
-    if (open(name, &f) == 0) { close(&f); return 1; }
+    int fd = open(name, 0);
+    if (fd >= 0) { close(fd); return 1; }
     return 0;
 }
 

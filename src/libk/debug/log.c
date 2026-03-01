@@ -38,7 +38,6 @@ void log_internal(const char *file, int line, const char *fmt, int level, int vi
     spinlock_acquire(&loglock);
 
     const char *color_seq;
-    int cpuid = LocalApicGetId();
 
     switch (level)
     {

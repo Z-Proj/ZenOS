@@ -6,7 +6,6 @@
 #include <stdbool.h>
 #include <stdarg.h>
 #include "../../drv/rtc.h"
-#include "../../drv/disk/zfs.h"
 #include "../../kernel/sched.h"
 #include "socket.h"
 

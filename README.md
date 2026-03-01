@@ -44,8 +44,8 @@ The project focuses on clean design, correctness, and practical experimentation 
 
 ### Filesystem
 
-- **ZenFS (ZFS)** — a custom filesystem designed specifically for ZenOS
-- Native host-side management tooling (`zfs_man`)
+- **FAT32 (FatFs)** port of [FatFs](https://elm-chan.org/fsw/ff/) made by CHAN
+- Native host-side file management tooling (`fat_man`)
 - Used as the primary medium for userspace ELF binaries
 
 ### Userspace
@@ -56,6 +56,7 @@ The project focuses on clean design, correctness, and practical experimentation 
 #### Current Apps (Subject to change, this might be outdated):
 
 - Calculator with `+`,`-`,`*`,`/`,`%`,`^` (calc.c)
+- C4 : C in 4 functions compiler. (cc.c)
 - Clock - Live clock (clock.c)
 - Counter program (counter.c)
 - Fibonacci sequence (fibonacci.c)
@@ -67,6 +68,7 @@ The project focuses on clean design, correctness, and practical experimentation 
 - Memory functions test (memtest.c)
 - Prime numbers till 100 (primes.c)
 - Shell - Simple Shell (shell.c)
+- SmallerC compiler to Assembly (smlrc.c)
 - Snake (snake.c)
 - Sysinfo - Graphical + More detailed system info (sysinfo.c)
 - Template program (test.c)
@@ -139,6 +141,9 @@ socat
 - The Limine bootloader. https://codeberg.org/Limine/Limine
 - Flanterm Terminal emulator. https://codeberg.org/mintsuki/flanterm
 - Scalable Screen Font 2.0. https://gitlab.com/bztsrc/scalable-font2/
+- FatFs by CHAN. https://elm-chan.org/fsw/ff/
+- SmallerC compiler. https://github.com/alexfru/SmallerC
+- C4 Compiler: C in 4 functions. https://github.com/rswier/c4
 
 ---
 

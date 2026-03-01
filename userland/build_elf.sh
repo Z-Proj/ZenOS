@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 
 VHD_PATH="ZenOS.vhd"
-ZFS_MAN="./zfs_man"
+fat_man="./fat_man"
 FILES_DIR="userland/files"
 OUT_DIR="userland/build"
 
@@ -11,7 +11,7 @@ die() {
     exit 1
 }
 
-[ -x "$ZFS_MAN" ] || die "zfs_man not found or not executable"
+[ -x "$fat_man" ] || die "fat_man not found or not executable"
 [ -f "$VHD_PATH" ] || die "VHD '$VHD_PATH' not found"
 
 if [ "$#" -eq 0 ]; then
@@ -86,7 +86,7 @@ for SRC in "$@"; do
     ELF="${OUT_DIR}/${BASENAME}.elf"
 
     echo "[*] Removing old /${BASENAME} from ${VHD_PATH} (if any)"
-    "$ZFS_MAN" "$VHD_PATH" delete "/${BASENAME}" || true
+    "$fat_man" "$VHD_PATH" delete "/${BASENAME}" || true
 
     echo "[*] Compiling ${SRC} -> ${OBJ}"
     clang -m64 -ffreestanding -fno-stack-protector -mno-red-zone \
@@ -113,7 +113,7 @@ for SRC in "$@"; do
     [ -f "$ELF" ] || die "ELF not produced for ${BASENAME}"
 
     echo "[*] Importing ${ELF} as /${BASENAME}"
-    "$ZFS_MAN" "$VHD_PATH" import "$ELF" "/${BASENAME}" \
+    "$fat_man" "$VHD_PATH" import "$ELF" "/${BASENAME}" \
         || die "Import failed for ${BASENAME}"
 
     echo "[✓] ${BASENAME} installed"

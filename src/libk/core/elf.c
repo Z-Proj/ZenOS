@@ -2,29 +2,31 @@
 #include "../string.h"
 #include "../debug/log.h"
 #include "../../drv/vga.h"
+#include "../../drv/disk/fat.h"
 #include "mem.h"
 
 int elf_exec(const char *filename, int argc, char **argv)
 {
-    zfs_file_t file;
-    if (zfs_open(filename, &file) != ZFS_OK)
+    int fd = fat_open(filename, 0);
+    if (fd < 0)
         return -1;
-    
-    uint8_t *elf_data = (uint8_t *)kmalloc(file.size);
+
+    uint32_t filesize = fat_size(fd);
+    uint8_t *elf_data = (uint8_t *)kmalloc(filesize);
     if (!elf_data)
     {
-        zfs_close(&file);
+        fat_close(fd);
         return -1;
     }
-    
+
     uint32_t bytes_read;
-    if (zfs_read(&file, elf_data, file.size, &bytes_read) != ZFS_OK)
+    if (fat_read(fd, elf_data, filesize, &bytes_read) != 0 || bytes_read != filesize)
     {
         kfree(elf_data);
-        zfs_close(&file);
+        fat_close(fd);
         return -1;
     }
-    zfs_close(&file);
+    fat_close(fd);
     
     elf64_ehdr_t *ehdr = (elf64_ehdr_t *)elf_data;
     if (ehdr->e_ident[0] != 0x7F || ehdr->e_ident[1] != 'E' ||

@@ -3,6 +3,6 @@
 iso/
 build/
 *.iso
-zfs_man
+fat_man
 *.elf
 funcs.txt

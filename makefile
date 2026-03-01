@@ -22,7 +22,7 @@ KERNEL = $(BUILD_DIR)/kernel.bin
 
 ISO_IMAGE = ZenOS.iso
 
-all: clean deps zfs $(ISO_IMAGE) user
+all: clean deps fat $(ISO_IMAGE) user
 
 %.o: %.c
 	clang $(CFLAGS) $< -o $@
@@ -57,8 +57,12 @@ funcs:
 	rm tags
 	@echo "✓ Generated funcs.txt"
 
-zfs:
-	clang zfs_man.c -o zfs_man
+fat:
+	clang fat_man.c \
+	src/drv/disk/fatfs/ff.c \
+	src/drv/disk/fatfs/ffunicode.c \
+	-Isrc/drv/disk/fatfs \
+	-o fat_man
 
 clean:
 	rm -rf $(OBJ) $(KERNEL) $(ISO_IMAGE) $(ISO_DIR) $(BUILD_DIR) src/cpu/ap.bin
@@ -122,4 +126,4 @@ out:
 gdb:
 	gdb build/kernel.bin
 
-.PHONY: all clean run qemu out stop gdb zfs funcs
+.PHONY: all clean run qemu out stop gdb fat funcs

@@ -17,8 +17,8 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
 
-    zfs_file_t file;
-    if (open(argv[1], &file) != 0) {
+    int file = open(argv[1], 0);
+    if (file < 0) {
         prints("\033[31mwc: cannot open: ");
         prints(argv[1]);
         prints("\033[0m\n");
@@ -30,7 +30,7 @@ int main(int argc, char *argv[]) {
     int in_word = 0;
     ssize_t n;
 
-    while ((n = read(&file, buf, sizeof(buf))) > 0) {
+    while ((n = read(file, buf, sizeof(buf))) > 0) {
         for (ssize_t i = 0; i < n; i++) {
             char c = buf[i];
             chars++;
@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    close(&file);
+    close(file);
 
     print_num(lines); prints(" ");
     print_num(words); prints(" ");
