@@ -173,7 +173,6 @@ int fat_write(int fd, const void *buf, uint32_t size)
         return -1;
 
     UINT bw = 0;
-    uint32_t fpos_before = (uint32_t)f_tell(&fd_table[fd].fil);
     FRESULT fr = f_write(&fd_table[fd].fil, buf, size, &bw);
     if (fr != FR_OK || bw != size)
     {

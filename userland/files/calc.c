@@ -1,5 +1,8 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
 #include "../userlib.h"
-#include "../libs/lib.h"
 
 #define COLOR_RESET   "\033[0m"
 #define COLOR_RED     "\033[31m"

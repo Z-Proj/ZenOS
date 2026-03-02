@@ -5,6 +5,9 @@ VHD_PATH="ZenOS.vhd"
 fat_man="./fat_man"
 FILES_DIR="userland/files"
 OUT_DIR="userland/build"
+LIBS_DIR="userland/libs"
+NEWLIB_INC="userland/libs/include"
+NEWLIB_LIB="userland/libs"
 
 die() {
     echo "[!] $*" >&2
@@ -43,7 +46,6 @@ cleanup() {
 
 trap cleanup EXIT
 
-LIBS_DIR="userland/libs"
 EXTRA_OBJS=""
 if [ -d "$LIBS_DIR" ]; then
     for SFN in "$LIBS_DIR"/*.sfn; do
@@ -68,10 +70,16 @@ if [ -d "$LIBS_DIR" ]; then
 
     for LOBJ in "$LIBS_DIR"/*.o; do
         [ -f "$LOBJ" ] || continue
-        echo "[*] Including lib: $(basename "$LOBJ")"
+        echo "[*] Including lib object: $(basename "$LOBJ")"
         EXTRA_OBJS="$EXTRA_OBJS $LOBJ"
     done
 fi
+
+[ -f "${NEWLIB_LIB}/libc.a" ] || die "newlib not found: ${NEWLIB_LIB}/libc.a missing. Run the newlib build first."
+[ -d "${NEWLIB_INC}" ]        || die "newlib headers not found: ${NEWLIB_INC} missing. Run the newlib build first."
+NEWLIB_CFLAGS="-isystem ${NEWLIB_INC}"
+NEWLIB_LDFLAGS="-L${NEWLIB_LIB} -lc -lm"
+echo "[*] Using newlib from ${NEWLIB_LIB}"
 
 for SRC in "$@"; do
     [ -f "$SRC" ] || die "Source file '$SRC' does not exist"
@@ -94,8 +102,10 @@ for SRC in "$@"; do
     else
         PIC_FLAG="-fPIC"
     fi
+
     clang -m64 -ffreestanding -fno-stack-protector -mno-red-zone \
           -nostdlib $PIC_FLAG -fno-pie -O1 \
+          $NEWLIB_CFLAGS \
           -I userland -I userland/libs \
           -c "$SRC" -o "$OBJ" \
           || die "Compilation failed for ${SRC}"
@@ -110,7 +120,9 @@ for SRC in "$@"; do
     ld.lld -m elf_x86_64 \
            -e _start \
            -T userland/userelf.ld \
-           $LINK_OBJS -o "$ELF" \
+           $LINK_OBJS \
+           $NEWLIB_LDFLAGS \
+           -o "$ELF" \
            --warn-unresolved-symbols \
            --noinhibit-exec \
            || die "Linking failed for ${BASENAME}"

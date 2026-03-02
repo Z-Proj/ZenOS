@@ -1,5 +1,9 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <sys/time.h>
 #include "../userlib.h"
-#include "../libs/lib.h"
 
 static void print2(int n) {
     char s[3] = { '0' + n / 10, '0' + n % 10, '\0' };
@@ -12,7 +16,7 @@ int main(int argc, char *argv[]) {
 
     fputs("\033[36mZenOS Clock - press any key to exit\033[0m\n", stdout);
 
-    timeval_t tv;
+    struct timeval tv;
     int last_sec = -1;
     int hours = 0, mins = 0, secs = 0;
 

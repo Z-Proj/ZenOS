@@ -1,5 +1,9 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <unistd.h>
 #include "../userlib.h"
-#include "../libs/lib.h"
 
 static void print_int(int n) {
     char buf[16];

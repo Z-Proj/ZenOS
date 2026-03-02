@@ -1,5 +1,10 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <unistd.h>
+#include <sys/time.h>
 #include "../userlib.h"
-#include "../libs/lib.h"
 #include "../libs/gfx.h"
 
 #define COLS     16
@@ -94,7 +99,7 @@ int main(int argc, char *argv[]) {
     sx[2]=COLS/2-2; sy[2]=ROWS/2;
     sx[3]=COLS/2-3; sy[3]=ROWS/2;
     dx=1; dy=0; score=0;
-    timeval_t tv; gettimeofday(&tv, NULL);
+    struct timeval tv; gettimeofday(&tv, NULL);
     rng = (uint32_t)(tv.tv_sec ^ tv.tv_usec) | 1;
     place_food();
 

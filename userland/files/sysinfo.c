@@ -1,5 +1,9 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <sys/time.h>
 #include "../userlib.h"
-#include "../libs/lib.h"
 #include "../libs/gfx.h"
 
 #define C_BG     0xFF0A0E14
@@ -83,7 +87,7 @@ static void draw_static(socket_file_t *g, utsname_t *un, fb_info_t *fb) {
 }
 
 static void draw_time(socket_file_t *g) {
-    timeval_t tv;
+    struct timeval tv;
     gettimeofday(&tv, NULL);
     int64_t total = tv.tv_sec;
 
@@ -120,7 +124,7 @@ int main(int argc, char *argv[]) {
 
     int last_sec = -1;
     while (1) {
-        timeval_t tv; gettimeofday(&tv, NULL);
+        struct timeval tv; gettimeofday(&tv, NULL);
         int sec = (int)(tv.tv_sec % 60);
         if (sec != last_sec) {
             draw_time(g);

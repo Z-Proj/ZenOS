@@ -1,5 +1,8 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
 #include "../userlib.h"
-#include "../libs/lib.h"
 #include "../libs/gfx.h"
 
 #define FONT_HEIGHT 6

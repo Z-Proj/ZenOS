@@ -1,5 +1,8 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
 #include "../userlib.h"
-#include "../libs/lib.h"
 
 int main(int argc, char *argv[]) {
     if (argc > 1) {

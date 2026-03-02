@@ -1,5 +1,14 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <sys/stat.h>
+#include <sys/time.h>
 #include "../userlib.h"
-#include "../libs/lib.h"
 
 #define COLOR_RESET   "\033[0m"
 #define COLOR_RED     "\033[31m"
@@ -141,7 +150,7 @@ static void cmd_stat(int argc, char* argv[]) {
         return;
     }
     
-    stat_t st;
+    struct stat st;
     if (stat(argv[1], &st) != 0) {
         fputs(COLOR_RED "Failed to stat file\n" COLOR_RESET, stdout);
         return;
@@ -622,7 +631,7 @@ static void cmd_kill(int argc, char* argv[]) {
 // ============ TIME COMMANDS ============
 
 static void cmd_time(void) {
-    timeval_t tv;
+    struct timeval tv;
     if (gettimeofday(&tv, NULL) == 0) {
         fputs(COLOR_CYAN "Time: " COLOR_RESET, stdout);
         
@@ -936,6 +945,7 @@ static void show_prompt(void) {
     fputs(COLOR_BOLD COLOR_BLUE, stdout);
     fputs(cwd, stdout);
     fputs(COLOR_RESET "$ ", stdout);
+    fflush(stdout);
 }
 
 static void read_command(void) {
@@ -1121,6 +1131,9 @@ static void show_banner(void) {
 }
 
 int main(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
     memset(command_buffer, 0, MAX_COMMAND_LENGTH);
     memset(lastcmd, 0, MAX_COMMAND_LENGTH);
     

@@ -50,6 +50,7 @@ The project focuses on clean design, correctness, and practical experimentation 
 
 ### Userspace
 
+- [Newlib](https://sourceware.org/newlib/) C Library.
 - `ELF64` userspace programs
 - Custom syscall interface (Currently 49 present.)
 
@@ -144,6 +145,7 @@ socat
 - FatFs by CHAN. https://elm-chan.org/fsw/ff/
 - SmallerC compiler. https://github.com/alexfru/SmallerC
 - C4 Compiler: C in 4 functions. https://github.com/rswier/c4
+- Newlib C library. https://sourceware.org/newlib/
 
 ---
 

@@ -1,8 +1,11 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+#include "userlib.h"
+#include "../libs/gfx.h"
 // gfxserver.c - ZenOS Graphics Server
 
-#include "userlib.h"
-#include "../libs/lib.h"
-#include "../libs/gfx.h"
 
 extern char _binary_FreeSansB_sfn_start;
 extern char _binary_FreeSansB_sfn_end;

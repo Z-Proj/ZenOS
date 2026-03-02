@@ -59,7 +59,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef __SMALLER_C__
 
 // ZenOS port - replace system headers with lib.h
-#include "../libs/lib.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <stdarg.h>  // clang provides this even freestanding
 
 // limits.h defines not in lib.h
@@ -77,17 +82,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define EXIT_FAILURE 1
 #define EXIT_SUCCESS 0
 
-// fpos_t: just use a long offset (ftell/fseek based)
-typedef long fpos_t;
-static inline int fgetpos(FILE *fp, fpos_t *pos) {
-    long r = ftell(fp);
-    if (r < 0) return -1;
-    *pos = r;
-    return 0;
-}
-static inline int fsetpos(FILE *fp, const fpos_t *pos) {
-    return fseek(fp, (long)*pos, SEEK_SET);
-}
+// fgetpos/fsetpos provided by newlib stdio.h
 
 #define CAN_COMPILE_32BIT
 

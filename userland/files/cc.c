@@ -1,3 +1,8 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
 // c4.c - C in four functions
 
 // char, int, and pointer types
@@ -6,7 +11,6 @@
 
 // Written by Robert Swierczek
 
-#include "../libs/lib.h"
 #define int long long
 
 char *p, *lp, // current position in source code
