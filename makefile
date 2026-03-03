@@ -22,7 +22,7 @@ KERNEL = $(BUILD_DIR)/kernel.bin
 
 ISO_IMAGE = ZenOS.iso
 
-all: clean deps fat $(ISO_IMAGE) user
+all: clean deps fat $(ISO_IMAGE) user init
 
 %.o: %.c
 	clang $(CFLAGS) $< -o $@
