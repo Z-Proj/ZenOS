@@ -1,7 +1,6 @@
 #include "syscall.h"
 #include "elf.h"
 #include "../debug/log.h"
-#include "../debug/serial.h"
 #include "../../drv/keyboard.h"
 #include "../../drv/keyboard.h"
 #include "../../drv/mouse.h"
@@ -91,19 +90,17 @@ static void dispatch_pending_signals(task_t *task)
 
 uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
-    (void)arg5;
-    
     switch(num) {
         case SYSCALL_EXEC: {
             const char *filename = (const char*)arg1;
             int argc = (int)arg2;
             char **argv = (char**)arg3;
+            char **envp = (char**)arg4;
             if (!filename) return -1;
-            return elf_exec(filename, argc, argv);
+            return elf_execve_replace(filename, argc, argv, envp);
         }
         
         case SYSCALL_EXIT: {
-            log("Task exiting.", 1, 0);
             task_t *current = sched_current_task();
             if (current) {
                 current->exit_code = (int)arg1;
@@ -256,11 +253,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             task_t *cur = sched_current_task();
             if (!cur || !cur->fd_table) return -1;
             if (fd >= TASK_MAX_FDS) return -1;
-            fd_entry_t *e = &cur->fd_table->entries[fd];
-            if (!e->used) return -1;
-            fat_close_entry(e);
-            memset(e, 0, sizeof(fd_entry_t));
-            return 0;
+            return fd_close(cur->fd_table, fd);
         }
         
         case SYSCALL_LSEEK: {
@@ -663,18 +656,9 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         }
 
         case SYSCALL_WAIT_PID: {
-            uint64_t pid = arg1;
+            int64_t pid = (int64_t)arg1;
             int *wstatus = (int*)arg2;
-            int ret = sched_wait_pid(pid);
-            if (wstatus) {
-                task_t *head = sched_get_task_list();
-                task_t *t = head;
-                if (t) do {
-                    if (t->pid == pid) { *wstatus = (t->exit_code & 0xff) << 8; break; }
-                    t = t->next;
-                } while (t != head);
-            }
-            return ret;
+            return sched_wait_pid(pid, wstatus);
         }
 
         case SYSCALL_LIST_TASKS: {
@@ -697,7 +681,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         }
 
         case SYSCALL_FORK: {
-            return (uint64_t)sched_fork();
+            return (uint64_t)sched_fork(arg5);
         }
 
         case SYSCALL_PIPE: {
@@ -713,6 +697,8 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             pipe_buf_t *pb = (pipe_buf_t*)kmalloc(sizeof(pipe_buf_t));
             if (!pb) { cur->fd_table->entries[rfd].used = 0; cur->fd_table->entries[wfd].used = 0; return -1; }
             memset(pb, 0, sizeof(pipe_buf_t));
+            pb->readers = 1;
+            pb->writers = 1;
             pb->refcount = 2;
             fd_entry_t *re = &cur->fd_table->entries[rfd];
             fd_entry_t *we = &cur->fd_table->entries[wfd];
@@ -735,8 +721,11 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             int nfd = fd_alloc(cur->fd_table);
             if (nfd < 0) return -1;
             cur->fd_table->entries[nfd] = *src;
-            if (src->type == FD_PIPE_READ || src->type == FD_PIPE_WRITE)
+            if (src->type == FD_PIPE_READ || src->type == FD_PIPE_WRITE) {
                 src->pipe->refcount++;
+                if (src->type == FD_PIPE_READ) src->pipe->readers++;
+                if (src->type == FD_PIPE_WRITE) src->pipe->writers++;
+            }
             return nfd;
         }
 
@@ -751,10 +740,13 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             if (!src->used) return -1;
             if (newfd >= 3) {
                 fd_entry_t *dst = &cur->fd_table->entries[newfd];
-                if (dst->used) fat_close_entry(dst);
+                if (dst->used) fd_close(cur->fd_table, newfd);
                 *dst = *src;
-                if (src->type == FD_PIPE_READ || src->type == FD_PIPE_WRITE)
+                if (src->type == FD_PIPE_READ || src->type == FD_PIPE_WRITE) {
                     src->pipe->refcount++;
+                    if (src->type == FD_PIPE_READ) src->pipe->readers++;
+                    if (src->type == FD_PIPE_WRITE) src->pipe->writers++;
+                }
             }
             return newfd;
         }

@@ -18,6 +18,19 @@ static volatile int scheduler_enabled = 0;
 
 extern void user_task_entry(void);
 
+static task_t *find_task_by_pid_locked(uint64_t pid)
+{
+    if (!task_list_head) return NULL;
+
+    task_t *iter = task_list_head;
+    do {
+        if (iter->pid == pid) return iter;
+        iter = iter->next;
+    } while (iter != task_list_head);
+
+    return NULL;
+}
+
 void task_exit(void)
 {
     asm volatile("cli");
@@ -96,6 +109,10 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
     task->envp = NULL;
     task->parent_pid = 0;
     task->wait_status = 0;
+    task->wait_pid_target = -1;
+    task->wait_result_pid = -1;
+    task->waiting_on_pid = 0;
+    task->wait_collected = 0;
     task->fd_table = fd_table_alloc();
     memset(task->sighandlers, 0, sizeof(task->sighandlers));
     task->sig_pending = 0;
@@ -240,6 +257,12 @@ task_t *task_create(void (*entry)(void), const char *name) //TODO: Get rid of us
     task->stack_size = TASK_STACK_SIZE;
     task->is_kernel_task = 1;
     task->pml4 = get_kernel_pml4();
+    task->parent_pid = 0;
+    task->wait_status = 0;
+    task->wait_pid_target = -1;
+    task->wait_result_pid = -1;
+    task->waiting_on_pid = 0;
+    task->wait_collected = 0;
     
     task->kernel_stack = (uint64_t)kmalloc(TASK_STACK_SIZE);
     if (!task->kernel_stack)
@@ -314,6 +337,33 @@ static void reap_dead_tasks(void)
         
         if (iter->state == TASK_DEAD && iter != current_task)
         {
+            task_t *parent = NULL;
+            if (iter->parent_pid != 0)
+                parent = find_task_by_pid_locked(iter->parent_pid);
+
+            if (parent && parent->state != TASK_DEAD && !iter->wait_collected) {
+                if (parent->waiting_on_pid) {
+                    if (parent->wait_pid_target == -1 ||
+                        parent->wait_pid_target == (int64_t)iter->pid) {
+                        parent->wait_status = (iter->exit_code & 0xff) << 8;
+                        parent->wait_result_pid = (pid_t)iter->pid;
+                        parent->wait_pid_target = -1;
+                        parent->waiting_on_pid = 0;
+                        if (parent->state == TASK_BLOCKED)
+                            parent->state = TASK_READY;
+                        iter->wait_collected = 1;
+                    }
+                }
+
+                if (!iter->wait_collected) {
+                    prev = iter;
+                    iter = next;
+                    continue;
+                }
+            } else {
+                iter->wait_collected = 1;
+            }
+
             kbd_transfer_focus(iter->pid);
             if (iter->fd_table) {
                 fd_table_free(iter->fd_table);
@@ -485,35 +535,150 @@ int sched_kill(uint64_t pid)
     return -1;
 }
 
-int sched_wait_pid(uint64_t pid)
+static int write_wait_status(task_t *task, int *status_ptr, int value)
 {
-    if (!task_list_head) return -1;
+    if (!status_ptr) return 0;
+    if (!task || !task->pml4) return -1;
 
-    while (1) {
-        bool found = false;
-        task_t *t = task_list_head;
+    uint64_t uaddr = (uint64_t)status_ptr;
+    uint64_t page0 = uaddr & ~(uint64_t)(PAGE_SIZE - 1);
+    uint64_t off0 = uaddr & (PAGE_SIZE - 1);
+    uint64_t phys0 = virt_to_phys(task->pml4, page0);
+    if (!phys0) return -1;
+
+    uint8_t bytes[sizeof(int)];
+    memcpy(bytes, &value, sizeof(int));
+
+    uint8_t *dst0 = (uint8_t *)(phys0 + KERNEL_VIRT_OFFSET + off0);
+    size_t first = PAGE_SIZE - off0;
+    if (first >= sizeof(int)) {
+        memcpy(dst0, bytes, sizeof(int));
+        return 0;
+    }
+
+    memcpy(dst0, bytes, first);
+
+    uint64_t page1 = page0 + PAGE_SIZE;
+    uint64_t phys1 = virt_to_phys(task->pml4, page1);
+    if (!phys1) return -1;
+
+    uint8_t *dst1 = (uint8_t *)(phys1 + KERNEL_VIRT_OFFSET);
+    memcpy(dst1, bytes + first, sizeof(int) - first);
+    return 0;
+}
+
+int sched_wait_pid(int64_t pid, int *status)
+{
+    if (!current_task) return -1;
+    if (write_wait_status(current_task, status, 0) < 0) return -1;
+
+    for (;;) {
+        spinlock_acquire(&sched_lock);
+
+        if (!task_list_head) {
+            spinlock_release(&sched_lock);
+            return -1;
+        }
+
+        task_t *dead_match = NULL;
+        int has_child_match = 0;
+
+        task_t *iter = task_list_head;
         do {
-            if (t->pid == pid) {
-                found = true;
-                if (t->state == TASK_DEAD) return 0;
+            if (iter == current_task) {
+                iter = iter->next;
+                continue;
+            }
+
+            if (iter->parent_pid != current_task->pid) {
+                iter = iter->next;
+                continue;
+            }
+
+            if (pid != -1 && iter->pid != (uint64_t)pid) {
+                iter = iter->next;
+                continue;
+            }
+
+            has_child_match = 1;
+            if (iter->state == TASK_DEAD) {
+                dead_match = iter;
                 break;
             }
-            t = t->next;
-        } while (t != task_list_head);
 
-        if (!found) return 0;
+            iter = iter->next;
+        } while (iter != task_list_head);
+
+        if (dead_match) {
+            dead_match->wait_collected = 1;
+            current_task->wait_status = (dead_match->exit_code & 0xff) << 8;
+            current_task->wait_result_pid = (pid_t)dead_match->pid;
+            current_task->wait_pid_target = -1;
+            current_task->waiting_on_pid = 0;
+
+            int ret = (int)dead_match->pid;
+            int st = current_task->wait_status;
+            spinlock_release(&sched_lock);
+
+            if (write_wait_status(current_task, status, st) < 0) return -1;
+            return ret;
+        }
+
+        if (!has_child_match) {
+            current_task->wait_pid_target = -1;
+            current_task->wait_result_pid = -1;
+            current_task->waiting_on_pid = 0;
+            spinlock_release(&sched_lock);
+            return -1;
+        }
+
+        current_task->wait_pid_target = pid;
+        current_task->wait_result_pid = -1;
+        current_task->wait_status = 0;
+        current_task->waiting_on_pid = 1;
+        current_task->state = TASK_BLOCKED;
+
+        spinlock_release(&sched_lock);
         sched_yield();
+
+        spinlock_acquire(&sched_lock);
+        if (current_task->wait_result_pid >= 0) {
+            int ret = (int)current_task->wait_result_pid;
+            int st = current_task->wait_status;
+            current_task->wait_result_pid = -1;
+            current_task->wait_pid_target = -1;
+            current_task->waiting_on_pid = 0;
+            spinlock_release(&sched_lock);
+
+            if (write_wait_status(current_task, status, st) < 0) return -1;
+            return ret;
+        }
+        spinlock_release(&sched_lock);
     }
 }
-pid_t sched_fork(void)
+typedef struct syscall_fork_frame
+{
+    uint64_t r15;
+    uint64_t r14;
+    uint64_t r13;
+    uint64_t r12;
+    uint64_t rbp;
+    uint64_t rbx;
+    uint64_t user_rflags;
+    uint64_t user_rip;
+    uint64_t user_rsp;
+} syscall_fork_frame_t;
+
+pid_t sched_fork(uint64_t syscall_frame_ptr)
 {
     spinlock_acquire(&sched_lock);
-    if (!current_task || task_count >= MAX_TASKS) {
+    if (!current_task || task_count >= MAX_TASKS || syscall_frame_ptr == 0) {
         spinlock_release(&sched_lock);
         return -1;
     }
 
     task_t *parent = current_task;
+    syscall_fork_frame_t *frame = (syscall_fork_frame_t *)syscall_frame_ptr;
 
     task_t *child = (task_t *)kmalloc(sizeof(task_t));
     if (!child) { spinlock_release(&sched_lock); return -1; }
@@ -531,12 +696,56 @@ pid_t sched_fork(void)
     child->envp       = parent->envp;
     child->exit_code  = 0;
     child->wait_status = 0;
+    child->wait_pid_target = -1;
+    child->wait_result_pid = -1;
+    child->waiting_on_pid = 0;
+    child->wait_collected = 0;
+    memcpy(child->sighandlers, parent->sighandlers, sizeof(parent->sighandlers));
+    child->sig_pending = 0;
+    child->sig_mask = parent->sig_mask;
+    child->sig_trampoline = parent->sig_trampoline;
 
     strncpy(child->name, parent->name, 63);
     child->name[63] = '\0';
 
     child->pml4 = clone_page_directory(parent->pml4);
     if (!child->pml4) { kfree(child); spinlock_release(&sched_lock); return -1; }
+
+    size_t stack_pages = (TASK_STACK_SIZE + PAGE_SIZE - 1) / PAGE_SIZE;
+    uint64_t new_stack_phys[64];
+    if (stack_pages > 64) {
+        free_page_directory(child->pml4);
+        kfree(child);
+        spinlock_release(&sched_lock);
+        return -1;
+    }
+    memset(new_stack_phys, 0, sizeof(new_stack_phys));
+
+    for (size_t i = 0; i < stack_pages; i++) {
+        uint64_t virt = parent->user_stack + i * PAGE_SIZE;
+        uint64_t src_phys = virt_to_phys(parent->pml4, virt);
+        if (!src_phys) continue;
+
+        uint64_t dst_phys = alloc_page();
+        if (!dst_phys) {
+            for (size_t j = 0; j < stack_pages; j++) {
+                if (!new_stack_phys[j]) continue;
+                uint64_t v = parent->user_stack + j * PAGE_SIZE;
+                unmap_page(child->pml4, v);
+                free_page(new_stack_phys[j]);
+            }
+            free_page_directory(child->pml4);
+            kfree(child);
+            spinlock_release(&sched_lock);
+            return -1;
+        }
+
+        memcpy((void *)(dst_phys + KERNEL_VIRT_OFFSET),
+               (void *)(src_phys + KERNEL_VIRT_OFFSET),
+               PAGE_SIZE);
+        map_page(child->pml4, virt, dst_phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+        new_stack_phys[i] = dst_phys;
+    }
 
     child->kernel_stack = (uint64_t)kmalloc(TASK_STACK_SIZE);
     if (!child->kernel_stack) {
@@ -548,12 +757,30 @@ pid_t sched_fork(void)
     memset((void *)child->kernel_stack, 0, TASK_STACK_SIZE);
 
     child->fd_table = fd_table_clone(parent->fd_table);
+    if (!child->fd_table) {
+        kfree((void *)child->kernel_stack);
+        free_page_directory(child->pml4);
+        kfree(child);
+        spinlock_release(&sched_lock);
+        return -1;
+    }
 
     child->user_stack = parent->user_stack;
 
-    child->regs           = parent->regs;
-    child->regs.rax       = 0;
-    tss.rsp0 = child->kernel_stack + TASK_STACK_SIZE;
+    child->regs = parent->regs;
+    child->regs.rax = 0;
+    child->regs.rbx = frame->rbx;
+    child->regs.rbp = frame->rbp;
+    child->regs.r12 = frame->r12;
+    child->regs.r13 = frame->r13;
+    child->regs.r14 = frame->r14;
+    child->regs.r15 = frame->r15;
+    child->regs.rip = frame->user_rip;
+    child->regs.userrsp = frame->user_rsp;
+    child->regs.rflags = frame->user_rflags;
+    child->regs.cs = 0x23;
+    child->regs.ss = 0x1B;
+    child->regs.ds = 0x1B;
 
     task_t *old_next = task_list_head->next;
     task_list_head->next = child;

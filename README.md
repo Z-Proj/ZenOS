@@ -9,7 +9,7 @@
 
 **ZenOS** is a modern **64-bit SMP Preemptive custom operating system**, developed entirely from scratch using **C** and **x86_64 assembly**, and bootstrapped with the **Limine** bootloader.
 
-The project focuses on clean design, correctness, and practical experimentation with real hardware concepts, while remaining lightweight and understandable. ZenOS is not a fork of an existing OS, nor is it POSIX-complete by design - it is a ground-up system built to explore kernel architecture, hardware interaction, and userspace execution in a controlled and extensible way. (Note: This is not a Unix / *nix like OS. My goal is to have the cleanest and well structured OS, while remaining optimized and providing userspace plenty.)
+The project focuses on clean design, correctness, and practical experimentation with real hardware concepts, while remaining lightweight and understandable. ZenOS is not a fork of an existing OS - it is a ground-up system built to explore kernel architecture, hardware interaction, and userspace execution in a controlled and extensible way.
 
 ---
 
@@ -52,7 +52,7 @@ The project focuses on clean design, correctness, and practical experimentation 
 
 - [Newlib](https://sourceware.org/newlib/) C Library.
 - `ELF64` userspace programs
-- Custom syscall interface (Currently 49 present.)
+- 60 Syscalls present.
 
 #### Current Apps (Subject to change, this might be outdated):
 
@@ -89,6 +89,7 @@ The project focuses on clean design, correctness, and practical experimentation 
 
 ## Building
 
+- First try running `make help` to see the main Makefile commands. (Not all are in the help menu.)
 - **Run** : `make all` at the root of the cloned git repo.
 - Any issues will be reported, to which you can take necessary action, such as missing dependencies.
 - For convenience, (`make funcs`) has been provided, running it will generate `funcs.txt` with all functions defined in the OS.

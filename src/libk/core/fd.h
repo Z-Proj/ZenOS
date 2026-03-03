@@ -28,6 +28,8 @@ typedef struct pipe_buf {
     uint32_t    count;
     int         write_closed;
     int         read_closed;
+    int         readers;
+    int         writers;
     int         refcount;
 } pipe_buf_t;
 
@@ -58,5 +60,6 @@ fd_table_t *fd_table_clone(fd_table_t *src);
 void        fd_table_close_cloexec(fd_table_t *t);
 void        fd_table_close_all(fd_table_t *t);
 int         fd_alloc(fd_table_t *t);
+int         fd_close(fd_table_t *t, int fd);
 
 #endif

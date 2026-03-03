@@ -40,6 +40,10 @@ typedef struct task
     char **envp;
     uint64_t parent_pid;
     int wait_status;
+    int64_t wait_pid_target;
+    pid_t wait_result_pid;
+    uint8_t waiting_on_pid;
+    uint8_t wait_collected;
     zen_sigaction_t sighandlers[NSIG];
     uint32_t sig_pending;
     uint32_t sig_mask;
@@ -56,8 +60,8 @@ void sched_tick(void);
 task_t *sched_current_task(void);
 task_t *sched_get_task_list(void);
 int sched_kill(uint64_t pid);
-int sched_wait_pid(uint64_t pid);
-pid_t sched_fork(void);
+int sched_wait_pid(int64_t pid, int *status);
+pid_t sched_fork(uint64_t syscall_frame_ptr);
 int sched_signal(uint64_t pid, int sig);
 extern void task_switch(registers_t *old_regs, registers_t *new_regs);
 

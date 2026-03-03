@@ -49,5 +49,6 @@ typedef struct
 } __attribute__((packed)) elf64_phdr_t;
 
 int elf_exec(const char *filename, int argc, char **argv);
+int elf_execve_replace(const char *filename, int argc, char **argv, char **envp);
 
 #endif

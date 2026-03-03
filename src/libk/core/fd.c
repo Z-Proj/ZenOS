@@ -34,12 +34,14 @@ static void fd_close_entry(fd_entry_t *e)
     } else if (e->type == FD_DIR) {
         f_closedir(&e->dir.dir);
     } else if (e->type == FD_PIPE_READ) {
-        e->pipe->read_closed = 1;
+        e->pipe->readers--;
+        if (e->pipe->readers <= 0) e->pipe->read_closed = 1;
         e->pipe->refcount--;
         if (e->pipe->refcount <= 0)
             kfree(e->pipe);
     } else if (e->type == FD_PIPE_WRITE) {
-        e->pipe->write_closed = 1;
+        e->pipe->writers--;
+        if (e->pipe->writers <= 0) e->pipe->write_closed = 1;
         e->pipe->refcount--;
         if (e->pipe->refcount <= 0)
             kfree(e->pipe);
@@ -73,6 +75,8 @@ fd_table_t *fd_table_clone(fd_table_t *src)
         } else if (se->type == FD_PIPE_READ || se->type == FD_PIPE_WRITE) {
             de->pipe = se->pipe;
             de->pipe->refcount++;
+            if (se->type == FD_PIPE_READ) de->pipe->readers++;
+            if (se->type == FD_PIPE_WRITE) de->pipe->writers++;
         }
     }
 
@@ -93,4 +97,11 @@ void fd_table_close_all(fd_table_t *t)
     for (int i = 3; i < TASK_MAX_FDS; i++)
         if (t->entries[i].used)
             fd_close_entry(&t->entries[i]);
+}
+
+int fd_close(fd_table_t *t, int fd)
+{
+    if (!t || fd < 0 || fd >= TASK_MAX_FDS) return -1;
+    fd_close_entry(&t->entries[fd]);
+    return 0;
 }
