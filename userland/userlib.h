@@ -201,6 +201,19 @@ static inline int zen_list_tasks(task_info_t *infos, uint32_t max)
 static inline void zen_shutdown(void) { _syscall0(41); }
 static inline void zen_reboot(void) { _syscall0(42); }
 static inline void zen_halt(void) { _syscall0(50); }
+static inline int zen_fork(void) { return (int)_sc_ret(_syscall0(51)); }
+static inline int zen_pipe(int pfd[2]) { return (int)_sc_ret(_syscall1(52, (uint64_t)pfd)); }
+static inline int zen_dup(int fd) { return (int)_sc_ret(_syscall1(53, (uint64_t)(unsigned int)fd)); }
+static inline int zen_dup2(int o, int n) { return (int)_sc_ret(_syscall2(54, (uint64_t)(unsigned int)o, (uint64_t)(unsigned int)n)); }
+static inline int zen_ioctl(int fd, unsigned long req, void *argp) { return (int)_sc_ret(_syscall3(61, (uint64_t)(unsigned int)fd, (uint64_t)req, (uint64_t)argp)); }
+static inline char **zen_getenvp(void)             { return (char**)(uintptr_t)_syscall0(62); }
+static inline int zen_setenvp(char **envp)         { return (int)_sc_ret(_syscall1(63, (uint64_t)envp)); }
+static inline int zen_kill(int pid, int sig)   { return (int)_sc_ret(_syscall2(47, (uint64_t)(unsigned int)pid, (uint64_t)(unsigned int)sig)); }
+static inline int zen_sigaction(int sig, void *act, void *old) { return (int)_sc_ret(_syscall3(58, (uint64_t)(unsigned int)sig, (uint64_t)act, (uint64_t)old)); }
+static inline int zen_sigreturn(void)              { return (int)_sc_ret(_syscall0(59)); }
+static inline int zen_opendir(const char *path)                          { return (int)_sc_ret(_syscall1(55, (uint64_t)path)); }
+static inline int zen_readdir(int fd, void *dent)                        { return (int)_sc_ret(_syscall2(56, (uint64_t)(unsigned int)fd, (uint64_t)dent)); }
+static inline int zen_closedir(int fd)                                   { return (int)_sc_ret(_syscall1(57, (uint64_t)(unsigned int)fd)); }
 static inline void zen_sleep_ms(uint32_t ms) { _syscall1(30, ms); }
 static inline void zen_log(const char *msg, uint32_t level, uint32_t vis)
 {

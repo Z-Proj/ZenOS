@@ -54,6 +54,16 @@
 #define SYSCALL_WAIT_PID        48
 #define SYSCALL_LIST_TASKS      49
 #define SYSCALL_HALT            50
+#define SYSCALL_FORK            51
+#define SYSCALL_PIPE            52
+#define SYSCALL_DUP             53
+#define SYSCALL_DUP2            54
+#define SYSCALL_OPENDIR         55
+#define SYSCALL_READDIR         56
+#define SYSCALL_CLOSEDIR        57
+#define SYSCALL_SIGACTION        58
+#define SYSCALL_SIGRETURN        59
+#define SYSCALL_SIGPROCMASK      60
 
 // stat structure for file info
 typedef struct {
@@ -79,6 +89,12 @@ typedef struct {
     uint8_t  bpp;
     uint32_t pitch; 
 } fb_info_t;
+
+typedef struct {
+    uint64_t d_ino;
+    uint8_t  d_type;
+    char     d_name[256];
+} zen_dirent_t;
 
 typedef struct {
     int64_t tv_sec;

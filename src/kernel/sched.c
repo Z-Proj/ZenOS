@@ -5,6 +5,7 @@
 #include "../libk/spinlock.h"
 #include "../cpu/gdt.h"
 #include "../drv/keyboard.h"
+#include "signal.h"
 
 extern struct tss_struct tss;
 
@@ -92,6 +93,13 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
     task->heap_brk = USER_HEAP_START;
     task->argc = argc;
     task->argv = argv;
+    task->envp = NULL;
+    task->parent_pid = 0;
+    task->wait_status = 0;
+    task->fd_table = fd_table_alloc();
+    memset(task->sighandlers, 0, sizeof(task->sighandlers));
+    task->sig_pending = 0;
+    task->sig_mask = 0;
     
     task->kernel_stack = (uint64_t)kmalloc(TASK_STACK_SIZE);
     if (!task->kernel_stack)
@@ -307,6 +315,10 @@ static void reap_dead_tasks(void)
         if (iter->state == TASK_DEAD && iter != current_task)
         {
             kbd_transfer_focus(iter->pid);
+            if (iter->fd_table) {
+                fd_table_free(iter->fd_table);
+                iter->fd_table = NULL;
+            }
             if (iter->kernel_stack)
             {
                 kfree((void*)iter->kernel_stack);
@@ -492,4 +504,103 @@ int sched_wait_pid(uint64_t pid)
         if (!found) return 0;
         sched_yield();
     }
+}
+pid_t sched_fork(void)
+{
+    spinlock_acquire(&sched_lock);
+    if (!current_task || task_count >= MAX_TASKS) {
+        spinlock_release(&sched_lock);
+        return -1;
+    }
+
+    task_t *parent = current_task;
+
+    task_t *child = (task_t *)kmalloc(sizeof(task_t));
+    if (!child) { spinlock_release(&sched_lock); return -1; }
+    memset(child, 0, sizeof(task_t));
+
+    child->pid        = next_pid++;
+    child->parent_pid = parent->pid;
+    child->state      = TASK_READY;
+    child->time_slice_remaining = TIME_SLICE;
+    child->stack_size = parent->stack_size;
+    child->is_kernel_task = 0;
+    child->heap_brk   = parent->heap_brk;
+    child->argc       = parent->argc;
+    child->argv       = parent->argv;
+    child->envp       = parent->envp;
+    child->exit_code  = 0;
+    child->wait_status = 0;
+
+    strncpy(child->name, parent->name, 63);
+    child->name[63] = '\0';
+
+    child->pml4 = clone_page_directory(parent->pml4);
+    if (!child->pml4) { kfree(child); spinlock_release(&sched_lock); return -1; }
+
+    child->kernel_stack = (uint64_t)kmalloc(TASK_STACK_SIZE);
+    if (!child->kernel_stack) {
+        free_page_directory(child->pml4);
+        kfree(child);
+        spinlock_release(&sched_lock);
+        return -1;
+    }
+    memset((void *)child->kernel_stack, 0, TASK_STACK_SIZE);
+
+    child->fd_table = fd_table_clone(parent->fd_table);
+
+    child->user_stack = parent->user_stack;
+
+    child->regs           = parent->regs;
+    child->regs.rax       = 0;
+    tss.rsp0 = child->kernel_stack + TASK_STACK_SIZE;
+
+    task_t *old_next = task_list_head->next;
+    task_list_head->next = child;
+    child->next = old_next;
+    task_count++;
+
+    pid_t child_pid = (pid_t)child->pid;
+    spinlock_release(&sched_lock);
+
+    return child_pid;
+}
+
+int sched_signal(uint64_t pid, int sig)
+{
+    if (sig <= 0 || sig >= NSIG) return -1;
+    if (!task_list_head) return -1;
+
+    task_t *t = task_list_head;
+    do {
+        if (t->pid == pid) {
+            if (t->state == TASK_DEAD) return -1;
+
+            if (sig == SIGKILL) {
+                t->state = TASK_DEAD;
+                if (t == current_task) sched_yield();
+                return 0;
+            }
+
+            if (sig == SIGSTOP) {
+                t->state = TASK_BLOCKED;
+                return 0;
+            }
+
+            if (sig == SIGCONT) {
+                if (t->state == TASK_BLOCKED) t->state = TASK_READY;
+                return 0;
+            }
+
+            zen_sigaction_t *sa = &t->sighandlers[sig];
+            if (sa->handler == SIG_IGN) return 0;
+
+            t->sig_pending |= (1u << sig);
+            if (t->state == TASK_BLOCKED) t->state = TASK_READY;
+            return 0;
+        }
+        t = t->next;
+    } while (t != task_list_head);
+
+    return -1;
 }

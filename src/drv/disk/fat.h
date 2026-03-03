@@ -39,4 +39,18 @@ void        fat_getcwd(char *buf, size_t size);
 int         fat_list(char *buf, size_t buf_size); 
 void        fat_print_stats(char *buf, size_t buf_size);
 
+
+#include "../../libk/core/fd.h"
+
+int         fat_open_entry(const char *path, int write, fd_entry_t *out);
+int         fat_read_entry(fd_entry_t *e, void *buf, uint32_t size, uint32_t *bytes_read);
+int         fat_write_entry(fd_entry_t *e, const void *buf, uint32_t size);
+int         fat_close_entry(fd_entry_t *e);
+int         fat_lseek_entry(fd_entry_t *e, int32_t offset, int whence);
+uint32_t    fat_size_entry(fd_entry_t *e);
+
+int         fat_opendir_entry(const char *path, fd_entry_t *out);
+int         fat_readdir_entry(fd_entry_t *e, char *name_out, int *is_dir_out);
+int         fat_closedir_entry(fd_entry_t *e);
+
 #endif

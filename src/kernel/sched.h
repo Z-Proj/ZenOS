@@ -2,8 +2,11 @@
 #define SCHED_H
 
 #include <stdint.h>
+typedef int64_t pid_t;
 #include "../cpu/isr.h"
 #include "../libk/core/mem.h"
+#include "../libk/core/fd.h"
+#include "signal.h"
 
 #define TASK_STACK_SIZE (256*1024)
 #define TIME_SLICE 2
@@ -33,6 +36,14 @@ typedef struct task
     int argc;
     char **argv;
     int exit_code;
+    fd_table_t *fd_table;
+    char **envp;
+    uint64_t parent_pid;
+    int wait_status;
+    zen_sigaction_t sighandlers[NSIG];
+    uint32_t sig_pending;
+    uint32_t sig_mask;
+    uint64_t sig_trampoline;
     struct task *next;
 } task_t;
 
@@ -46,6 +57,8 @@ task_t *sched_current_task(void);
 task_t *sched_get_task_list(void);
 int sched_kill(uint64_t pid);
 int sched_wait_pid(uint64_t pid);
+pid_t sched_fork(void);
+int sched_signal(uint64_t pid, int sig);
 extern void task_switch(registers_t *old_regs, registers_t *new_regs);
 
 #endif
