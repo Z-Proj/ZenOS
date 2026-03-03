@@ -180,7 +180,13 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             void *buffer = (void*)arg2;
             uint32_t size = (uint32_t)arg3;
             if (!buffer) return -1;
-            if (fd == 0) {
+            task_t *cur = sched_current_task();
+            fd_entry_t *e = NULL;
+            if (cur && cur->fd_table && fd >= 0 && fd < TASK_MAX_FDS) {
+                fd_entry_t *cand = &cur->fd_table->entries[fd];
+                if (cand->used) e = cand;
+            }
+            if (fd == 0 && !e) {
                 char *cbuf = (char*)buffer;
                 for (uint32_t i = 0; i < size; i++) {
                     char c = 0;
@@ -190,11 +196,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                 }
                 return (int64_t)size;
             }
-            task_t *cur = sched_current_task();
-            if (!cur || !cur->fd_table) return -1;
-            if (fd < 3 || fd >= TASK_MAX_FDS) return -1;
-            fd_entry_t *e = &cur->fd_table->entries[fd];
-            if (!e->used) return -1;
+            if (!e) return -1;
             if (e->type == FD_PIPE_READ) {
                 uint8_t *cbuf = (uint8_t*)buffer;
                 uint32_t n = 0;
@@ -210,6 +212,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                 }
                 return (int64_t)n;
             }
+            if (e->type != FD_FILE) return -1;
             uint32_t bytes_read = 0;
             int ret = fat_read_entry(e, buffer, size, &bytes_read);
             if (ret < 0) return -1;
@@ -221,17 +224,19 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             const void *buffer = (const void*)arg2;
             uint32_t size = (uint32_t)arg3;
             if (!buffer) return -1;
-            if (fd == 1 || fd == 2) {
+            task_t *cur = sched_current_task();
+            fd_entry_t *e = NULL;
+            if (cur && cur->fd_table && fd >= 0 && fd < TASK_MAX_FDS) {
+                fd_entry_t *cand = &cur->fd_table->entries[fd];
+                if (cand->used) e = cand;
+            }
+            if ((fd == 1 || fd == 2) && !e) {
                 const char *p = (const char*)buffer;
                 for (uint32_t i = 0; i < size; i++)
                     printc(p[i]);
                 return (int64_t)size;
             }
-            task_t *cur = sched_current_task();
-            if (!cur || !cur->fd_table) return -1;
-            if (fd < 3 || fd >= TASK_MAX_FDS) return -1;
-            fd_entry_t *e = &cur->fd_table->entries[fd];
-            if (!e->used) return -1;
+            if (!e) return -1;
             if (e->type == FD_PIPE_WRITE) {
                 const uint8_t *cbuf = (const uint8_t*)buffer;
                 for (uint32_t i = 0; i < size; i++) {
@@ -242,6 +247,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                 }
                 return (int64_t)size;
             }
+            if (e->type != FD_FILE) return -1;
             int ret = fat_write_entry(e, buffer, size);
             if (ret < 0) return -1;
             return (int64_t)size;
@@ -249,10 +255,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         
         case SYSCALL_CLOSE: {
             int fd = (int)arg1;
-            if (fd < 3) return 0;
             task_t *cur = sched_current_task();
             if (!cur || !cur->fd_table) return -1;
-            if (fd >= TASK_MAX_FDS) return -1;
+            if (fd < 0 || fd >= TASK_MAX_FDS) return -1;
+            if (fd < 3 && !cur->fd_table->entries[fd].used) return 0;
             return fd_close(cur->fd_table, fd);
         }
         
@@ -262,9 +268,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             int whence = (int)arg3;
             task_t *cur = sched_current_task();
             if (!cur || !cur->fd_table) return -1;
-            if (fd < 3 || fd >= TASK_MAX_FDS) return -1;
+            if (fd < 0 || fd >= TASK_MAX_FDS) return -1;
             fd_entry_t *e = &cur->fd_table->entries[fd];
             if (!e->used) return -1;
+            if (e->type != FD_FILE) return -1;
             return fat_lseek_entry(e, offset, whence);
         }
         
@@ -738,15 +745,14 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             if (newfd < 0 || newfd >= TASK_MAX_FDS) return -1;
             fd_entry_t *src = &cur->fd_table->entries[oldfd];
             if (!src->used) return -1;
-            if (newfd >= 3) {
-                fd_entry_t *dst = &cur->fd_table->entries[newfd];
-                if (dst->used) fd_close(cur->fd_table, newfd);
-                *dst = *src;
-                if (src->type == FD_PIPE_READ || src->type == FD_PIPE_WRITE) {
-                    src->pipe->refcount++;
-                    if (src->type == FD_PIPE_READ) src->pipe->readers++;
-                    if (src->type == FD_PIPE_WRITE) src->pipe->writers++;
-                }
+            if (oldfd == newfd) return newfd;
+            fd_entry_t *dst = &cur->fd_table->entries[newfd];
+            if (dst->used) fd_close(cur->fd_table, newfd);
+            *dst = *src;
+            if (src->type == FD_PIPE_READ || src->type == FD_PIPE_WRITE) {
+                src->pipe->refcount++;
+                if (src->type == FD_PIPE_READ) src->pipe->readers++;
+                if (src->type == FD_PIPE_WRITE) src->pipe->writers++;
             }
             return newfd;
         }

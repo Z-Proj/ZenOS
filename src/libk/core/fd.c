@@ -86,7 +86,7 @@ fd_table_t *fd_table_clone(fd_table_t *src)
 void fd_table_close_cloexec(fd_table_t *t)
 {
     if (!t) return;
-    for (int i = 3; i < TASK_MAX_FDS; i++)
+    for (int i = 0; i < TASK_MAX_FDS; i++)
         if (t->entries[i].used && t->entries[i].cloexec)
             fd_close_entry(&t->entries[i]);
 }
@@ -94,7 +94,7 @@ void fd_table_close_cloexec(fd_table_t *t)
 void fd_table_close_all(fd_table_t *t)
 {
     if (!t) return;
-    for (int i = 3; i < TASK_MAX_FDS; i++)
+    for (int i = 0; i < TASK_MAX_FDS; i++)
         if (t->entries[i].used)
             fd_close_entry(&t->entries[i]);
 }
