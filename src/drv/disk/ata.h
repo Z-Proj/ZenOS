@@ -39,7 +39,7 @@
 
 #define ATA_SECTOR_SIZE         512
 #define ATA_MAX_SECTORS         254 //not 256 as PIO is 0 - 255
-#define ATA_TIMEOUT_MS          101010
+#define ATA_TIMEOUT_MS          10000
 
 typedef enum {
     ATA_SUCCESS = 0,

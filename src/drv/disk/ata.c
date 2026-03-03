@@ -2,9 +2,45 @@
 #include "../../libk/ports.h"
 #include "../../libk/string.h"
 #include "../../libk/debug/log.h"
+#include "../../libk/core/mem.h"
+#include "../net/pci.h"
+#include "../local_apic.h"
+#include "../../cpu/isr.h"
+
+#define BMIDE_CMD_START     0x01
+#define BMIDE_CMD_WRITE     0x08
+#define BMIDE_STATUS_ACTIVE 0x01
+#define BMIDE_STATUS_ERR    0x02
+#define BMIDE_STATUS_IRQ    0x04
+
+#define BMIDE_REG_CMD       0x00
+#define BMIDE_REG_STATUS    0x02
+#define BMIDE_REG_PRDT      0x04
+
+#define ATA_CMD_READ_DMA    0xC8
+#define ATA_CMD_WRITE_DMA   0xCA
+
+#define PRDT_EOT            0x80000000
+
+typedef struct {
+    uint32_t phys_addr;
+    uint16_t byte_count;
+    uint16_t flags;
+} __attribute__((packed)) prdt_entry_t;
 
 ata_drive_t drives[4];
 static uint32_t timeout_counter;
+static int8_t current_selected_drive = -1;
+
+static uint16_t bmide_base = 0;
+static int dma_available = 0;
+
+static volatile uint8_t irq_fired[2] = {0, 0};
+
+static prdt_entry_t *prdt = NULL;
+static uint8_t *dma_buf = NULL;
+static uint64_t dma_buf_phys = 0;
+static uint64_t prdt_phys = 0;
 
 static void ata_delay(uint16_t base_io)
 {
@@ -22,11 +58,9 @@ static void ata_soft_reset(uint16_t ctrl_io)
 static ata_error_t ata_wait_ready(uint16_t base_io)
 {
     timeout_counter = 0;
-
     while (timeout_counter < ATA_TIMEOUT_MS)
     {
         uint8_t status = inportb(base_io + ATA_REG_STATUS);
-
         if (!(status & ATA_SR_BSY))
         {
             if (status & ATA_SR_ERR)
@@ -35,11 +69,8 @@ static ata_error_t ata_wait_ready(uint16_t base_io)
                 return ATA_ERR_DRIVE_FAULT;
             return ATA_SUCCESS;
         }
-
         timeout_counter++;
-        ata_delay(base_io);
     }
-
     return ATA_ERR_TIMEOUT;
 }
 
@@ -47,11 +78,9 @@ static ata_error_t ata_wait_drq(uint16_t base_io)
 {
     timeout_counter = 0;
     asm volatile("sti");
-
     while (timeout_counter < ATA_TIMEOUT_MS)
     {
         uint8_t status = inportb(base_io + ATA_REG_STATUS);
-
         if (!(status & ATA_SR_BSY))
         {
             if (status & ATA_SR_ERR){
@@ -66,17 +95,18 @@ static ata_error_t ata_wait_drq(uint16_t base_io)
             asm volatile("cli");
             return ATA_ERR_NO_DRQ;
         }
-
         timeout_counter++;
-        ata_delay(base_io);
     }
     asm volatile("cli");
-
     return ATA_ERR_TIMEOUT;
 }
 
 static void ata_select_drive(uint16_t base_io, uint8_t drive_select)
 {
+    int8_t id = (base_io == ATA_PRIMARY_IO ? 0 : 2) | drive_select;
+    if (current_selected_drive == id)
+        return;
+    current_selected_drive = id;
     outportb(base_io + ATA_REG_HDDEVSEL, 0xA0 | (drive_select << 4));
     ata_delay(base_io);
 }
@@ -90,36 +120,41 @@ static void ata_setup_lba28(uint16_t base_io, uint32_t lba, uint8_t count, uint8
     outportb(base_io + ATA_REG_LBA2, (lba >> 16) & 0xFF);
 }
 
+static void irq14_handler(registers_t *r)
+{
+    (void)r;
+    irq_fired[0] = 1;
+    outportb(bmide_base + BMIDE_REG_STATUS, inportb(bmide_base + BMIDE_REG_STATUS));
+    LocalApicSendEOI();
+}
+
+static void irq15_handler(registers_t *r)
+{
+    (void)r;
+    irq_fired[1] = 1;
+    outportb(bmide_base + BMIDE_REG_STATUS + 8, inportb(bmide_base + BMIDE_REG_STATUS + 8));
+    LocalApicSendEOI();
+}
+
 static void ata_get_drive_name(uint8_t drive, char *name_buffer)
 {
     uint16_t identify_buffer[256];
-
     if (ata_identify_drive(drive, identify_buffer) != ATA_SUCCESS)
     {
         name_buffer[0] = '\0';
         return;
     }
-
     char *name = (char *)&identify_buffer[27];
-    int name_len = 0;  
-
+    int name_len = 0;
     for (int i = 0; i < 40; i += 2)
     {
         if (name[i + 1] != 0 && name[i + 1] != ' ')
-        {
             name_buffer[name_len++] = name[i + 1];
-        }
         if (name[i] != 0 && name[i] != ' ')
-        {
             name_buffer[name_len++] = name[i];
-        }
     }
-
     while (name_len > 0 && name_buffer[name_len - 1] == ' ')
-    {
         name_len--;
-    }
-
     name_buffer[name_len] = '\0';
 }
 
@@ -134,37 +169,61 @@ ata_device_type_t ata_detect_drive(uint8_t drive)
     ata_select_drive(base_io, drive_select);
 
     if (ata_wait_ready(base_io) != ATA_SUCCESS)
-    {
         return ATA_DEVICE_UNKNOWN;
-    }
 
     uint8_t cl = inportb(base_io + ATA_REG_LBA1);
     uint8_t ch = inportb(base_io + ATA_REG_LBA2);
 
-    if (cl == 0x14 && ch == 0xEB)
-        return ATA_DEVICE_PATAPI;
-    if (cl == 0x69 && ch == 0x96)
-        return ATA_DEVICE_SATAPI;
-    if (cl == 0x00 && ch == 0x00)
-        return ATA_DEVICE_PATA;
-    if (cl == 0x3C && ch == 0xC3)
-        return ATA_DEVICE_SATA;
+    if (cl == 0x14 && ch == 0xEB) return ATA_DEVICE_PATAPI;
+    if (cl == 0x69 && ch == 0x96) return ATA_DEVICE_SATAPI;
+    if (cl == 0x00 && ch == 0x00) return ATA_DEVICE_PATA;
+    if (cl == 0x3C && ch == 0xC3) return ATA_DEVICE_SATA;
 
     return ATA_DEVICE_UNKNOWN;
 }
 
 ata_error_t ata_init(void)
 {
+    pci_device_t *ide = pci_find_device_by_class(PCI_CLASS_STORAGE, PCI_SUBCLASS_IDE);
+    if (ide)
+    {
+        pci_enable_bus_mastering(ide);
+        uint32_t bar4 = pci_read(ide->bus, ide->slot, ide->func, PCI_BAR4);
+        if (bar4 & 1)
+        {
+            bmide_base = (uint16_t)(bar4 & 0xFFFC);
+
+            uint64_t prdt_page = alloc_page();
+            uint64_t buf_page  = alloc_page();
+
+            if (prdt_page && buf_page)
+            {
+                prdt_phys    = prdt_page;
+                dma_buf_phys = buf_page;
+                prdt         = (prdt_entry_t *)(prdt_page + KERNEL_VIRT_OFFSET);
+                dma_buf      = (uint8_t *)(buf_page  + KERNEL_VIRT_OFFSET);
+                dma_available = 1;
+
+                register_interrupt_handler(46, irq14_handler, "ATA Primary DMA");
+                register_interrupt_handler(47, irq15_handler, "ATA Secondary DMA");
+
+                log("ATA DMA enabled. BMIDE base: 0x%x", 4, 0, bmide_base);
+            }
+        }
+    }
+
+    if (!dma_available)
+        log("ATA DMA unavailable, falling back to PIO.", 2, 0);
+
     int found_drives = 0;
     for (int i = 0; i < 4; i++)
     {
-        drives[i].base_io = (i < 2) ? ATA_PRIMARY_IO : ATA_SECONDARY_IO;
-        drives[i].ctrl_io = (i < 2) ? ATA_PRIMARY_DEVCTL : ATA_SECONDARY_DEVCTL;
+        drives[i].base_io      = (i < 2) ? ATA_PRIMARY_IO : ATA_SECONDARY_IO;
+        drives[i].ctrl_io      = (i < 2) ? ATA_PRIMARY_DEVCTL : ATA_SECONDARY_DEVCTL;
         drives[i].drive_select = i & 1;
-        drives[i].exists = 0;
+        drives[i].exists       = 0;
 
         ata_soft_reset(drives[i].ctrl_io);
-
         drives[i].type = ata_detect_drive(i);
 
         if (drives[i].type == ATA_DEVICE_PATA || drives[i].type == ATA_DEVICE_SATA)
@@ -173,7 +232,6 @@ ata_error_t ata_init(void)
             char drive_name[41];
             ata_get_drive_name(i, drive_name);
             const char *type_str = (drives[i].type == ATA_DEVICE_PATA) ? "PATA" : "SATA";
-
             if (drive_name[0] != '\0')
             {
                 log("Drive %d (%s): %s", 1, 0, i, type_str, drive_name);
@@ -190,9 +248,8 @@ ata_error_t ata_init(void)
 ata_error_t ata_identify_drive(uint8_t drive, uint16_t *buffer)
 {
     if (drive >= 4 || !drives[drive].exists || !buffer)
-    {
         return ATA_ERR_INVALID_PARAM;
-    }
+
     uint16_t base_io = drives[drive].base_io;
     ata_select_drive(base_io, drives[drive].drive_select);
     ata_error_t err = ata_wait_ready(base_io);
@@ -203,30 +260,69 @@ ata_error_t ata_identify_drive(uint8_t drive, uint16_t *buffer)
     if (err != ATA_SUCCESS)
         return err;
     for (int i = 0; i < 256; i++)
-    {
         buffer[i] = inportw(base_io + ATA_REG_DATA);
-    }
+    return ATA_SUCCESS;
+}
+
+static ata_error_t ata_dma_transfer(uint8_t drive, uint32_t lba, uint8_t count, void *buffer, int write)
+{
+    uint16_t base_io     = drives[drive].base_io;
+    uint8_t  chan        = (drive < 2) ? 0 : 1;
+    uint16_t bm_base     = bmide_base + (chan ? 8 : 0);
+    uint32_t total_bytes = (uint32_t)count * 512;
+
+    prdt[0].phys_addr  = (uint32_t)dma_buf_phys;
+    prdt[0].byte_count = (uint16_t)(total_bytes & 0xFFFF);
+    prdt[0].flags      = (uint16_t)(PRDT_EOT >> 16);
+
+    if (write)
+        memcpy(dma_buf, buffer, total_bytes);
+
+    outportb(bm_base + BMIDE_REG_CMD, 0);
+    outportb(bm_base + BMIDE_REG_STATUS, BMIDE_STATUS_ERR | BMIDE_STATUS_IRQ);
+    outportl(bm_base + BMIDE_REG_PRDT, (uint32_t)prdt_phys);
+
+    irq_fired[chan] = 0;
+
+    ata_setup_lba28(base_io, lba, count, drives[drive].drive_select);
+    outportb(base_io + ATA_REG_COMMAND, write ? ATA_CMD_WRITE_DMA : ATA_CMD_READ_DMA);
+
+    outportb(bm_base + BMIDE_REG_CMD, (write ? 0 : BMIDE_CMD_WRITE) | BMIDE_CMD_START);
+
+    asm volatile("sti");
+    timeout_counter = 0;
+    while (!irq_fired[chan] && timeout_counter < ATA_TIMEOUT_MS)
+        timeout_counter++;
+    asm volatile("cli");
+
+    outportb(bm_base + BMIDE_REG_CMD, 0);
+
+    if (inportb(bm_base + BMIDE_REG_STATUS) & BMIDE_STATUS_ERR)
+        return ATA_ERR_GENERAL;
+
+    if (!write)
+        memcpy(buffer, dma_buf, total_bytes);
+
     return ATA_SUCCESS;
 }
 
 ata_error_t ata_read_sectors(uint8_t drive, uint32_t lba, uint8_t count, void *buffer)
 {
     if (drive >= 4 || !drives[drive].exists || !buffer || count == 0 || count > ATA_MAX_SECTORS)
-    {
         return ATA_ERR_INVALID_PARAM;
-    }
 
     uint16_t base_io = drives[drive].base_io;
-    uint16_t *buf = (uint16_t *)buffer;
 
     ata_select_drive(base_io, drives[drive].drive_select);
-
     ata_error_t err = ata_wait_ready(base_io);
     if (err != ATA_SUCCESS)
         return err;
 
-    ata_setup_lba28(base_io, lba, count, drives[drive].drive_select);
+    if (dma_available && (uint32_t)count * 512 <= PAGE_SIZE)
+        return ata_dma_transfer(drive, lba, count, buffer, 0);
 
+    uint16_t *buf = (uint16_t *)buffer;
+    ata_setup_lba28(base_io, lba, count, drives[drive].drive_select);
     outportb(base_io + ATA_REG_COMMAND, ATA_CMD_READ_PIO);
 
     for (int sector = 0; sector < count; sector++)
@@ -234,34 +330,35 @@ ata_error_t ata_read_sectors(uint8_t drive, uint32_t lba, uint8_t count, void *b
         err = ata_wait_drq(base_io);
         if (err != ATA_SUCCESS)
             return err;
-
         for (int word = 0; word < 256; word++)
-        {
             buf[sector * 256 + word] = inportw(base_io + ATA_REG_DATA);
-        }
     }
-
     return ATA_SUCCESS;
 }
 
 ata_error_t ata_write_sectors(uint8_t drive, uint32_t lba, uint8_t count, const void *buffer)
 {
     if (drive >= 4 || !drives[drive].exists || !buffer || count == 0 || count > ATA_MAX_SECTORS)
-    {
         return ATA_ERR_INVALID_PARAM;
-    }
 
     uint16_t base_io = drives[drive].base_io;
-    const uint16_t *buf = (const uint16_t *)buffer;
 
     ata_select_drive(base_io, drives[drive].drive_select);
-
     ata_error_t err = ata_wait_ready(base_io);
     if (err != ATA_SUCCESS)
         return err;
 
-    ata_setup_lba28(base_io, lba, count, drives[drive].drive_select);
+    if (dma_available && (uint32_t)count * 512 <= PAGE_SIZE)
+    {
+        err = ata_dma_transfer(drive, lba, count, (void *)buffer, 1);
+        if (err != ATA_SUCCESS)
+            return err;
+        outportb(base_io + ATA_REG_COMMAND, ATA_CMD_CACHE_FLUSH);
+        return ata_wait_ready(base_io);
+    }
 
+    const uint16_t *buf = (const uint16_t *)buffer;
+    ata_setup_lba28(base_io, lba, count, drives[drive].drive_select);
     outportb(base_io + ATA_REG_COMMAND, ATA_CMD_WRITE_PIO);
 
     for (int sector = 0; sector < count; sector++)
@@ -269,19 +366,14 @@ ata_error_t ata_write_sectors(uint8_t drive, uint32_t lba, uint8_t count, const 
         err = ata_wait_drq(base_io);
         if (err != ATA_SUCCESS)
             return err;
-
         for (int word = 0; word < 256; word++)
-        {
             outportw(base_io + ATA_REG_DATA, buf[sector * 256 + word]);
-        }
     }
 
     err = ata_wait_ready(base_io);
     if (err != ATA_SUCCESS)
         return err;
-
     outportb(base_io + ATA_REG_COMMAND, ATA_CMD_CACHE_FLUSH);
-
     return ata_wait_ready(base_io);
 }
 

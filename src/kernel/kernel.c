@@ -77,6 +77,7 @@ void _start(void)
     // IoApicSetIrqMapped(8, 0x28); //RTC its
     // rtc_initialize(); //TODO: Already working but enable when needed
     sched_init();
+    pci_initialize_system();
     IoApicSetIrqMapped(0, 0x22); //HPET
     hpet_init(200);
     IoApicSetIrqMapped(1, 0x21); //Keyboard
@@ -105,7 +106,6 @@ void _start(void)
     IoApicSetIrqMapped(12, 0x2C); //Mouse
     mouse_init();
     init_smp();
-    pci_initialize_system();
     e1000_init();
     socket_init();
 #if debug
