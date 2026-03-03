@@ -7,9 +7,9 @@
 
 ## Overview
 
-**ZenOS** is a modern **64-bit SMP Preemptive custom operating system**, developed entirely from scratch using **C** and **x86_64 assembly**, and bootstrapped with the **Limine** bootloader.
+**ZenOS** is a modern **64-bit SMP preemptive operating system**, developed entirely from scratch in **C** and **x86_64 assembly**, bootstrapped with the **Limine** bootloader.
 
-The project focuses on clean design, correctness, and practical experimentation with real hardware concepts, while remaining lightweight and understandable. ZenOS is not a fork of an existing OS - it is a ground-up system built to explore kernel architecture, hardware interaction, and userspace execution in a controlled and extensible way.
+The project focuses on clean design, correctness, and real hardware interaction - without forking or borrowing from existing kernels. Everything from the scheduler to the filesystem to the userspace process model is built from the ground up.
 
 ---
 
@@ -18,109 +18,108 @@ The project focuses on clean design, correctness, and practical experimentation 
 ### Kernel
 
 - 64-bit x86_64 monolithic kernel
-- Symmetric Multiprocessing (SMP) with full AP startup
-- Pre-emptive round-robin scheduler
-- Kernel ↔ userspace context switching
-- Custom syscall ABI with assembly entry path
-- ELF64 executable loading
-- Userspace process support
+- Symmetric Multiprocessing (SMP)
+- Preemptive round-robin scheduler with per-task kernel stacks
+- ELF64 userspace execution with full address space isolation
+- Per-task file descriptor tables with fork-safe cloning
+- Unix-style process model: `fork`, `exec` (replace-in-place), `waitpid`, `exit`
+- Signal infrastructure: `sigaction`, `sigprocmask`, pending signal dispatch
+- Pipe IPC with blocking ring buffers
+- `ioctl` support including terminal window size (`TIOCGWINSZ`)
+- Environment variable passing via kernel `envp`
 - CPU feature detection via CPUID
-- SSE and FPU initialization and management
-- Spinlock-based synchronization primitives
+- SSE and FPU initialization
 - High-resolution timing via HPET
-- ACPI-based hardware discovery and power handling
+- ACPI-based hardware discovery and power management
+
+### Syscalls
+
+Over 60 syscalls covering process management, file I/O, memory, signals, pipes, directories, sockets, time, and graphics.
 
 ### Hardware & Drivers
 
-- VGA output
-- PC speaker support
-- Serial output for debugging and logging
+- VGA framebuffer output
+- PS/2 keyboard and mouse
+- PC speaker
+- Serial port for debugging and logging
 - Local APIC and IOAPIC interrupt handling
 - ATA disk driver (PIO, 28-bit LBA)
-- Socket read/write
 - PCI bus enumeration
-- Intel e1000 Ethernet driver (early-stage networking)
-- Others include RTC, HPET, Keyboard (PS/2), Mouse (PS/2)
+- Intel e1000 Ethernet driver
+- RTC, HPET
 
 ### Filesystem
 
-- **FAT32 (FatFs)** port of [FatFs](https://elm-chan.org/fsw/ff/) made by CHAN
-- Native host-side file management tooling (`fat_man`)
-- Used as the primary medium for userspace ELF binaries
+- **FAT32** via a port of [FatFs](https://elm-chan.org/fsw/ff/) by CHAN
+- Native host-side disk image tooling (`fat_man`)
+- Primary storage medium for userspace ELF binaries
 
-### Userspace
+### Userspace & Libc
 
-- [Newlib](https://sourceware.org/newlib/) C Library.
-- `ELF64` userspace programs
-- 60 Syscalls present.
+- [Newlib](https://sourceware.org/newlib/) C library, fully compiled and integrated for the ZenOS target.
+- ELF64 userspace programs.
+- Currently **60** Syscalls present.
 
-#### Current Apps (Subject to change, this might be outdated):
+#### Current Apps (subject to change):
 
-- Calculator with `+`,`-`,`*`,`/`,`%`,`^` (calc.c)
-- C4 : C in 4 functions compiler. (cc.c)
-- Clock - Live clock (clock.c)
-- Counter program (counter.c)
+- Calculator - `+`, `-`, `*`, `/`, `%`, `^` (calc.c)
+- C4 - C in 4 functions compiler (cc.c)
+- Clock - live clock display (clock.c)
+- Counter (counter.c)
 - Fibonacci sequence (fibonacci.c)
-- Figlet - Graphical figlet style thingy (figlet.c)
-- GFX Server - Graphics server for Unicode text / shapes (gfxserver.c)
-- GFX Test - Program to test the above server (gfxtest.c)
+- Figlet - graphical text art (figlet.c)
+- GFX Server - Unicode text and shapes graphics server (gfxserver.c)
+- GFX Test - test client for the graphics server (gfxtest.c)
 - Hello, world! (hello.c)
-- Init (init.c)
-- Memory functions test (memtest.c)
-- Prime numbers till 100 (primes.c)
-- Shell - Simple Shell (shell.c)
-- SmallerC compiler to Assembly (smlrc.c)
+- Init - Boot process manager (init.c)
+- Primes - prime numbers up to 100 (primes.c)
+- Shell - Quite a good and simple shell (shell.c)
+- SmallerC - C to assembly compiler (smlrc.c)
 - Snake (snake.c)
-- Sysinfo - Graphical + More detailed system info (sysinfo.c)
-- Template program (test.c)
-- Uname - System info (uname.c)
+- Sysinfo - graphical system information (sysinfo.c)
+- Uname - system info (uname.c)
 - Word counter (wc.c)
-- Yes - Spam whatever you say (yes.c)
+- Yes - repeat output indefinitely (yes.c)
 
-**The `ZenOS.vhd` file in the repository already usually has these programs in it.**
+**The `ZenOS.vhd` in the repository usually already has these compiled and ready.**
 
 ### Graphics & I/O
 
-- [Flanterm](https://codeberg.org/mintsuki/flanterm) terminal rendering
-- Unicode and scalable fonts support via [SSFN.](https://gitlab.com/bztsrc/scalable-font2)
-- Clean logging system
+- [Flanterm](https://codeberg.org/mintsuki/flanterm) terminal renderer
+- Unicode and scalable font support via [SSFN](https://gitlab.com/bztsrc/scalable-font2)
+- Structured kernel logging with log levels and serial output
 
 ---
 
 ## Building
 
-- First try running `make help` to see the main Makefile commands. (Not all are in the help menu.)
-- **Run** : `make all` at the root of the cloned git repo.
-- Any issues will be reported, to which you can take necessary action, such as missing dependencies.
-- For convenience, (`make funcs`) has been provided, running it will generate `funcs.txt` with all functions defined in the OS.
+Run `make help` first to see available build commands.
+
+- **Build everything:** `make all` from the repo root
+- Missing dependencies will be reported with clear errors
+- `make funcs` generates `funcs.txt` listing all defined functions in the codebase
 
 ---
 
 ## Contributions
 
-All good contributions are gladly welcome! It is suggested to fix an issue in the [ISSUES.md](https://github.com/Z-Proj/ZenOS/blob/main/docs/ISSUES.md), or you can add a feature, fix another unlisted bug, make ZenOS overall better!
+All good contributions are welcome! Check [ISSUES.md](https://github.com/Z-Proj/ZenOS/blob/main/docs/ISSUES.md) for open problems, or add a feature, fix a bug, or improve the codebase in any way.
 
 ---
 
 ## Design Goals
 
 - Maintain a clean, minimal, and readable codebase
+- Provide a solid foundation for experimenting with:
+  - [x] Kernel subsystems
+  - [x] Filesystems
+  - [x] Scheduling
+  - [x] SMP
+  - [x] Userspace ABI design
+  - [x] Unix-compatible process model (fork/exec/signals/pipes)
+  - [ ] Lightweight dual-boot support and everyday utilities
 
-- Provide a solid foundation for experimentation with:
-
-- [x] Kernel subsystems
-
-- [x] Filesystems
-
-- [x] Scheduling
-
-- [x] SMP
-
-- [x] Userspace ABI design
-
-- [ ] Support simple dual-boot usage and lightweight utilities such as a **Calculator, Text editor, simple apps, File Manager, System Info, etc.** (Now in progress)
-
-ZenOS is intended as a learning-oriented operating system project, prioritizing understanding the machine over chasing checklists.
+ZenOS is a learning-oriented project. Understanding the machine comes first.
 
 ---
 
@@ -138,15 +137,15 @@ socat
 
 ---
 
-## Third party sources
+## Third Party
 
-- The Limine bootloader. https://codeberg.org/Limine/Limine
-- Flanterm Terminal emulator. https://codeberg.org/mintsuki/flanterm
-- Scalable Screen Font 2.0. https://gitlab.com/bztsrc/scalable-font2/
-- FatFs by CHAN. https://elm-chan.org/fsw/ff/
-- SmallerC compiler. https://github.com/alexfru/SmallerC
-- C4 Compiler: C in 4 functions. https://github.com/rswier/c4
-- Newlib C library. https://sourceware.org/newlib/
+- [Limine](https://codeberg.org/Limine/Limine) - bootloader
+- [Flanterm](https://codeberg.org/mintsuki/flanterm) - terminal emulator
+- [SSFN 2.0](https://gitlab.com/bztsrc/scalable-font2/) - scalable screen fonts
+- [FatFs](https://elm-chan.org/fsw/ff/) - FAT32 filesystem library by CHAN
+- [SmallerC](https://github.com/alexfru/SmallerC) - C to assembly compiler
+- [C4](https://github.com/rswier/c4) - C in 4 functions
+- [Newlib](https://sourceware.org/newlib/) - C standard library
 
 ---
 
