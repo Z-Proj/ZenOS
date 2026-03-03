@@ -2,6 +2,8 @@
 #include "diskio.h"
 #include "../ata.h"
 
+ata_error_t ata_cache_flush(uint8_t drive);
+
 DSTATUS disk_initialize(BYTE pdrv) {
     if (ata_drive_exists(pdrv) != ATA_SUCCESS)
         return STA_NODISK;
@@ -15,7 +17,6 @@ DSTATUS disk_status(BYTE pdrv) {
 }
 
 DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count) {
-    /* ATA driver max 254 sectors per call, loop if needed */
     while (count > 0) {
         UINT n = count > 254 ? 254 : count;
         if (ata_read_sectors(pdrv, sector, (uint8_t)n, buff) != ATA_SUCCESS)

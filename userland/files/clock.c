@@ -34,6 +34,7 @@ int main(int argc, char *argv[]) {
             print2(mins);  fputs(":", stdout);
             print2(secs);
             fputs("\033[0m  ", stdout);
+            fflush(stdout);
         }
 
         char k = zen_getkey();

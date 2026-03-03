@@ -38,8 +38,8 @@ static int dma_available = 0;
 static volatile uint8_t irq_fired[2] = {0, 0};
 
 static prdt_entry_t *prdt = NULL;
-static uint8_t *dma_buf = NULL;
-static uint64_t dma_buf_phys = 0;
+static uint8_t *bounce_buf = NULL;
+static uint64_t bounce_buf_phys = 0;
 static uint64_t prdt_phys = 0;
 
 static void ata_delay(uint16_t base_io)
@@ -57,10 +57,15 @@ static void ata_soft_reset(uint16_t ctrl_io)
 
 static ata_error_t ata_wait_ready(uint16_t base_io)
 {
+    uint16_t ctrl = (base_io == ATA_PRIMARY_IO) ? ATA_PRIMARY_DEVCTL : ATA_SECONDARY_DEVCTL;
     timeout_counter = 0;
+    inportb(ctrl);
+    inportb(ctrl);
+    inportb(ctrl);
+    inportb(ctrl);
     while (timeout_counter < ATA_TIMEOUT_MS)
     {
-        uint8_t status = inportb(base_io + ATA_REG_STATUS);
+        uint8_t status = inportb(ctrl);
         if (!(status & ATA_SR_BSY))
         {
             if (status & ATA_SR_ERR)
@@ -198,11 +203,11 @@ ata_error_t ata_init(void)
 
             if (prdt_page && buf_page)
             {
-                prdt_phys    = prdt_page;
-                dma_buf_phys = buf_page;
-                prdt         = (prdt_entry_t *)(prdt_page + KERNEL_VIRT_OFFSET);
-                dma_buf      = (uint8_t *)(buf_page  + KERNEL_VIRT_OFFSET);
-                dma_available = 1;
+                prdt_phys       = prdt_page;
+                bounce_buf_phys = buf_page;
+                prdt            = (prdt_entry_t *)(prdt_page + KERNEL_VIRT_OFFSET);
+                bounce_buf      = (uint8_t *)(buf_page + KERNEL_VIRT_OFFSET);
+                dma_available   = 1;
 
                 register_interrupt_handler(46, irq14_handler, "ATA Primary DMA");
                 register_interrupt_handler(47, irq15_handler, "ATA Secondary DMA");
@@ -271,12 +276,30 @@ static ata_error_t ata_dma_transfer(uint8_t drive, uint32_t lba, uint8_t count, 
     uint16_t bm_base     = bmide_base + (chan ? 8 : 0);
     uint32_t total_bytes = (uint32_t)count * 512;
 
-    prdt[0].phys_addr  = (uint32_t)dma_buf_phys;
+    uint64_t buf_virt = (uint64_t)buffer;
+    uint64_t buf_phys;
+    int using_bounce = 0;
+
+    if (buf_virt >= KERNEL_VIRT_OFFSET)
+    {
+        buf_phys = buf_virt - KERNEL_VIRT_OFFSET;
+    }
+    else
+    {
+        buf_phys = virt_to_phys(get_kernel_pml4(), buf_virt);
+    }
+
+    if (!buf_phys || buf_phys + total_bytes > 0xFFFFFFFF)
+    {
+        using_bounce = 1;
+        buf_phys = bounce_buf_phys;
+        if (write)
+            memcpy(bounce_buf, buffer, total_bytes);
+    }
+
+    prdt[0].phys_addr  = (uint32_t)buf_phys;
     prdt[0].byte_count = (uint16_t)(total_bytes & 0xFFFF);
     prdt[0].flags      = (uint16_t)(PRDT_EOT >> 16);
-
-    if (write)
-        memcpy(dma_buf, buffer, total_bytes);
 
     outportb(bm_base + BMIDE_REG_CMD, 0);
     outportb(bm_base + BMIDE_REG_STATUS, BMIDE_STATUS_ERR | BMIDE_STATUS_IRQ);
@@ -290,9 +313,8 @@ static ata_error_t ata_dma_transfer(uint8_t drive, uint32_t lba, uint8_t count, 
     outportb(bm_base + BMIDE_REG_CMD, (write ? 0 : BMIDE_CMD_WRITE) | BMIDE_CMD_START);
 
     asm volatile("sti");
-    timeout_counter = 0;
-    while (!irq_fired[chan] && timeout_counter < ATA_TIMEOUT_MS)
-        timeout_counter++;
+    while (!irq_fired[chan])
+        asm volatile("hlt");
     asm volatile("cli");
 
     outportb(bm_base + BMIDE_REG_CMD, 0);
@@ -300,8 +322,13 @@ static ata_error_t ata_dma_transfer(uint8_t drive, uint32_t lba, uint8_t count, 
     if (inportb(bm_base + BMIDE_REG_STATUS) & BMIDE_STATUS_ERR)
         return ATA_ERR_GENERAL;
 
-    if (!write)
-        memcpy(buffer, dma_buf, total_bytes);
+    current_selected_drive = -1;
+    ata_error_t bsy = ata_wait_ready(base_io);
+    if (bsy != ATA_SUCCESS)
+        return bsy;
+
+    if (!write && using_bounce)
+        memcpy(buffer, bounce_buf, total_bytes);
 
     return ATA_SUCCESS;
 }
@@ -318,7 +345,7 @@ ata_error_t ata_read_sectors(uint8_t drive, uint32_t lba, uint8_t count, void *b
     if (err != ATA_SUCCESS)
         return err;
 
-    if (dma_available && (uint32_t)count * 512 <= PAGE_SIZE)
+    if (dma_available)
         return ata_dma_transfer(drive, lba, count, buffer, 0);
 
     uint16_t *buf = (uint16_t *)buffer;
@@ -348,13 +375,9 @@ ata_error_t ata_write_sectors(uint8_t drive, uint32_t lba, uint8_t count, const 
     if (err != ATA_SUCCESS)
         return err;
 
-    if (dma_available && (uint32_t)count * 512 <= PAGE_SIZE)
+    if (dma_available)
     {
-        err = ata_dma_transfer(drive, lba, count, (void *)buffer, 1);
-        if (err != ATA_SUCCESS)
-            return err;
-        outportb(base_io + ATA_REG_COMMAND, ATA_CMD_CACHE_FLUSH);
-        return ata_wait_ready(base_io);
+        return ata_dma_transfer(drive, lba, count, (void *)buffer, 1);
     }
 
     const uint16_t *buf = (const uint16_t *)buffer;

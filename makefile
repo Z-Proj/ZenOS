@@ -48,6 +48,26 @@ $(ISO_IMAGE): $(KERNEL) $(LIMINE_BINARIES)
 user:
 	$(USER_DIR)/build_elf.sh $(USER_SOURCES)
 
+init:
+	@printf "/bin/gfxserver\n/bin/shell" > init.run
+	./fat_man ZenOS.vhd mkdir /sys
+	./fat_man ZenOS.vhd import init.run /sys/init.run
+	@rm init.run
+	@echo "init.run imported successfully."
+
+help:
+	@echo "The ZenOS Project - Makefile Help Menu"
+	@echo "Available commands:"
+	@echo "  make all       : Build the entire OS and initialize."
+	@echo "  make $(ISO_IMAGE) : Build just the kernel."
+	@echo "  make user      : Build userspace and import to disk."
+	@echo "  make qemu      : Run the OS in QEMU."
+	@echo "  make run       : Run in VBox (Requires you to set up a VM called ZenOS in VBox)."
+	@echo "  make clean     : Clean all build files (Doesn't affect $(ISO_IMAGE) / ZenOS.vhd)."
+	@echo "  make funcs     : Generate a text file with all the functions defined in ZenOS"
+	@echo "  make deps      : Check whether you have tools required to build ZenOS"
+	@echo "  make fat       : Build the FAT32 Linux Manager for ZenOS.vhd."
+
 funcs:
 	@ctags -R --languages=C --c-kinds=f src && \
 	sed -n 's@^[^\t]*\t[^\t]*\t/\^\(.*\)\$$/;".*@\1;@p' tags | \

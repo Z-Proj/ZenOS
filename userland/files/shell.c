@@ -1000,16 +1000,29 @@ static int is_builtin(const char *name) {
 }
 
 static int file_exists(const char *name) {
-    int fd = open(name, 0);
-    if (fd >= 0) { close(fd); return 1; }
-    return 0;
+    char *path;
+    int fd;
+    int result = 0;
+    path = malloc(strlen("/bin/") + strlen(name) + 1);
+    if (!path) {
+        return 0;
+    }
+    strcpy(path, "/bin/");
+    strcat(path, name);
+    fd = open(path, O_RDONLY);
+    if (fd >= 0) { 
+        close(fd); 
+        result = 1; 
+    }
+    free(path);
+    return result;
 }
 
-static void run_file(int argc, char *argv[]) {
-    int result = execv(argv[0], argv);
+static void run_file(const char *path, int argc, char *argv[]) {
+    int result = execv(path, argv);
     if (result != 0) {
         fputs(COLOR_RED "Failed to execute: " COLOR_RESET, stdout);
-        fputs(argv[0], stdout);
+        fputs(path, stdout);
         fputs("\n", stdout);
     }
 }
@@ -1045,12 +1058,17 @@ static int execute_command(void) {
             fputs("builtin\n", stdout);
         } else {
             fputs("file\n", stdout);
-            run_file(argc, argv);
+            char *path = malloc(strlen("/bin/") + strlen(argv[0]) + 1);
+            if (path) {
+                strcpy(path, "/bin/");
+                strcat(path, argv[0]);
+                run_file(path, argc, argv);
+                free(path);
+            }
             return 1;
         }
     }
 
-    // Command dispatch
     if (strcmp(argv[0], "help") == 0) cmd_help();
     else if (strcmp(argv[0], "clear") == 0) cmd_clear();
     else if (strcmp(argv[0], "echo") == 0) cmd_echo(argc, argv);
@@ -1059,33 +1077,27 @@ static int execute_command(void) {
         fputs(COLOR_YELLOW "Exiting...\n" COLOR_RESET, stdout);
         return 0;
     }
-    // File ops
     else if (strcmp(argv[0], "touch") == 0) cmd_touch(argc, argv);
     else if (strcmp(argv[0], "rm") == 0) cmd_rm(argc, argv);
     else if (strcmp(argv[0], "cat") == 0) cmd_cat(argc, argv);
     else if (strcmp(argv[0], "write") == 0) cmd_write(argc, argv);
     else if (strcmp(argv[0], "stat") == 0) cmd_stat(argc, argv);
-    // Directory ops
     else if (strcmp(argv[0], "pwd") == 0) cmd_pwd();
     else if (strcmp(argv[0], "ls") == 0) cmd_ls(argc, argv);
     else if (strcmp(argv[0], "cd") == 0) cmd_cd(argc, argv);
     else if (strcmp(argv[0], "mkdir") == 0) cmd_mkdir(argc, argv);
     else if (strcmp(argv[0], "rmdir") == 0) cmd_rmdir(argc, argv);
-    // Memory
     else if (strcmp(argv[0], "malloc") == 0) cmd_malloc_test(argc, argv);
     else if (strcmp(argv[0], "mmap") == 0) cmd_mmap_test(argc, argv);
-    // IPC
     else if (strcmp(argv[0], "sockcreate") == 0) cmd_socket_create(argc, argv);
     else if (strcmp(argv[0], "sockwrite") == 0) cmd_socket_write(argc, argv);
     else if (strcmp(argv[0], "sockread") == 0) cmd_socket_read(argc, argv);
     else if (strcmp(argv[0], "sockdel") == 0) cmd_socket_delete(argc, argv);
-    // Process
     else if (strcmp(argv[0], "exec") == 0) cmd_exec(argc, argv);
     else if (strcmp(argv[0], "execwait") == 0) cmd_execwait(argc, argv);
     else if (strcmp(argv[0], "kill") == 0) cmd_kill(argc, argv);
     else if (strcmp(argv[0], "ps") == 0) cmd_ps();
     else if (strcmp(argv[0], "yield") == 0) cmd_yield_cmd();
-    // System
     else if (strcmp(argv[0], "uname") == 0) cmd_uname();
     else if (strcmp(argv[0], "time") == 0) cmd_time();
     else if (strcmp(argv[0], "sleep") == 0) cmd_sleep_cmd(argc, argv);
@@ -1093,7 +1105,6 @@ static int execute_command(void) {
     else if (strcmp(argv[0], "beep") == 0) cmd_beep(argc, argv);
     else if (strcmp(argv[0], "shutdown") == 0) cmd_shutdown(argc, argv);
     else if (strcmp(argv[0], "reboot") == 0) cmd_reboot();
-    // Special
     else if (strcmp(argv[0], "z") == 0) {
         if (lastcmd[0] == '\0') {
             fputs(COLOR_RED "No previous command\n" COLOR_RESET, stdout);
@@ -1103,9 +1114,14 @@ static int execute_command(void) {
         execute_command();
     }
     else {
-        int has_file = file_exists(argv[0]);
-        if (has_file) {
-            run_file(argc, argv);
+        if (file_exists(argv[0])) {
+            char *path = malloc(strlen("/bin/") + strlen(argv[0]) + 1);
+            if (path) {
+                strcpy(path, "/bin/");
+                strcat(path, argv[0]);
+                run_file(path, argc, argv);
+                free(path);
+            }
         } else {
             fputs(COLOR_RED "Unknown: " COLOR_RESET, stdout);
             fputs(argv[0], stdout);

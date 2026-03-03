@@ -74,6 +74,8 @@ void _start(void)
     AcpiInit();
     LocalApicInit();
     IoApicInit();
+    IoApicSetIrqMapped(14, 0x2E);
+    IoApicSetIrqMapped(15, 0x2F);
     // IoApicSetIrqMapped(8, 0x28); //RTC its
     // rtc_initialize(); //TODO: Already working but enable when needed
     sched_init();
@@ -118,7 +120,7 @@ void _start(void)
         log("\nZenOS only supports 32bpp displays right now.\n", 2, 1);
     task_create(idle, "Idle");
     char *init_argv[] = { "kernel" };
-    if (elf_exec("init", 1, init_argv) < 0)
+    if (elf_exec("/bin/init", 1, init_argv) < 0)
         log("No init program found.", 0, 1);
     asm volatile("sti");
     sched_start();

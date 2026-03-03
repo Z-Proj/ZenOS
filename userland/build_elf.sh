@@ -27,6 +27,8 @@ fi
 
 mkdir -p "$OUT_DIR"
 
+"$fat_man" "$VHD_PATH" mkdir /bin
+
 CRT0_SRC="userland/crt0.asm"
 CRT0_OBJ="${OUT_DIR}/crt0.o"
 [ -f "$CRT0_SRC" ] || die "crt0.asm not found at ${CRT0_SRC}"
@@ -93,8 +95,8 @@ for SRC in "$@"; do
     OBJ="${OUT_DIR}/${BASENAME}.o"
     ELF="${OUT_DIR}/${BASENAME}.elf"
 
-    echo "[*] Removing old /${BASENAME} from ${VHD_PATH} (if any)"
-    "$fat_man" "$VHD_PATH" delete "/${BASENAME}" || true
+    echo "[*] Removing old /bin/${BASENAME} from ${VHD_PATH} (if any)"
+    "$fat_man" "$VHD_PATH" delete "/bin/${BASENAME}" || true
 
     echo "[*] Compiling ${SRC} -> ${OBJ}"
     if [ "$BASENAME" = "gfxserver" ]; then
@@ -129,8 +131,8 @@ for SRC in "$@"; do
 
     [ -f "$ELF" ] || die "ELF not produced for ${BASENAME}"
 
-    echo "[*] Importing ${ELF} as /${BASENAME}"
-    "$fat_man" "$VHD_PATH" import "$ELF" "/${BASENAME}" \
+    echo "[*] Importing ${ELF} as /bin/${BASENAME}"
+    "$fat_man" "$VHD_PATH" import "$ELF" "/bin/${BASENAME}" \
         || die "Import failed for ${BASENAME}"
 
     echo "[✓] ${BASENAME} installed"
