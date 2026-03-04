@@ -27,6 +27,7 @@ static inline void hpet_write(uint32_t offset, uint64_t val)
 #define HPET_T0_CMP     0x108
 
 static uint64_t hpet_period_fs  = 0;
+static uint64_t hpet_counter_hz = 0;
 static uint64_t ticks_per_irq   = 0;
 static uint32_t hpet_freq_hz    = 0;
 volatile uint64_t hpet_ticks    = 0;
@@ -58,21 +59,47 @@ void hpet_init(uint32_t frequency_hz)
     if (!hpet_period_fs)
         return;
 
-    uint64_t ticks_per_sec = 1000000000000000ULL / hpet_period_fs;
-    ticks_per_irq = ticks_per_sec / frequency_hz;
+    hpet_counter_hz = 1000000000000000ULL / hpet_period_fs;
+    ticks_per_irq = hpet_counter_hz / frequency_hz;
     if (!ticks_per_irq)
         ticks_per_irq = 1;
 
-    hpet_write(HPET_T0_CFG, 0);
+    uint64_t tcfg = 0;
+    tcfg |= (1ULL << 2);
+    tcfg |= (1ULL << 3);
+    tcfg |= (1ULL << 6);
+    hpet_write(HPET_T0_CFG, tcfg);
     hpet_write(HPET_T0_CMP, ticks_per_irq);
-    hpet_write(HPET_T0_CFG, (1ULL << 2) | (1ULL << 3) | (1ULL << 4));
+    tcfg &= ~(1ULL << 6);
+    hpet_write(HPET_T0_CFG, tcfg);
 
     register_interrupt_handler(HPET_IRQ_VECTOR, hpet_handler, "HPET Timer");
 
-    hpet_write(HPET_CFG, 1);
+    hpet_write(HPET_CFG, 1 | 2);
     hpet_freq_hz = frequency_hz;
 
     log("HPET Initialized.", 4, 0);
+}
+
+uint32_t hpet_get_freq_hz(void)
+{
+    return hpet_freq_hz;
+}
+
+uint64_t hpet_monotonic_ns(void)
+{
+    if (!hpet_base || !hpet_period_fs)
+    {
+        if (!hpet_freq_hz)
+            return 0;
+        return (hpet_ticks * 1000000000ULL) / hpet_freq_hz;
+    }
+    if (!hpet_counter_hz)
+        return 0;
+    uint64_t counter = hpet_read(HPET_COUNTER);
+    uint64_t sec = counter / hpet_counter_hz;
+    uint64_t rem = counter % hpet_counter_hz;
+    return sec * 1000000000ULL + (rem * 1000000000ULL) / hpet_counter_hz;
 }
 
 void sleep_us(uint64_t us)
@@ -82,27 +109,29 @@ void sleep_us(uint64_t us)
         return;
     }
 
-    uint64_t ticks_needed = (us * 1000000000ULL) / hpet_period_fs;
+    uint64_t ticks_needed = 0;
+    if (hpet_counter_hz)
+    {
+        uint64_t whole = us / 1000000ULL;
+        uint64_t frac = us % 1000000ULL;
+        ticks_needed = whole * hpet_counter_hz;
+        ticks_needed += (frac * hpet_counter_hz + 999999ULL) / 1000000ULL;
+    }
     if (!ticks_needed) ticks_needed = 1;
 
     uint64_t start = hpet_read(HPET_COUNTER);
-    while ((hpet_read(HPET_COUNTER) - start) < ticks_needed)
-        sched_yield();
+    for (;;)
+    {
+        uint64_t now = hpet_read(HPET_COUNTER);
+        if ((now - start) >= ticks_needed)
+            break;
+        asm volatile("sti; hlt; cli" ::: "memory");
+    }
 }
 
 void sleep_ms(uint32_t ms)
 {
-    if (!hpet_base || !hpet_freq_hz) {
-        sleep_us((uint64_t)ms * 1000ULL);
-        return;
-    }
-
-    uint64_t ticks_needed = ((uint64_t)ms * hpet_freq_hz + 999) / 1000;
-    if (!ticks_needed) ticks_needed = 1;
-    uint64_t deadline = hpet_ticks + ticks_needed;
-
-    while (hpet_ticks < deadline)
-        sched_yield();
+    sleep_us((uint64_t)ms * 1000ULL);
 }
 
 void sleep(uint32_t ms)

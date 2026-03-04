@@ -9,7 +9,7 @@
 
 **ZenOS** is a modern **64-bit SMP preemptive operating system**, developed entirely from scratch in **C** and **x86_64 assembly**, bootstrapped with the **Limine** bootloader.
 
-The project focuses on clean design, correctness, and real hardware interaction - without forking or borrowing from existing kernels. Everything from the scheduler to the filesystem to the userspace process model is built from the ground up.
+The project focuses on clean design, correctness, and real hardware interaction. Everything from the scheduler to the filesystem to the userspace process model is built from the ground up.
 
 ---
 
@@ -19,14 +19,9 @@ The project focuses on clean design, correctness, and real hardware interaction 
 
 - 64-bit x86_64 monolithic kernel
 - Symmetric Multiprocessing (SMP)
-- Preemptive round-robin scheduler with per-task kernel stacks
-- ELF64 userspace execution with full address space isolation
-- Per-task file descriptor tables with fork-safe cloning
-- Unix-style process model: `fork`, `exec` (replace-in-place), `waitpid`, `exit`
-- Signal infrastructure: `sigaction`, `sigprocmask`, pending signal dispatch
-- Pipe IPC with blocking ring buffers
-- `ioctl` support including terminal window size (`TIOCGWINSZ`)
-- Environment variable passing via kernel `envp`
+- Preemptive round-robin scheduler
+- ELF64 userspace execution
+- Unix-style process model
 - CPU feature detection via CPUID
 - SSE and FPU initialization
 - High-resolution timing via HPET
@@ -43,7 +38,7 @@ Over 60 syscalls covering process management, file I/O, memory, signals, pipes, 
 - PC speaker
 - Serial port for debugging and logging
 - Local APIC and IOAPIC interrupt handling
-- ATA disk driver (PIO, 28-bit LBA)
+- ATA disk driver (DMA/PIO, 28-bit LBA)
 - PCI bus enumeration
 - Intel e1000 Ethernet driver
 - RTC, HPET
@@ -63,18 +58,20 @@ Over 60 syscalls covering process management, file I/O, memory, signals, pipes, 
 #### Current Apps (subject to change):
 
 - Calculator - `+`, `-`, `*`, `/`, `%`, `^` (calc.c)
-- C4 - C in 4 functions compiler (cc.c)
+- [C4](https://github.com/rswier/c4) - C in 4 functions compiler (cc.c)
 - Clock - live clock display (clock.c)
 - Counter (counter.c)
+- Edit - graphical text editor (edit.c)
 - Fibonacci sequence (fibonacci.c)
 - Figlet - graphical text art (figlet.c)
 - GFX Server - Unicode text and shapes graphics server (gfxserver.c)
 - GFX Test - test client for the graphics server (gfxtest.c)
 - Hello, world! (hello.c)
 - Init - Boot process manager (init.c)
+- The [Lua](https://www.lua.org/) Interpreter (lua-5.5.0-zenos/)
 - Primes - prime numbers up to 100 (primes.c)
 - Shell - Quite a good and simple shell (shell.c)
-- SmallerC - C to assembly compiler (smlrc.c)
+- [SmallerC](https://github.com/alexfru/SmallerC) - C to assembly compiler (smlrc.c)
 - Snake (snake.c)
 - Sysinfo - graphical system information (sysinfo.c)
 - Uname - system info (uname.c)
@@ -143,9 +140,10 @@ socat
 - [Flanterm](https://codeberg.org/mintsuki/flanterm) - terminal emulator
 - [SSFN 2.0](https://gitlab.com/bztsrc/scalable-font2/) - scalable screen fonts
 - [FatFs](https://elm-chan.org/fsw/ff/) - FAT32 filesystem library by CHAN
+- [Newlib](https://sourceware.org/newlib/) - C standard library
+- [Lua](https://www.lua.org/) - A powerful lightweight scripting language
 - [SmallerC](https://github.com/alexfru/SmallerC) - C to assembly compiler
 - [C4](https://github.com/rswier/c4) - C in 4 functions
-- [Newlib](https://sourceware.org/newlib/) - C standard library
 
 ---
 

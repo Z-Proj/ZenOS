@@ -49,7 +49,7 @@ user:
 	$(USER_DIR)/build_elf.sh $(USER_SOURCES)
 
 init:
-	@printf "/bin/shell\n" > init.run
+	@printf "/bin/gfxserver\n/bin/shell\n" > init.run
 	./fat_man ZenOS.vhd mkdir /sys
 	./fat_man ZenOS.vhd import init.run /sys/init.run
 	@rm init.run

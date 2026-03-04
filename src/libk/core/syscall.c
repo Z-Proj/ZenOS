@@ -617,10 +617,9 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         (void)clk_id;
         if (!tp)
             return -1;
-
-        uint64_t ticks = hpet_ticks;
-        tp->tv_sec = ticks / 1000;
-        tp->tv_nsec = (ticks % 1000) * 1000000;
+        uint64_t ns = hpet_monotonic_ns();
+        tp->tv_sec = ns / 1000000000ULL;
+        tp->tv_nsec = ns % 1000000000ULL;
         return 0;
     }
 
