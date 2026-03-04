@@ -154,9 +154,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (!str || len > 4096)
             return -1;
         for (uint32_t i = 0; i < len && str[i]; i++)
-        {
             printc(str[i]);
-        }
         return 0;
     }
 
@@ -259,11 +257,34 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         }
         if (e->type != FD_FILE)
             return -1;
-        uint32_t bytes_read = 0;
-        int ret = fat_read_entry(e, buffer, size, &bytes_read);
-        if (ret < 0)
+        if (size == 0)
+            return 0;
+        uint8_t *ubuf = (uint8_t *)buffer;
+        uint8_t *kbuf = (uint8_t *)kmalloc(4096);
+        if (!kbuf)
             return -1;
-        return (int64_t)bytes_read;
+        uint32_t total = 0;
+        while (total < size)
+        {
+            uint32_t chunk = size - total;
+            if (chunk > 4096)
+                chunk = 4096;
+            uint32_t bytes_read = 0;
+            int ret = fat_read_entry(e, kbuf, chunk, &bytes_read);
+            if (ret < 0)
+            {
+                kfree(kbuf);
+                return (total > 0) ? (int64_t)total : -1;
+            }
+            if (bytes_read == 0)
+                break;
+            memcpy(ubuf + total, kbuf, bytes_read);
+            total += bytes_read;
+            if (bytes_read < chunk)
+                break;
+        }
+        kfree(kbuf);
+        return (int64_t)total;
     }
 
     case SYSCALL_WRITE:
@@ -305,10 +326,29 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         }
         if (e->type != FD_FILE)
             return -1;
-        int ret = fat_write_entry(e, buffer, size);
-        if (ret < 0)
+        if (size == 0)
+            return 0;
+        const uint8_t *ubuf = (const uint8_t *)buffer;
+        uint8_t *kbuf = (uint8_t *)kmalloc(4096);
+        if (!kbuf)
             return -1;
-        return (int64_t)size;
+        uint32_t total = 0;
+        while (total < size)
+        {
+            uint32_t chunk = size - total;
+            if (chunk > 4096)
+                chunk = 4096;
+            memcpy(kbuf, ubuf + total, chunk);
+            int ret = fat_write_entry(e, kbuf, chunk);
+            if (ret < 0)
+            {
+                kfree(kbuf);
+                return (total > 0) ? (int64_t)total : -1;
+            }
+            total += chunk;
+        }
+        kfree(kbuf);
+        return (int64_t)total;
     }
 
     case SYSCALL_CLOSE:
@@ -842,10 +882,13 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         {
             if (count >= max_count)
                 break;
-            infos[count].pid = t->pid;
-            strncpy(infos[count].name, t->name, 63);
-            infos[count].name[63] = '\0';
-            count++;
+            if (t->state != TASK_DEAD)
+            {
+                infos[count].pid = t->pid;
+                strncpy(infos[count].name, t->name, 63);
+                infos[count].name[63] = '\0';
+                count++;
+            }
             t = t->next;
         } while (t != head);
         return count;

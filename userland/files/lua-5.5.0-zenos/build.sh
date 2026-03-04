@@ -12,7 +12,6 @@ clang -O2 -std=c99 -DLUA_USE_ZENOS -fno-stack-protector -fno-common \
   crt0.o -L../../libs -lc -lm \
   -fuse-ld=lld -Wl,-m,elf_x86_64 -Wl,-e,_start \
   -Wl,-T,../../userelf.ld \
-  -Wl,--allow-multiple-definition \
   -o lua
 
 ../../../fat_man ../../../ZenOS.vhd delete /bin/lua || true
