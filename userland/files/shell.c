@@ -535,18 +535,22 @@ static void cmd_exec(int argc, char* argv[]) {
         fputs(COLOR_RED "Usage: exec <filename> [args...]\n" COLOR_RESET, stdout);
         return;
     }
-    
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        fputs(COLOR_RED "Fork failed\n" COLOR_RESET, stdout);
+        return;
+    }
+
+    if (pid == 0) {
+        execv(argv[1], &argv[1]);
+        fputs(COLOR_RED "Failed to execute\n" COLOR_RESET, stdout);
+        exit(1);
+    }
+
     fputs(COLOR_YELLOW "Executing: " COLOR_RESET, stdout);
     fputs(argv[1], stdout);
     fputs("\n", stdout);
-    
-    int result = execv(argv[1], &argv[1]);
-    
-    if (result != 0) {
-        fputs(COLOR_RED "Failed to execute: " COLOR_RESET, stdout);
-        fputs(argv[1], stdout);
-        fputs("\n", stdout);
-    }
 }
 
 static void cmd_execwait(int argc, char* argv[]) {
@@ -555,39 +559,36 @@ static void cmd_execwait(int argc, char* argv[]) {
         return;
     }
 
-    task_info_t before[32];
-    int before_count = zen_list_tasks(before, 32);
+    pid_t pid = fork();
+    if (pid < 0) {
+        fputs(COLOR_RED "Fork failed\n" COLOR_RESET, stdout);
+        return;
+    }
 
-    fputs(COLOR_YELLOW "Executing: " COLOR_RESET, stdout);
-    fputs(argv[1], stdout);
-    fputs("\n", stdout);
+    if (pid == 0) {
+        execv(argv[1], &argv[1]);
+        fputs(COLOR_RED "Failed to execute\n" COLOR_RESET, stdout);
+        exit(1);
+    }
 
-    int result = execv(argv[1], &argv[1]);
-    if (result != 0) {
+    int status;
+    waitpid(pid, &status, 0);
+    fputs(COLOR_GREEN "Process exited\n" COLOR_RESET, stdout);
+}
+
+static void run_file(const char *path, int argc, char *argv[]) {
+    pid_t pid = fork();
+    if (pid < 0) {
+        fputs(COLOR_RED "Fork failed\n" COLOR_RESET, stdout);
+        return;
+    }
+    if (pid == 0) {
+        execv(path, argv);
         fputs(COLOR_RED "Failed to execute: " COLOR_RESET, stdout);
-        fputs(argv[1], stdout);
+        fputs(path, stdout);
         fputs("\n", stdout);
-        return;
+        exit(1);
     }
-
-    task_info_t after[32];
-    int after_count = zen_list_tasks(after, 32);
-
-    pid_t new_pid = -1;
-    for (int a = 0; a < after_count; a++) {
-        int found = 0;
-        for (int b = 0; b < before_count; b++) {
-            if (after[a].pid == before[b].pid) { found = 1; break; }
-        }
-        if (!found) { new_pid = (pid_t)after[a].pid; break; }
-    }
-
-    if (new_pid == -1) {
-        fputs(COLOR_RED "Could not find spawned task\n" COLOR_RESET, stdout);
-        return;
-    }
-
-    waitpid(new_pid, NULL, 0);
 }
 
 static void cmd_kill(int argc, char* argv[]) {
@@ -1016,15 +1017,6 @@ static int file_exists(const char *name) {
     }
     free(path);
     return result;
-}
-
-static void run_file(const char *path, int argc, char *argv[]) {
-    int result = execv(path, argv);
-    if (result != 0) {
-        fputs(COLOR_RED "Failed to execute: " COLOR_RESET, stdout);
-        fputs(path, stdout);
-        fputs("\n", stdout);
-    }
 }
 
 static int execute_command(void) {

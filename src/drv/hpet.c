@@ -83,17 +83,26 @@ void sleep_us(uint64_t us)
     }
 
     uint64_t ticks_needed = (us * 1000000000ULL) / hpet_period_fs;
-    if (!ticks_needed)
-        ticks_needed = 1;
+    if (!ticks_needed) ticks_needed = 1;
 
     uint64_t start = hpet_read(HPET_COUNTER);
     while ((hpet_read(HPET_COUNTER) - start) < ticks_needed)
-        __asm__ volatile("pause" ::: "memory");
+        sched_yield();
 }
 
 void sleep_ms(uint32_t ms)
 {
-    sleep_us((uint64_t)ms * 1000ULL);
+    if (!hpet_base || !hpet_freq_hz) {
+        sleep_us((uint64_t)ms * 1000ULL);
+        return;
+    }
+
+    uint64_t ticks_needed = ((uint64_t)ms * hpet_freq_hz + 999) / 1000;
+    if (!ticks_needed) ticks_needed = 1;
+    uint64_t deadline = hpet_ticks + ticks_needed;
+
+    while (hpet_ticks < deadline)
+        sched_yield();
 }
 
 void sleep(uint32_t ms)

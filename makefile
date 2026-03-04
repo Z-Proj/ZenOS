@@ -14,7 +14,7 @@ LIMINE_BINARIES = $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin
 
 C_SOURCES = $(shell find $(SRC_DIR) -name "*.c")
 ASM_SOURCES = $(shell find $(SRC_DIR) -name "*.asm")
-USER_SOURCES = $(shell find $(USER_DIR)/files -name "*.c")
+USER_SOURCES = $(shell find $(USER_DIR)/files -maxdepth 1 -name "*.c")
 
 OBJ = $(C_SOURCES:.c=.o) $(ASM_SOURCES:.asm=.o)
 
@@ -49,7 +49,7 @@ user:
 	$(USER_DIR)/build_elf.sh $(USER_SOURCES)
 
 init:
-	@printf "/bin/gfxserver\n/bin/shell\n" > init.run
+	@printf "/bin/shell\n" > init.run
 	./fat_man ZenOS.vhd mkdir /sys
 	./fat_man ZenOS.vhd import init.run /sys/init.run
 	@rm init.run

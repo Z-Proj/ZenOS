@@ -112,7 +112,7 @@ for SRC in "$@"; do
           -c "$SRC" -o "$OBJ" \
           || die "Compilation failed for ${SRC}"
 
-    if [ "$BASENAME" = "gfxserver" ]; then
+    if [ "$BASENAME" = "gfxserver" ] || [ "$BASENAME" = "edit" ]; then
         LINK_OBJS="$CRT0_OBJ $OBJ $EXTRA_OBJS"
     else
         LINK_OBJS="$CRT0_OBJ $OBJ"
