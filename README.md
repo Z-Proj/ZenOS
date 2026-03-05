@@ -45,9 +45,9 @@ Over 60 syscalls covering process management, file I/O, memory, signals, pipes, 
 
 ### Filesystem
 
+- **VFS** support with multiple drives mountable.
 - **FAT32** via a port of [FatFs](https://elm-chan.org/fsw/ff/) by CHAN
 - Native host-side disk image tooling (`fat_man`)
-- Primary storage medium for userspace ELF binaries
 
 ### Userspace & Libc
 
@@ -57,28 +57,19 @@ Over 60 syscalls covering process management, file I/O, memory, signals, pipes, 
 
 #### Current Apps (subject to change):
 
-- Calculator - `+`, `-`, `*`, `/`, `%`, `^` (calc.c)
-- [C4](https://github.com/rswier/c4) - C in 4 functions compiler (cc.c)
-- Clock - live clock display (clock.c)
-- Counter (counter.c)
-- Edit - graphical text editor (edit.c)
-- Fibonacci sequence (fibonacci.c)
-- Figlet - graphical text art (figlet.c)
-- GFX Server - Unicode text and shapes graphics server (gfxserver.c)
-- GFX Test - test client for the graphics server (gfxtest.c)
-- Hello, world! (hello.c)
-- Init - Boot process manager (init.c)
-- The [Lua](https://www.lua.org/) Interpreter (lua-5.5.0-zenos/)
-- Primes - prime numbers up to 100 (primes.c)
-- Shell - Quite a good and simple shell (shell.c)
-- [SmallerC](https://github.com/alexfru/SmallerC) - C to assembly compiler (smlrc.c)
-- Snake (snake.c)
-- Sysinfo - graphical system information (sysinfo.c)
-- Uname - system info (uname.c)
-- Word counter (wc.c)
-- Yes - repeat output indefinitely (yes.c)
+- **Shell & Core Utils** - shell, echo, yes, sleep (shell.c, echo.c, yes.c, sleep.c)
+- **File Utils** - cat, ls, touch, rm, stat, wc (cat.c, ls.c, touch.c, rm.c, stat.c, wc.c)
+- **Directory Utils** - mkdir, rmdir, pwd (mkdir.c, rmdir.c, pwd.c)
+- **Process Utils** - ps, kill (ps.c, kill.c)
+- **System Info** - uname, sysinfo (uname.c, sysinfo.c)
+- **Math & Science** - calc, primes, fibonacci, counter (calc.c, primes.c, fibonacci.c, counter.c)
+- **Graphics** - GFX Server, GFX Test, edit, figlet, clock, mouse (gfxserver.c, gfxtest.c, edit.c, figlet.c, clock.c, mouse.c)
+- **Compilers** - [C4](https://github.com/rswier/c4), [SmallerC](https://github.com/alexfru/SmallerC) (cc.c, smlrc.c)
+- **Scripting** - [Lua 5.5.0](https://www.lua.org/) interpreter
+- **Misc** - hello, beep, snake, init (hello.c, beep.c, snake.c, init.c)
 
 **The `ZenOS.vhd` in the repository usually already has these compiled and ready.**
+A separate `Storage.vhd` is present for uhh... storage.
 
 ### Graphics & I/O
 
