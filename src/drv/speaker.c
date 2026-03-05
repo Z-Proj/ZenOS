@@ -23,6 +23,7 @@ void speaker_note(uint8_t octave, uint8_t note) {
 }
 
 void speaker_play(uint32_t hz) {
+    if (hz == 0) { speaker_pause(); return; }
     uint32_t d = 1193180 / hz;
     outportb(0x43, 0xB6);
     outportb(0x42, (uint8_t) (d & 0xFF));

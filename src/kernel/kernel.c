@@ -31,6 +31,7 @@
 #include "../drv/keyboard.h"
 #include "../drv/disk/ata.h"
 #include "../drv/disk/fat.h"
+#include "../drv/disk/vfs.h"
 
 // void play_bootup_sequence() //Probably going to be deprecated
 // {
@@ -116,11 +117,12 @@ void _start(void)
     print_mem_info(1);
     char fat_debug_buf[4096]; fat_list(fat_debug_buf, sizeof(fat_debug_buf)); log(fat_debug_buf, 1, 1);
 #endif
+    vfs_init();
     if(!(framebuffer_bpp == 32))
         log("\nZenOS only supports 32bpp displays right now.\n", 2, 1);
     task_create(idle, "Idle");
     char *init_argv[] = { "kernel" };
-    if (elf_exec("/bin/init", 1, init_argv) < 0)
+    if (elf_exec("/mnt/drv0/bin/init", 1, init_argv) < 0)
         log("No init program found.", 0, 1);
     asm volatile("sti");
     sched_start();

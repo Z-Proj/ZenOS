@@ -7,6 +7,8 @@
 #include "../../drv/speaker.h"
 #include "../../drv/vga.h"
 #include "../../drv/disk/fat.h"
+#include "../../drv/disk/vfs.h"
+#include "../../drv/disk/devfs.h"
 #include "fd.h"
 #include "../../kernel/signal.h"
 #include "../../kernel/sched.h"
@@ -141,7 +143,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         size_t buf_size = (size_t)arg2;
         if (!buf || buf_size == 0)
             return -1;
-        return fat_list(buf, buf_size);
+        return vfs_list(buf, buf_size);
     }
 
     case SYSCALL_GETKEY:
@@ -192,12 +194,12 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (flags & 0x200)
             write_mode = 2;
         if (flags & 0x40)
-            fat_create(filename);
+            vfs_create(filename);
         int fd = fd_alloc(cur->fd_table);
         if (fd < 0)
             return -1;
         fd_entry_t *e = &cur->fd_table->entries[fd];
-        if (fat_open_entry(filename, write_mode, e) < 0)
+        if (vfs_open_entry(filename, write_mode, e) < 0)
             return -1;
         return fd;
     }
@@ -255,6 +257,26 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             }
             return (int64_t)n;
         }
+        if (e->type == FD_DEV)
+        {
+            struct dev_entry *d = e->dev_ops;
+            if (!d || !d->read) return 0;
+            uint8_t *kbuf = (uint8_t *)kmalloc(4096);
+            if (!kbuf) return -1;
+            uint32_t total = 0;
+            while (total < size)
+            {
+                uint32_t chunk = size - total;
+                if (chunk > 4096) chunk = 4096;
+                uint32_t got = 0;
+                d->read(kbuf, chunk, &got);
+                if (got == 0) break;
+                memcpy((uint8_t *)buffer + total, kbuf, got);
+                total += got;
+            }
+            kfree(kbuf);
+            return (int64_t)total;
+        }
         if (e->type != FD_FILE)
             return -1;
         if (size == 0)
@@ -270,7 +292,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             if (chunk > 4096)
                 chunk = 4096;
             uint32_t bytes_read = 0;
-            int ret = fat_read_entry(e, kbuf, chunk, &bytes_read);
+            int ret = vfs_read_entry(e, kbuf, chunk, &bytes_read);
             if (ret < 0)
             {
                 kfree(kbuf);
@@ -339,7 +361,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             if (chunk > 4096)
                 chunk = 4096;
             memcpy(kbuf, ubuf + total, chunk);
-            int ret = fat_write_entry(e, kbuf, chunk);
+            int ret = vfs_write_entry(e, kbuf, chunk);
             if (ret < 0)
             {
                 kfree(kbuf);
@@ -379,7 +401,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return -1;
         if (e->type != FD_FILE)
             return -1;
-        return fat_lseek_entry(e, offset, whence);
+        return vfs_lseek_entry(e, offset, whence);
     }
 
     case SYSCALL_CREATE:
@@ -387,7 +409,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         const char *filename = (const char *)arg1;
         if (!filename)
             return -1;
-        return fat_create(filename);
+        return vfs_create(filename);
     }
 
     case SYSCALL_DELETE:
@@ -395,7 +417,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         const char *filename = (const char *)arg1;
         if (!filename)
             return -1;
-        return fat_delete(filename);
+        return vfs_delete(filename);
     }
 
     case SYSCALL_STAT:
@@ -406,10 +428,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return -1;
         fd_entry_t tmp;
         memset(&tmp, 0, sizeof(tmp));
-        if (fat_open_entry(path, 0, &tmp) < 0)
+        if (vfs_open_entry(path, 0, &tmp) < 0)
             return -1;
-        uint32_t sz = fat_size_entry(&tmp);
-        fat_close_entry(&tmp);
+        uint32_t sz = vfs_size_entry(&tmp);
+        vfs_close_entry(&tmp);
         statbuf->st_size = sz;
         statbuf->st_mode = 0100644;
         statbuf->st_nlink = 1;
@@ -438,7 +460,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         fd_entry_t *e = &cur->fd_table->entries[fd];
         if (!e->used)
             return -1;
-        uint32_t sz = fat_size_entry(e);
+        uint32_t sz = vfs_size_entry(e);
         statbuf->st_size = sz;
         statbuf->st_mode = 0100644;
         statbuf->st_nlink = 1;
@@ -452,7 +474,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         const char *path = (const char *)arg1;
         if (!path)
             return -1;
-        return fat_chdir(path);
+        return vfs_chdir(path);
     }
 
     case SYSCALL_GETCWD:
@@ -461,7 +483,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         size_t size = (size_t)arg2;
         if (!buffer)
             return -1;
-        fat_getcwd(buffer, size);
+        vfs_getcwd(buffer, size);
         return 0;
     }
 
@@ -470,7 +492,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         const char *path = (const char *)arg1;
         if (!path)
             return -1;
-        return fat_mkdir(path);
+        return vfs_mkdir(path);
     }
 
     case SYSCALL_RMDIR:
@@ -478,7 +500,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         const char *path = (const char *)arg1;
         if (!path)
             return -1;
-        return fat_rmdir(path);
+        return vfs_rmdir(path);
     }
 
     case SYSCALL_BRK:
@@ -1011,7 +1033,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (fd < 0)
             return -1;
         fd_entry_t *e = &cur->fd_table->entries[fd];
-        if (fat_opendir_entry(path, e) < 0)
+        if (vfs_opendir_entry(path, e) < 0)
             return -1;
         return fd;
     }
@@ -1031,7 +1053,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (!e->used || e->type != FD_DIR)
             return -1;
         int is_dir = 0;
-        int ret = fat_readdir_entry(e, dent->d_name, &is_dir);
+        int ret = vfs_readdir_entry(e, dent->d_name, &is_dir);
         if (ret <= 0)
             return ret;
         dent->d_ino = 1;
@@ -1050,7 +1072,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         fd_entry_t *e = &cur->fd_table->entries[fd];
         if (!e->used || e->type != FD_DIR)
             return -1;
-        fat_closedir_entry(e);
+        vfs_closedir_entry(e);
         memset(e, 0, sizeof(fd_entry_t));
         return 0;
     }

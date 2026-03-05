@@ -48,6 +48,7 @@ typedef struct task
     uint32_t sig_pending;
     uint32_t sig_mask;
     uint64_t sig_trampoline;
+    char cwd[256];
     struct task *next;
 } task_t;
 

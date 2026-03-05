@@ -13,6 +13,7 @@ typedef enum {
     FD_PIPE_READ,
     FD_PIPE_WRITE,
     FD_DIR,
+    FD_DEV,
 } fd_type_t;
 
 typedef struct {
@@ -39,14 +40,17 @@ typedef struct {
     int         first_read;
 } fd_dir_t;
 
+struct dev_entry;
+
 typedef struct {
-    fd_type_t   type;
-    int         used;
-    int         cloexec;
+    fd_type_t        type;
+    int              used;
+    int              cloexec;
     union {
-        fd_file_t   file;
-        pipe_buf_t *pipe;
-        fd_dir_t    dir;
+        fd_file_t        file;
+        pipe_buf_t      *pipe;
+        fd_dir_t         dir;
+        struct dev_entry *dev_ops;
     };
 } fd_entry_t;
 

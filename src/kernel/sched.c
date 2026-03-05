@@ -114,6 +114,8 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
     task->waiting_on_pid = 0;
     task->wait_collected = 0;
     task->fd_table = fd_table_alloc();
+    strncpy(task->cwd, "/mnt/drv0", sizeof(task->cwd) - 1);
+    task->cwd[sizeof(task->cwd) - 1] = '\0';
     memset(task->sighandlers, 0, sizeof(task->sighandlers));
     task->sig_pending = 0;
     task->sig_mask = 0;
@@ -176,9 +178,9 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
 
     user_stack_top &= ~0xFULL;
 
-    // (argc+1) pointers + 1 argc = (argc+2) total 8-byte slots
-    // for rsp to be 16-byte aligned after all pushes, we need (argc+2) to be even
-    // i.e. argc must be even. if odd, add one padding slot above the argv array.
+    
+    
+    
     if ((argc & 1) == 1)
         user_stack_top -= sizeof(uint64_t);
 
@@ -234,7 +236,7 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
     return task;
 }
 
-task_t *task_create(void (*entry)(void), const char *name) //TODO: Get rid of user_entry.asm
+task_t *task_create(void (*entry)(void), const char *name) 
 {
     spinlock_acquire(&sched_lock);
     if (task_count >= MAX_TASKS)
@@ -704,6 +706,8 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
     child->sig_pending = 0;
     child->sig_mask = parent->sig_mask;
     child->sig_trampoline = parent->sig_trampoline;
+    strncpy(child->cwd, parent->cwd, sizeof(child->cwd) - 1);
+    child->cwd[sizeof(child->cwd) - 1] = '\0';
 
     strncpy(child->name, parent->name, 63);
     child->name[63] = '\0';

@@ -14,7 +14,6 @@ LIMINE_BINARIES = $(LIMINE_DIR)/limine-bios.sys $(LIMINE_DIR)/limine-bios-cd.bin
 
 C_SOURCES = $(shell find $(SRC_DIR) -name "*.c")
 ASM_SOURCES = $(shell find $(SRC_DIR) -name "*.asm")
-USER_SOURCES = $(shell find $(USER_DIR)/files -maxdepth 1 -name "*.c")
 
 OBJ = $(C_SOURCES:.c=.o) $(ASM_SOURCES:.asm=.o)
 
@@ -46,10 +45,10 @@ $(ISO_IMAGE): $(KERNEL) $(LIMINE_BINARIES)
 	$(LIMINE_DIR)/limine bios-install $(ISO_IMAGE)
 
 user:
-	$(USER_DIR)/build_elf.sh $(USER_SOURCES)
+	$(USER_DIR)/build_elf.sh
 
 init:
-	@printf "/bin/gfxserver\n/bin/shell\n" > init.run
+	@printf "/mnt/drv0/bin/gfxserver\n/mnt/drv0/bin/shell\n" > init.run
 	./fat_man ZenOS.vhd mkdir /sys
 	./fat_man ZenOS.vhd import init.run /sys/init.run
 	@rm init.run
@@ -128,6 +127,7 @@ qemu:
 	-machine pcspk-audiodev=snd0 \
 	-m 128M \
 	-drive file=ZenOS.vhd,if=ide,index=0 \
+	-drive file=Storage.vhd,if=ide,index=1 \
 	-boot d \
 	-smp 2 \
 	-serial stdio \

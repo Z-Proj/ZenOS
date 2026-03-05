@@ -1,142 +1,30 @@
 #!/bin/bash
 set -Eeuo pipefail
 
-VHD_PATH="ZenOS.vhd"
-fat_man="./fat_man"
 FILES_DIR="userland/files"
-OUT_DIR="userland/build"
-LIBS_DIR="userland/libs"
-NEWLIB_INC="userland/libs/include"
-NEWLIB_LIB="userland/libs"
+VHD_PATH="ZenOS.vhd"
+FATMAN="./fat_man"
 
-die() {
-    echo "[!] $*" >&2
-    exit 1
-}
+[ -x "$FATMAN" ]   || { echo "[!] fat_man not found"; exit 1; }
+[ -f "$VHD_PATH" ] || { echo "[!] VHD not found"; exit 1; }
 
-[ -x "$fat_man" ] || die "fat_man not found or not executable"
-[ -f "$VHD_PATH" ] || die "VHD '$VHD_PATH' not found"
+$FATMAN "$VHD_PATH" mkdir /bin || true
 
-if [ "$#" -eq 0 ]; then
-    die "No source files passed to build_elf.sh"
-fi
+FAILED=0
 
-if [ -d "$FILES_DIR" ] && ! ls "$FILES_DIR"/*.c >/dev/null 2>&1; then
-    die "No .c files found in ${FILES_DIR}"
-fi
+for app_dir in "$FILES_DIR"/*/; do
+    app=$(basename "$app_dir")
+    mf="$app_dir/makefile"
 
-mkdir -p "$OUT_DIR"
+    [ -f "$mf" ] || { echo "[!] No makefile in $app_dir, skipping"; continue; }
 
-"$fat_man" "$VHD_PATH" mkdir /bin
-
-CRT0_SRC="userland/crt0.asm"
-CRT0_OBJ="${OUT_DIR}/crt0.o"
-[ -f "$CRT0_SRC" ] || die "crt0.asm not found at ${CRT0_SRC}"
-echo "[*] Assembling ${CRT0_SRC} -> ${CRT0_OBJ}"
-nasm -f elf64 "$CRT0_SRC" -o "$CRT0_OBJ" || die "nasm failed for crt0.asm"
-
-BUILD_OK=0
-
-cleanup() {
-    if [ "$BUILD_OK" -eq 1 ]; then
-        echo "[*] Cleaning build directory: ${OUT_DIR}"
-        rm -rf "${OUT_DIR}"
+    echo "[*] Building $app"
+    if ! make -C "$app_dir" install -j1 --no-print-directory; then
+        echo "[!] Failed: $app"
+        FAILED=1
     else
-        echo "[!] Build failed — preserving ${OUT_DIR} for debugging"
+        echo "[✓] $app installed"
     fi
-}
-
-trap cleanup EXIT
-
-EXTRA_OBJS=""
-if [ -d "$LIBS_DIR" ]; then
-    for SFN in "$LIBS_DIR"/*.sfn; do
-        [ -f "$SFN" ] || continue
-        FNAME="$(basename "$SFN" .sfn)"
-        FOBJ="$LIBS_DIR/${FNAME}.o"
-        if [ ! -f "$FOBJ" ] || [ "$SFN" -nt "$FOBJ" ]; then
-            echo "[*] Compiling font: ${SFN} -> ${FOBJ}"
-            MAGIC="$(xxd -l2 "$SFN" | awk '{print $2$3}')"
-            if [ "$MAGIC" = "1f8b" ]; then
-                echo "[*] Detected gzip, decompressing ${SFN}..."
-                cp "$SFN" "${SFN}.gz"
-                gunzip -f "${SFN}.gz"
-            fi
-            objcopy -I binary -O elf64-x86-64 -B i386:x86-64 "$SFN" "$FOBJ" \
-                || die "objcopy failed for ${SFN}"
-            echo "[✓] Font compiled: $(basename "$FOBJ")"
-        else
-            echo "[*] Font up to date: $(basename "$FOBJ")"
-        fi
-    done
-
-    for LOBJ in "$LIBS_DIR"/*.o; do
-        [ -f "$LOBJ" ] || continue
-        echo "[*] Including lib object: $(basename "$LOBJ")"
-        EXTRA_OBJS="$EXTRA_OBJS $LOBJ"
-    done
-fi
-
-[ -f "${NEWLIB_LIB}/libc.a" ] || die "newlib not found: ${NEWLIB_LIB}/libc.a missing. Run the newlib build first."
-[ -d "${NEWLIB_INC}" ]        || die "newlib headers not found: ${NEWLIB_INC} missing. Run the newlib build first."
-NEWLIB_CFLAGS="-isystem ${NEWLIB_INC}"
-NEWLIB_LDFLAGS="-L${NEWLIB_LIB} -lc -lm"
-echo "[*] Using newlib from ${NEWLIB_LIB}"
-
-for SRC in "$@"; do
-    [ -f "$SRC" ] || die "Source file '$SRC' does not exist"
-
-    case "$SRC" in
-        *.c) ;;
-        *) die "Unsupported file type: $SRC (expected .c)" ;;
-    esac
-
-    BASENAME="$(basename "$SRC" .c)"
-    OBJ="${OUT_DIR}/${BASENAME}.o"
-    ELF="${OUT_DIR}/${BASENAME}.elf"
-
-    echo "[*] Removing old /bin/${BASENAME} from ${VHD_PATH} (if any)"
-    "$fat_man" "$VHD_PATH" delete "/bin/${BASENAME}" || true
-
-    echo "[*] Compiling ${SRC} -> ${OBJ}"
-    if [ "$BASENAME" = "gfxserver" ]; then
-        PIC_FLAG="-fno-pic"
-    else
-        PIC_FLAG="-fPIC"
-    fi
-
-    clang -m64 -ffreestanding -fno-stack-protector -mno-red-zone \
-          -nostdlib $PIC_FLAG -fno-pie -O1 \
-          $NEWLIB_CFLAGS \
-          -I userland -I userland/libs \
-          -c "$SRC" -o "$OBJ" \
-          || die "Compilation failed for ${SRC}"
-
-    if [ "$BASENAME" = "gfxserver" ] || [ "$BASENAME" = "edit" ]; then
-        LINK_OBJS="$CRT0_OBJ $OBJ $EXTRA_OBJS"
-    else
-        LINK_OBJS="$CRT0_OBJ $OBJ"
-    fi
-
-    echo "[*] Linking ${OBJ} -> ${ELF}"
-    ld.lld -m elf_x86_64 \
-           -e _start \
-           -T userland/userelf.ld \
-           $LINK_OBJS \
-           $NEWLIB_LDFLAGS \
-           -o "$ELF" \
-           --warn-unresolved-symbols \
-           --noinhibit-exec \
-           || die "Linking failed for ${BASENAME}"
-
-    [ -f "$ELF" ] || die "ELF not produced for ${BASENAME}"
-
-    echo "[*] Importing ${ELF} as /bin/${BASENAME}"
-    "$fat_man" "$VHD_PATH" import "$ELF" "/bin/${BASENAME}" \
-        || die "Import failed for ${BASENAME}"
-
-    echo "[✓] ${BASENAME} installed"
 done
 
-echo "[✓] All userland ELFs built and imported"
-BUILD_OK=1
+[ "$FAILED" -eq 0 ] && echo "[✓] All apps built and imported" || { echo "[!] Some apps failed"; exit 1; }

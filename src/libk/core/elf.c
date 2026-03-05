@@ -3,6 +3,7 @@
 #include "../debug/log.h"
 #include "../../drv/vga.h"
 #include "../../drv/disk/fat.h"
+#include "../../drv/disk/vfs.h"
 #include "mem.h"
 
 #define EXEC_MAX_ARGS    128
@@ -246,29 +247,29 @@ static int load_elf_file(const char *filename, uint8_t **elf_data_out, uint32_t 
 {
     if (!filename || !elf_data_out || !filesize_out) return -1;
 
-    int fd = fat_open(filename, 0);
+    int fd = vfs_open(filename, 0);
     if (fd < 0) return -1;
 
-    uint32_t filesize = fat_size(fd);
+    uint32_t filesize = vfs_size(fd);
     if (!filesize) {
-        fat_close(fd);
+        vfs_close(fd);
         return -1;
     }
 
     uint8_t *elf_data = (uint8_t *)kmalloc(filesize);
     if (!elf_data) {
-        fat_close(fd);
+        vfs_close(fd);
         return -1;
     }
 
     uint32_t bytes_read = 0;
-    if (fat_read(fd, elf_data, filesize, &bytes_read) != 0 || bytes_read != filesize) {
+    if (vfs_read(fd, elf_data, filesize, &bytes_read) != 0 || bytes_read != filesize) {
         kfree(elf_data);
-        fat_close(fd);
+        vfs_close(fd);
         return -1;
     }
 
-    fat_close(fd);
+    vfs_close(fd);
     *elf_data_out = elf_data;
     *filesize_out = filesize;
     return 0;
