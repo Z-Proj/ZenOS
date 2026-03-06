@@ -5,7 +5,7 @@ NEWLIB_LIB = ../../libs
 LDSCRIPT   = ../../userelf.ld
 FATMAN     = ../../../fat_man
 VHD        = ../../../ZenOS.vhd
-FONT_OBJ   = ../gfxserver/FreeSansB.o
+FONT_OBJ   = ../gfxserver/mono.o
 
 CFLAGS = -m64 -ffreestanding -fno-stack-protector -mno-red-zone \
          -nostdlib -fPIC -O1 \

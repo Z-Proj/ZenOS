@@ -10,7 +10,7 @@ typedef int64_t pid_t;
 
 #define TASK_STACK_SIZE (256*1024)
 #define TIME_SLICE 2
-#define MAX_TASKS 32
+#define MAX_TASKS 2048
 
 typedef enum
 {

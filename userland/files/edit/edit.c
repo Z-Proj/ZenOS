@@ -36,8 +36,8 @@
 #include "../../userlib.h"
 
 /* ── linker symbols for embedded font (same as gfxserver) ───── */
-extern char _binary_FreeSansB_sfn_start;
-extern char _binary_FreeSansB_sfn_end;
+extern char _binary_mono_sfn_start;
+extern char _binary_mono_sfn_end;
 
 /* ── key codes ──────────────────────────────────────────────── */
 #define KEY_UP        KEY_ARROW_UP
@@ -461,7 +461,7 @@ int main(int argc, char **argv)
 
     /* load font from linker-embedded symbol — same method as gfxserver */
     memset(&ssfn, 0, sizeof(ssfn));
-    if (ssfn_load(&ssfn, (const void *)&_binary_FreeSansB_sfn_start) != SSFN_OK) {
+    if (ssfn_load(&ssfn, (const void *)&_binary_mono_sfn_start) != SSFN_OK) {
         write(1, "edit: font load failed\n", 23);
         return 1;
     }
