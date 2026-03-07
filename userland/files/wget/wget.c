@@ -29,7 +29,7 @@ static int  dns_resolve(const char *host, uint8_t ip[4]) { return (int)(int64_t)
 static int my_atoi(const char *s){int v=0;while(*s>='0'&&*s<='9'){v=v*10+(*s-'0');s++;}return v;}
 
 
-#define RX_SIZE (512 * 1024)
+#define RX_SIZE (1024 * 1024)
 static char rx_buf[RX_SIZE];
 static char req_buf[512];
 static char chunk[8192];

@@ -54,7 +54,7 @@ static int my_atoi(const char *s)
     return v;
 }
 
-#define RX_SIZE (512 * 1024)
+#define RX_SIZE (4 * 1024 * 1024)
 static char rx_buf[RX_SIZE];
 static char req[512];
 static char chunk[8192];
