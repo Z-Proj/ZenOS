@@ -29,7 +29,7 @@ The project focuses on clean design, correctness, and real hardware interaction.
 
 ### Syscalls
 
-Over 60 syscalls covering process management, file I/O, memory, signals, pipes, directories, sockets, time, and graphics.
+66 POSIX + Custom Syscalls covering process management, file I/O, memory, signals, pipes, directories, sockets, time, graphics, and networking.
 
 ### Hardware & Drivers
 
@@ -39,9 +39,16 @@ Over 60 syscalls covering process management, file I/O, memory, signals, pipes, 
 - Serial port for debugging and logging
 - Local APIC and IOAPIC interrupt handling
 - ATA disk driver (DMA/PIO, 28-bit LBA)
-- PCI bus enumeration
+- PCI bus
 - Intel e1000 Ethernet driver
 - RTC, HPET
+
+### Networking
+
+- TCP/IP stack
+- DNS resolution
+- **zen** — a package manager that fetches and installs packages over HTTP
+- **wget** — downloads files over HTTP from the command line
 
 ### Filesystem
 
@@ -53,7 +60,7 @@ Over 60 syscalls covering process management, file I/O, memory, signals, pipes, 
 
 - [Newlib](https://sourceware.org/newlib/) C library, fully compiled and integrated for the ZenOS target.
 - ELF64 userspace programs.
-- Currently **60** Syscalls present.
+- Currently **70+** Syscalls present.
 
 #### Current Apps (subject to change):
 
@@ -66,6 +73,7 @@ Over 60 syscalls covering process management, file I/O, memory, signals, pipes, 
 - **Graphics** - GFX Server, GFX Test, edit, figlet, clock, mouse (gfxserver.c, gfxtest.c, edit.c, figlet.c, clock.c, mouse.c)
 - **Compilers** - [C4](https://github.com/rswier/c4), [SmallerC](https://github.com/alexfru/SmallerC) (cc.c, smlrc.c)
 - **Scripting** - [Lua 5.5.0](https://www.lua.org/) interpreter
+- **Networking** - wget, zen package manager (wget.c, zen.c)
 - **Misc** - hello, beep, snake, init (hello.c, beep.c, snake.c, init.c)
 
 **The `ZenOS.vhd` in the repository usually already has these compiled and ready.**
@@ -105,6 +113,7 @@ All good contributions are welcome! Check [ISSUES.md](https://github.com/Z-Proj/
   - [x] SMP
   - [x] Userspace ABI design
   - [x] Unix-compatible process model (fork/exec/signals/pipes)
+  - [x] Networking (TCP/IP, DNS, HTTP)
   - [ ] Lightweight dual-boot support and everyday utilities
 
 ZenOS is a learning-oriented project. Understanding the machine comes first.

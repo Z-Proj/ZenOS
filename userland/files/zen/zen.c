@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include "../../userlib.h"
 
-#define PKG_SERVER_HOST "zen-pkg.surge.sh"
+#define PKG_SERVER_HOST "zen-pkg.byethost17.com"
 #define PKG_SERVER_PORT 80
 #define PKG_BASE_PATH "/packages"
 #define INSTALL_DIR "/mnt/drv0/bin"
@@ -145,7 +145,7 @@ static int http_get(const char *path, char **body_out, int *body_len_out)
 static int cmd_list(void)
 {
     char path[128];
-    snprintf(path, sizeof(path), "%s/list.txt", PKG_BASE_PATH);
+    snprintf(path, sizeof(path), "%s/list.txt.txt", PKG_BASE_PATH);
 
     char *body;
     int blen;
@@ -175,7 +175,10 @@ static int cmd_install(const char *name, const char *destdir)
 {
     char path[256], dest[256];
 
-    snprintf(path, sizeof(path), "%s/%s", PKG_BASE_PATH, name);
+    /* fetch the .txt version from server */
+    snprintf(path, sizeof(path), "%s/%s.txt", PKG_BASE_PATH, name);
+
+    /* save to bin/ without .txt extension */
     if (destdir)
         snprintf(dest, sizeof(dest), "%s/%s", destdir, name);
     else
@@ -211,7 +214,7 @@ int main(int argc, char **argv)
 {
     if (argc < 2)
     {
-        puts("ZenPM - ZenOS Package Manager\n");
+        puts("Zen - ZenOS Package Manager\n");
         puts("  zen list\n");
         puts("  zen install <pkg> [destdir]\n");
         return 0;
