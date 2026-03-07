@@ -71,7 +71,7 @@ The project focuses on clean design, correctness, and real hardware interaction.
 - **System Info** - uname, sysinfo (uname.c, sysinfo.c)
 - **Math & Science** - calc, primes, fibonacci, counter (calc.c, primes.c, fibonacci.c, counter.c)
 - **Graphics** - GFX Server, GFX Test, edit, figlet, clock, mouse (gfxserver.c, gfxtest.c, edit.c, figlet.c, clock.c, mouse.c)
-- **Compilers** - [C4](https://github.com/rswier/c4), [SmallerC](https://github.com/alexfru/SmallerC) (cc.c, smlrc.c)
+- **Compilers** - [TinyCC](https://github.com/TinyCC/tinycc), [SmallerC](https://github.com/alexfru/SmallerC) (cc.c, smlrc.c)
 - **Scripting** - [Lua 5.5.0](https://www.lua.org/) interpreter
 - **Networking** - wget, zen package manager (wget.c, zen.c)
 - **Misc** - hello, beep, snake, init (hello.c, beep.c, snake.c, init.c)
@@ -114,6 +114,7 @@ All good contributions are welcome! Check [ISSUES.md](https://github.com/Z-Proj/
   - [x] Userspace ABI design
   - [x] Unix-compatible process model (fork/exec/signals/pipes)
   - [x] Networking (TCP/IP, DNS, HTTP)
+  - [x] Native C compilation on the OS itself
   - [ ] Lightweight dual-boot support and everyday utilities
 
 ZenOS is a learning-oriented project. Understanding the machine comes first.
@@ -142,8 +143,8 @@ socat
 - [FatFs](https://elm-chan.org/fsw/ff/) - FAT32 filesystem library by CHAN
 - [Newlib](https://sourceware.org/newlib/) - C standard library
 - [Lua](https://www.lua.org/) - A powerful lightweight scripting language
+- [TinyCC](https://github.com/TinyCC/tinycc) - Tiny C Compiler, ported to ZenOS
 - [SmallerC](https://github.com/alexfru/SmallerC) - C to assembly compiler
-- [C4](https://github.com/rswier/c4) - C in 4 functions
 
 ---
 

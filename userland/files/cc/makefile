@@ -23,7 +23,7 @@ CFLAGS = -m64 -ffreestanding -fno-stack-protector -mno-red-zone \
 
 CC_HOST := $(shell which clang 2>/dev/null || which gcc)
 
-all: crt0.o $(APP).o $(APP)
+all: crt0.o $(APP).o $(APP) install
 
 crt0.o: $(CRT0_SRC)
 	nasm -f elf64 $(CRT0_SRC) -o crt0.o
@@ -50,6 +50,7 @@ install: $(APP)
 	$(FATMAN) $(VHD) import $(NEWLIB_LIB)/libc.a /usr/lib/libc.a
 	$(FATMAN) $(VHD) import $(NEWLIB_LIB)/libm.a /usr/lib/libm.a
 	$(FATMAN) $(VHD) import crt0.o /usr/lib/crt0.o
+	$(FATMAN) $(VHD) import ../../userlib.h /usr/include/userlib.h
 	$(FATMAN) $(VHD) import $(NEWLIB_INC)/_ansi.h /usr/include/_ansi.h || true
 	$(FATMAN) $(VHD) import $(NEWLIB_INC)/_newlib_version.h /usr/include/_newlib_version.h || true
 	$(FATMAN) $(VHD) import $(NEWLIB_INC)/alloca.h /usr/include/alloca.h || true
