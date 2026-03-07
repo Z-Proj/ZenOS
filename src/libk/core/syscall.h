@@ -64,6 +64,17 @@
 #define SYSCALL_SIGACTION        58
 #define SYSCALL_SIGRETURN        59
 #define SYSCALL_SIGPROCMASK      60
+#define SYSCALL_NET_CONNECT      61
+#define SYSCALL_NET_SEND         62
+#define SYSCALL_NET_RECV         63
+#define SYSCALL_NET_CLOSE        64
+#define SYSCALL_NET_POLL         65
+#define SYSCALL_DNS_RESOLVE      66
+
+typedef struct {
+    uint8_t  ip[4];
+    uint16_t port;
+} net_connect_args_t;
 
 
 typedef struct {

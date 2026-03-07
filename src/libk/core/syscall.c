@@ -1,6 +1,7 @@
 #include "syscall.h"
 #include "elf.h"
 #include "../debug/log.h"
+#include "../../drv/net/net.h"
 #include "../../drv/keyboard.h"
 #include "../../drv/keyboard.h"
 #include "../../drv/mouse.h"
@@ -260,17 +261,21 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (e->type == FD_DEV)
         {
             struct dev_entry *d = e->dev_ops;
-            if (!d || !d->read) return 0;
+            if (!d || !d->read)
+                return 0;
             uint8_t *kbuf = (uint8_t *)kmalloc(4096);
-            if (!kbuf) return -1;
+            if (!kbuf)
+                return -1;
             uint32_t total = 0;
             while (total < size)
             {
                 uint32_t chunk = size - total;
-                if (chunk > 4096) chunk = 4096;
+                if (chunk > 4096)
+                    chunk = 4096;
                 uint32_t got = 0;
                 d->read(kbuf, chunk, &got);
-                if (got == 0) break;
+                if (got == 0)
+                    break;
                 memcpy((uint8_t *)buffer + total, kbuf, got);
                 total += got;
             }
@@ -1141,6 +1146,56 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     {
         asm volatile("sti; hlt");
         return 0;
+    }
+
+    case SYSCALL_NET_CONNECT:
+    {
+        net_connect_args_t *args = (net_connect_args_t *)arg1;
+        if (!args)
+            return (uint64_t)-1;
+        return (uint64_t)(int64_t)tcp_connect(args->ip, args->port);
+    }
+
+    case SYSCALL_NET_SEND:
+    {
+        int id = (int)arg1;
+        const void *buf = (const void *)arg2;
+        size_t len = (size_t)arg3;
+        if (!buf)
+            return (uint64_t)-1;
+        return (uint64_t)(int64_t)tcp_send(id, buf, len);
+    }
+
+    case SYSCALL_NET_RECV:
+    {
+        int id = (int)arg1;
+        void *buf = (void *)arg2;
+        size_t len = (size_t)arg3;
+        if (!buf)
+            return (uint64_t)-1;
+        return (uint64_t)(int64_t)tcp_recv(id, buf, len);
+    }
+
+    case SYSCALL_NET_CLOSE:
+    {
+        int id = (int)arg1;
+        tcp_close(id);
+        return 0;
+    }
+
+    case SYSCALL_NET_POLL:
+    {
+        net_poll();
+        return 0;
+    }
+
+    case SYSCALL_DNS_RESOLVE:
+    {
+        const char *hostname = (const char *)arg1;
+        uint8_t *ip_out = (uint8_t *)arg2;
+        if (!hostname || !ip_out)
+            return -1;
+        return (uint64_t)(int64_t)dns_resolve(hostname, ip_out);
     }
 
     default:

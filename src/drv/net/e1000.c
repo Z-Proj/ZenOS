@@ -86,13 +86,10 @@ static void e1000_read_mac(void)
         dev.mac[4] = mac_high & 0xFF;
         dev.mac[5] = (mac_high >> 8) & 0xFF;
     }
-
-
 }
 
 static void e1000_init_rx(void)
 {
-
     uint64_t ring_phys = alloc_page();
     dev.rx_ring = (e1000_rx_desc *)(ring_phys + KERNEL_VIRT_OFFSET);
     memset(dev.rx_ring, 0, NUM_RX_DESC * sizeof(e1000_rx_desc));
@@ -105,7 +102,8 @@ static void e1000_init_rx(void)
         rx_buf_virt[i] = va;
         dev.rx_ring[i].addr = buf_phys;
         dev.rx_ring[i].status = 0;
-        dev.rx_ring[i].length = 0;
+
+        dev.rx_ring[i].length = RX_BUFFER_SIZE;
         dev.rx_ring[i].errors = 0;
     }
 
@@ -119,13 +117,12 @@ static void e1000_init_rx(void)
 
     uint32_t rctl = E1000_RCTL_EN | E1000_RCTL_SBP | E1000_RCTL_UPE |
                     E1000_RCTL_MPE | E1000_RCTL_BAM | E1000_RCTL_SECRC |
-                    E1000_RCTL_RDMTS_HALF | (2 << 16) | (0 << 20);
+                    E1000_RCTL_RDMTS_HALF | (0 << 16) | (0 << 25);
     e1000_write(E1000_REG_RCTL, rctl);
 }
 
 void e1000_init_tx(void)
 {
-
     uint64_t ring_phys = alloc_page();
     dev.tx_ring = (e1000_tx_desc *)(ring_phys + KERNEL_VIRT_OFFSET);
     memset(dev.tx_ring, 0, NUM_TX_DESC * sizeof(e1000_tx_desc));
@@ -153,6 +150,7 @@ void e1000_init_tx(void)
     uint32_t tctl = E1000_TCTL_EN | E1000_TCTL_PSP |
                     (0x10 << E1000_TCTL_CT) | (0x40 << E1000_TCTL_COLD);
     e1000_write(E1000_REG_TCTL, tctl);
+
     e1000_write(E1000_REG_TIPG, 0x0060200A);
 }
 
@@ -200,22 +198,30 @@ void e1000_init(void)
     dev.func = pci_dev->func;
     dev.device_id = pci_dev->device_id;
     dev.bar0 = pci_dev->bars[0];
-    dev.mem_base = dev.bar0 & ~0xF;
     dev.irq = pci_dev->interrupt_line;
+
+    uint64_t bar_phys = (uint64_t)(dev.bar0 & ~0xFULL);
+    dev.mem_base = bar_phys + KERNEL_VIRT_OFFSET;
+    page_table_t *kpml4 = get_kernel_pml4();
+    for (uint64_t off = 0; off < 0x20000; off += PAGE_SIZE)
+        map_page(kpml4, bar_phys + KERNEL_VIRT_OFFSET + off, bar_phys + off,
+                 PAGE_PRESENT | PAGE_WRITABLE);
 
     pci_enable_bus_mastering(pci_dev);
     pci_enable_memory_space(pci_dev);
 
     e1000_reset();
-    e1000_write(E1000_REG_IMASK, 0);
+
+    e1000_write(E1000_REG_IMC, 0xFFFFFFFF);
 
     dev.has_eeprom = e1000_detect_eeprom();
     e1000_read_mac();
     e1000_init_rx();
     e1000_init_tx();
 
-    e1000_write(E1000_REG_IMASK, 0x1F6DC);
-    e1000_read(0xC0);
+    e1000_write(E1000_REG_IMS, 0x1F6DC);
+
+    e1000_read(E1000_REG_ICR);
 
     if (pci_dev->msi_capable)
     {
@@ -290,7 +296,6 @@ int e1000_send_packet(void *data, size_t len)
 
 int e1000_receive_packet(void *buf, size_t buf_size)
 {
-
     uint16_t idx = dev.rx_cur;
     e1000_rx_desc *desc = &dev.rx_ring[idx];
 
@@ -303,12 +308,16 @@ int e1000_receive_packet(void *buf, size_t buf_size)
 
     memcpy(buf, rx_buf_virt[idx], len);
 
+    uint64_t old_phys = desc->addr;
+    if (old_phys)
+        free_page(old_phys);
+
     uint64_t new_buf = alloc_page();
     void *va = (void *)(new_buf + KERNEL_VIRT_OFFSET);
     rx_buf_virt[idx] = va;
     desc->addr = new_buf;
     desc->status = 0;
-    desc->length = 0;
+    desc->length = RX_BUFFER_SIZE;
     desc->errors = 0;
 
     dev.rx_cur = (idx + 1) % NUM_RX_DESC;
@@ -336,25 +345,53 @@ void e1000_enable_interrupts(void)
 {
     if (!pci_dev)
         return;
-    e1000_write(E1000_REG_IMASK, 0x1F6DC);
+    e1000_write(E1000_REG_IMS, 0x1F6DC);
 }
 
 void e1000_disable_interrupts(void)
 {
     if (!pci_dev)
         return;
-    e1000_write(E1000_REG_IMASK, 0);
+    e1000_write(E1000_REG_IMC, 0xFFFFFFFF);
 }
 
 uint32_t e1000_get_interrupt_status(void)
 {
     if (!pci_dev)
         return 0;
-    return e1000_read(0xC0);
+    return e1000_read(E1000_REG_ICR);
 }
+
+#define E1000_ICR_LSC (1 << 2)
+#define E1000_ICR_RXDMT (1 << 4)
+#define E1000_ICR_RXO (1 << 6)
+#define E1000_ICR_RXT0 (1 << 7)
+#define E1000_ICR_TXQE (1 << 1)
 
 void e1000_handle_interrupt(void)
 {
     uint32_t status = e1000_get_interrupt_status();
-    (void)status;
+    if (!status)
+        return;
+
+    if (status & E1000_ICR_LSC)
+    {
+        uint32_t link = e1000_read(E1000_REG_STATUS);
+        if (link & 2)
+            log("E1000: Link UP", 1, 0);
+        else
+            log("E1000: Link DOWN", 2, 1);
+    }
+
+    if (status & (E1000_ICR_RXT0 | E1000_ICR_RXDMT | E1000_ICR_RXO))
+    {
+        static uint8_t tmp_rx[2048];
+        int got;
+        while ((got = e1000_receive_packet(tmp_rx, sizeof(tmp_rx))) > 0)
+        {
+
+            log("E1000: RX %d bytes (ethertype %02x%02x)", 1, 0,
+                got, tmp_rx[12], tmp_rx[13]);
+        }
+    }
 }

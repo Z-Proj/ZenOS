@@ -25,6 +25,7 @@
 #include "../drv/ioapic.h"
 #include "../drv/net/e1000.h"
 #include "../drv/net/pci.h"
+#include "../drv/net/net.h"
 #include "../cpu/acpi/acpi.h"
 #include "../drv/speaker.h"
 #include "../libk/core/elf.h"
@@ -110,6 +111,7 @@ void _start(void)
     mouse_init();
     init_smp();
     e1000_init();
+    net_init();
     socket_init();
 #if debug
     log("Running In Debug Mode.", 2, 1);
