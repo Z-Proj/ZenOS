@@ -11,6 +11,10 @@
 #include "../../drv/local_apic.h"
 #include "../../drv/speaker.h"
 #include "../../drv/rtc.h"
+#include "../../drv/net/e1000.h"
+#include "../../drv/ioapic.h"
+#include "../../drv/disk/fatfs/ff.h"
+#include "../../kernel/sched.h"
 
 spinlock_t loglock __attribute__((section(".data"))) = {0};
 char *os_version = debug ? "0.90.0 DEBUG_ENABLED" : "0.90.0 Unstable";
@@ -31,7 +35,7 @@ void log_internal(const char *file, int line, const char *fmt, int level, int vi
         serial_write_string("\x1b[38;2;255;50;50m[log.c]- CRITICAL: kmalloc failed in log_internal!\n");
         return;
     }
-
+    uint64_t cpuid = LocalApicGetId();
     uint64_t rflags;
     asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
 
@@ -82,7 +86,8 @@ void log_internal(const char *file, int line, const char *fmt, int level, int vi
     {
         const char *filename = file;
         const char *slash = strrchr(file, '/');
-        if (slash) {
+        if (slash)
+        {
             filename = slash + 1;
         }
         snprintf(header, 256, "[%s:%d]- ", filename, line);
@@ -102,25 +107,25 @@ void log_internal(const char *file, int line, const char *fmt, int level, int vi
     vsnprintf(message, 1024, fmt, args);
     va_end(args);
 
-    // char *cpuid_str = kmalloc(16); //TODO: Re-enable upon doing something with SMP
-    // if (!cpuid_str)
-    // {
-    //     kfree(message);
-    //     kfree(header);
-    //     kfree(logline);
-    //     spinlock_release(&loglock);
-    //     if (rflags & 0x200)
-    //         asm volatile("sti");
-    //     return;
-    // }
+    char *cpuid_str = kmalloc(16);
+    if (!cpuid_str)
+    {
+        kfree(message);
+        kfree(header);
+        kfree(logline);
+        spinlock_release(&loglock);
+        if (rflags & 0x200)
+            asm volatile("sti");
+        return;
+    }
 
-    // if (cpuid != 0)
-    //     snprintf(cpuid_str, 16, "[CPU%d]- ", cpuid);
-    // else
-    //     cpuid_str[0] = '\0';
+    if (cpuid != 0)
+        snprintf(cpuid_str, 16, "[CPU%d]- ", cpuid);
+    else
+        cpuid_str[0] = '\0';
 
     strcpy(logline, header);
-    // strcat(logline, cpuid_str);
+    strcat(logline, cpuid_str);
     strcat(logline, message);
     strcat(logline, "\n");
 
@@ -135,7 +140,7 @@ void log_internal(const char *file, int line, const char *fmt, int level, int vi
         prints("\x1b[0m");
     }
 
-    // kfree(cpuid_str);
+    kfree(cpuid_str);
     kfree(message);
     kfree(header);
     kfree(logline);
@@ -153,10 +158,43 @@ void log_internal(const char *file, int line, const char *fmt, int level, int vi
     }
 }
 
-__attribute__((noreturn))
-void shutdown(void) {
+__attribute__((noreturn)) void shutdown(void)
+{
+
+    __asm__ __volatile__("cli" ::: "memory");
+    log("Shutting down...", 4, 1);
+
+    log("4...", 2, 0);
+    task_t *tlist = sched_get_task_list();
+    if (tlist)
+    {
+        task_t *t = tlist;
+        do
+        {
+            if (t->state != TASK_DEAD)
+                t->state = TASK_DEAD;
+            t = t->next;
+        } while (t != tlist);
+    }
+
+    log("3...", 2, 0);
+    for (int i = 0; i < 4; i++)
+    {
+        char path[4] = {'0' + i, ':', '/', 0};
+        f_mount(NULL, path, 0);
+    }
+
+    log("2...", 2, 0);
+    e1000_disable_interrupts();
+
+    log("1...", 2, 0);
+    extern uint8_t *g_ioApicAddr;
+    for (int i = 0; i < 24; i++)
+        IoApicSetEntry(g_ioApicAddr, i, 1 << 16);
+
+    log("Powering off...", 4, 1);
     AcpiShutdown();
-    __asm__ __volatile__("cli");
-    log("Shutdown failed. Hanging system.", 0, 1);
-    __builtin_unreachable();
+
+    for (;;)
+        __asm__ __volatile__("hlt");
 }

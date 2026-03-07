@@ -6,7 +6,6 @@
 #include "gfx.h"
 // gfxserver.c - ZenOS Graphics Server
 
-
 extern char _binary_FreeSansB_sfn_start;
 extern char _binary_FreeSansB_sfn_end;
 
