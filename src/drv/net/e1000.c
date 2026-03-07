@@ -202,10 +202,6 @@ void e1000_init(void)
 
     uint64_t bar_phys = (uint64_t)(dev.bar0 & ~0xFULL);
     dev.mem_base = bar_phys + KERNEL_VIRT_OFFSET;
-    page_table_t *kpml4 = get_kernel_pml4();
-    for (uint64_t off = 0; off < 0x20000; off += PAGE_SIZE)
-        map_page(kpml4, bar_phys + KERNEL_VIRT_OFFSET + off, bar_phys + off,
-                 PAGE_PRESENT | PAGE_WRITABLE);
 
     pci_enable_bus_mastering(pci_dev);
     pci_enable_memory_space(pci_dev);
@@ -222,6 +218,12 @@ void e1000_init(void)
     e1000_write(E1000_REG_IMS, 0x1F6DC);
 
     e1000_read(E1000_REG_ICR);
+
+    uint32_t ctrl = e1000_read(E1000_REG_CTRL);
+    ctrl |= (1 << 6);
+    ctrl &= ~(1 << 3);
+    ctrl &= ~(1 << 31);
+    e1000_write(E1000_REG_CTRL, ctrl);
 
     if (pci_dev->msi_capable)
     {

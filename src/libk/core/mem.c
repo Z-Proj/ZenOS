@@ -763,14 +763,7 @@ void init_vmm(void)
     for (int i = 0; i < 256; i++)
     {
         if (limine_pml4->entries[i] & PAGE_PRESENT)
-        {
-            uint64_t virt_base = (uint64_t)i << 39;
-            
-            if (virt_base < 0x100000)
-            {
-                new_kernel_pml4->entries[i] = limine_pml4->entries[i];
-            }
-        }
+            new_kernel_pml4->entries[i] = limine_pml4->entries[i];
     }
     
     kernel_pml4 = new_kernel_pml4;
