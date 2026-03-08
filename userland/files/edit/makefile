@@ -5,13 +5,15 @@ NEWLIB_LIB = ../../libs
 LDSCRIPT   = ../../userelf.ld
 FATMAN     = ../../../fat_man
 VHD        = ../../../ZenOS.vhd
-FONT_OBJ   = ../gfxserver/mono.o
 
 CFLAGS = -m64 -ffreestanding -fno-stack-protector -mno-red-zone \
-         -nostdlib -fPIC -O1 \
+         -nostdlib -fno-pic -O1 \
          -isystem $(NEWLIB_INC) -I $(NEWLIB_LIB) -I ../.. -I .
 
-all: crt0.o $(APP).o $(APP)
+all: crt0.o mono.o $(APP).o $(APP)
+	
+mono.o: mono.sfn
+	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 mono.sfn mono.o
 
 crt0.o: $(CRT0_SRC)
 	nasm -f elf64 $(CRT0_SRC) -o crt0.o
@@ -19,13 +21,13 @@ crt0.o: $(CRT0_SRC)
 $(APP).o: $(APP).c
 	clang $(CFLAGS) -c $(APP).c -o $(APP).o
 
-$(APP): crt0.o $(APP).o $(FONT_OBJ)
+$(APP): crt0.o $(APP).o mono.o
 	ld.lld -m elf_x86_64 -e _start -T $(LDSCRIPT) \
-		crt0.o $(APP).o $(FONT_OBJ) -L$(NEWLIB_LIB) -lc -lm -o $(APP)
+		crt0.o $(APP).o mono.o -L$(NEWLIB_LIB) -lc -lm -o $(APP)
 
 install: $(APP)
 	$(FATMAN) $(VHD) delete /bin/$(APP) || true
 	$(FATMAN) $(VHD) import $(APP) /bin/$(APP)
 
 clean:
-	rm -f crt0.o $(APP).o $(APP)
+	rm -f crt0.o $(APP).o mono.o $(APP)

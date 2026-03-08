@@ -5,7 +5,6 @@
 #include "../../libk/core/mem.h"
 #include "../../drv/rtc.h"
 
-/* Required by FatFs when FF_FS_NORTC == 0 */
 DWORD get_fattime(void) {
     rtc_time_t t = rtc_get_time();
     int year = 2000 + t.year;
@@ -37,10 +36,6 @@ static int alloc_fd(void) {
     for (int i = 3; i < FAT_MAX_FDS; i++)
         if (!fd_table[i].used) return i;
     return -1;
-}
-
-static void make_fatpath(const char *path, char *out, size_t outsz) {
-    make_fatpath_vol(path, 0, out, outsz);
 }
 
 void make_fatpath_vol(const char *path, int vol, char *out, size_t outsz) {
@@ -317,7 +312,7 @@ int fat_open_entry_vol(const char *path, int write, fd_entry_t *out, int vol) {
     if (fr != FR_OK) return -1;
     out->type = FD_FILE; out->used = 1;
     out->file.writable = write; out->file.total_written = 0;
-    /* grab modification timestamp from FILINFO */
+   
     FILINFO fno;
     out->file.fdate = (f_stat(fpath, &fno) == FR_OK) ? fno.fdate : 0;
     out->file.ftime = (f_stat(fpath, &fno) == FR_OK) ? fno.ftime : 0;
@@ -364,8 +359,6 @@ uint32_t fat_size_entry(fd_entry_t *e) {
     return (uint32_t)f_size(&e->file.fil);
 }
 
-/* Decode FAT packed date/time into a Unix timestamp (seconds since 1970).
-   FAT epoch is 1980-01-01. Treated as UTC. */
 int64_t fat_mtime_entry(fd_entry_t *e) {
     if (!e || !e->used || e->type != FD_FILE) return 0;
     WORD d = e->file.fdate;

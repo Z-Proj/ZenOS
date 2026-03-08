@@ -18,6 +18,19 @@
 #include "src/drv/disk/fatfs/ff.h"
 #include "src/drv/disk/fatfs/diskio.h"
 
+/* host-side stub — FatFs calls this when FF_FS_NORTC == 0.
+   Use the host system time so imported files get real timestamps. */
+#include <time.h>
+DWORD get_fattime(void) {
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    return ((DWORD)(t->tm_year - 80) << 25)  /* year since 1980 */
+         | ((DWORD)(t->tm_mon + 1)   << 21)
+         | ((DWORD) t->tm_mday       << 16)
+         | ((DWORD) t->tm_hour       << 11)
+         | ((DWORD) t->tm_min        <<  5)
+         | ((DWORD)(t->tm_sec / 2));
+}
 /* ── VHD constants ───────────────────────────────────────────────────── */
 #define VHD_COOKIE_FOOTER  0x636f6e6563746978ULL  /* "conectix" big-endian */
 #define VHD_TYPE_FIXED     2

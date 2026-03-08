@@ -156,8 +156,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         uint32_t len = arg2;
         if (!str || len > 4096)
             return -1;
-        for (uint32_t i = 0; i < len && str[i]; i++)
+        for (uint32_t i = 0; i < len && str[i]; i++){
             printc(str[i]);
+            serial_write_char(str[i]);
+        }
         return 0;
     }
 
@@ -332,8 +334,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if ((fd == 1 || fd == 2) && !e)
         {
             const char *p = (const char *)buffer;
-            for (uint32_t i = 0; i < size; i++)
+            for (uint32_t i = 0; i < size; i++){
                 printc(p[i]);
+                serial_write_char(p[i]);
+            }
             return (int64_t)size;
         }
         if (!e)
@@ -444,29 +448,16 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         int64_t  mt = is_dir ? 0 : vfs_mtime_entry(&tmp);
         if (is_dir) vfs_closedir_entry(&tmp);
         else        vfs_close_entry(&tmp);
-        /* fill zenos_stat_t (matches syscalls.c glue layout):
-           off  0: uint64 zs_dev
-           off  8: uint64 zs_ino
-           off 16: uint32 zs_mode
-           off 20: uint32 zs_nlink
-           off 24: uint32 zs_uid
-           off 28: uint32 zs_gid
-           off 32: uint64 zs_rdev
-           off 40: int64  zs_size
-           off 48: uint64 zs_blksize
-           off 56: int64  zs_blocks
-           off 64: int64  zs_atime
-           off 72: int64  zs_mtime
-           off 80: int64  zs_ctime  */
+       
         memset(buf, 0, 88);
-        *(uint32_t *)(buf + 16) = is_dir ? 0040755 : 0100644; /* zs_mode */
-        *(uint32_t *)(buf + 20) = 1;                           /* zs_nlink */
-        *(int64_t  *)(buf + 40) = (int64_t)sz;                 /* zs_size */
-        *(uint64_t *)(buf + 48) = 512;                         /* zs_blksize */
-        *(int64_t  *)(buf + 56) = (int64_t)((sz + 511) / 512); /* zs_blocks */
-        *(int64_t  *)(buf + 64) = mt;                           /* zs_atime */
-        *(int64_t  *)(buf + 72) = mt;                           /* zs_mtime */
-        *(int64_t  *)(buf + 80) = mt;                           /* zs_ctime */
+        *(uint32_t *)(buf + 16) = is_dir ? 0040755 : 0100644;
+        *(uint32_t *)(buf + 20) = 1;                          
+        *(int64_t  *)(buf + 40) = (int64_t)sz;                
+        *(uint64_t *)(buf + 48) = 512;                        
+        *(int64_t  *)(buf + 56) = (int64_t)((sz + 511) / 512);
+        *(int64_t  *)(buf + 64) = mt;                          
+        *(int64_t  *)(buf + 72) = mt;                          
+        *(int64_t  *)(buf + 80) = mt;                          
         return 0;
     }
 
@@ -479,7 +470,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         memset(buf, 0, 88);
         if (fd == 0 || fd == 1 || fd == 2)
         {
-            *(uint32_t *)(buf + 16) = 0020666; /* zs_mode = char device */
+            *(uint32_t *)(buf + 16) = 0020666;
             return 0;
         }
         task_t *cur = sched_current_task();
@@ -491,11 +482,11 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (!e->used)
             return -1;
         uint32_t sz = vfs_size_entry(e);
-        *(uint32_t *)(buf + 16) = 0100644;                     /* zs_mode */
-        *(uint32_t *)(buf + 20) = 1;                           /* zs_nlink */
-        *(int64_t  *)(buf + 40) = (int64_t)sz;                 /* zs_size */
-        *(uint64_t *)(buf + 48) = 512;                         /* zs_blksize */
-        *(int64_t  *)(buf + 56) = (int64_t)((sz + 511) / 512); /* zs_blocks */
+        *(uint32_t *)(buf + 16) = 0100644;                    
+        *(uint32_t *)(buf + 20) = 1;                          
+        *(int64_t  *)(buf + 40) = (int64_t)sz;                
+        *(uint64_t *)(buf + 48) = 512;                        
+        *(int64_t  *)(buf + 56) = (int64_t)((sz + 511) / 512);
         return 0;
     }
 
@@ -1221,6 +1212,61 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (!hostname || !ip_out)
             return -1;
         return (uint64_t)(int64_t)dns_resolve(hostname, ip_out);
+    }
+
+    case SYSCALL_FUTEX:
+    {
+       
+        volatile uint32_t *uaddr = (volatile uint32_t *)(uintptr_t)arg1;
+        int op  = (int)arg2;
+        uint32_t val = (uint32_t)arg3;
+
+        if (!uaddr)
+            return (uint64_t)(int64_t)-22;
+
+        if (op == FUTEX_WAIT)
+        {
+           
+            uint32_t cur = __atomic_load_n(uaddr, __ATOMIC_SEQ_CST);
+            if (cur != val)
+                return (uint64_t)(int64_t)-11;
+
+            task_t *me = sched_current_task();
+            if (!me)
+                return (uint64_t)(int64_t)-22;
+
+            me->futex_wait_addr = (uint64_t)(uintptr_t)uaddr;
+            me->futex_woken     = 0;
+            me->state           = TASK_BLOCKED;
+
+           
+            sched_yield();
+
+            me->futex_wait_addr = 0;
+            return 0;
+        }
+        else if (op == FUTEX_WAKE)
+        {
+            uint32_t to_wake = val;  
+            uint32_t woken   = 0;
+            uint64_t wake_addr = (uint64_t)(uintptr_t)uaddr;
+
+            task_t *t = sched_get_task_list();
+            while (t && woken < to_wake)
+            {
+                if (t->state == TASK_BLOCKED &&
+                    t->futex_wait_addr == wake_addr)
+                {
+                    t->futex_woken     = 1;
+                    t->futex_wait_addr = 0;
+                    t->state           = TASK_READY;
+                    woken++;
+                }
+                t = t->next;
+            }
+            return (uint64_t)woken;
+        }
+        return (uint64_t)(int64_t)-22;
     }
 
     default:

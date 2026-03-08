@@ -70,6 +70,11 @@
 #define SYSCALL_NET_CLOSE        64
 #define SYSCALL_NET_POLL         65
 #define SYSCALL_DNS_RESOLVE      66
+#define SYSCALL_FUTEX            67
+
+
+#define FUTEX_WAIT               0  
+#define FUTEX_WAKE               1  
 
 typedef struct {
     uint8_t  ip[4];

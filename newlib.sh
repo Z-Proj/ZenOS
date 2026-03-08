@@ -13,11 +13,20 @@ rm -f config.cache
   --disable-newlib-supplied-syscalls \
   --enable-newlib-io-long-long \
   --enable-newlib-io-c99-formats \
-  --disable-newlib-multithread \
+  --enable-newlib-multithread \
   --disable-shared
 
 make -j$(nproc)
 make install
+
+# Compile locks.c and add it to libc.a
+$CROSS/x86_64-zenos-gcc -c \
+  -I$SYSROOT/x86_64-zenos/include \
+  -D_RETARGETABLE_LOCKING \
+  -O2 \
+  $ZENOS/userland/newlib/newlib-cygwin/newlib/libc/sys/zenos/locks.c \
+  -o /tmp/locks.o
+$CROSS/x86_64-zenos-ar r $SYSROOT/x86_64-zenos/lib/libc.a /tmp/locks.o
 
 cp $SYSROOT/x86_64-zenos/lib/libc.a   $ZENOS/userland/libs/
 cp $SYSROOT/x86_64-zenos/lib/libg.a   $ZENOS/userland/libs/

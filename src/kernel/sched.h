@@ -8,7 +8,7 @@ typedef int64_t pid_t;
 #include "../libk/core/fd.h"
 #include "signal.h"
 
-#define TASK_STACK_SIZE (256*1024)
+#define TASK_STACK_SIZE (256 * 1024)
 #define TIME_SLICE 2
 #define MAX_TASKS 2048
 
@@ -44,6 +44,9 @@ typedef struct task
     pid_t wait_result_pid;
     uint8_t waiting_on_pid;
     uint8_t wait_collected;
+
+    uint64_t futex_wait_addr;
+    int futex_woken;
     zen_sigaction_t sighandlers[NSIG];
     uint32_t sig_pending;
     uint32_t sig_mask;

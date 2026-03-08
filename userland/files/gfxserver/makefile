@@ -15,9 +15,6 @@ all: crt0.o FreeSansB.o $(APP).o $(APP)
 FreeSansB.o: FreeSansB.sfn
 	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 FreeSansB.sfn FreeSansB.o
 
-FreeSansB.o: FreeSansB.sfn
-	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 FreeSansB.sfn FreeSansB.o
-
 crt0.o: $(CRT0_SRC)
 	nasm -f elf64 $(CRT0_SRC) -o crt0.o
 
