@@ -428,33 +428,58 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     case SYSCALL_STAT:
     {
         const char *path = (const char *)arg1;
-        stat_t *statbuf = (stat_t *)arg2;
-        if (!path || !statbuf)
+        uint8_t *buf = (uint8_t *)arg2;
+        if (!path || !buf)
             return -1;
         fd_entry_t tmp;
         memset(&tmp, 0, sizeof(tmp));
+        int is_dir = 0;
         if (vfs_open_entry(path, 0, &tmp) < 0)
-            return -1;
-        uint32_t sz = vfs_size_entry(&tmp);
-        vfs_close_entry(&tmp);
-        statbuf->st_size = sz;
-        statbuf->st_mode = 0100644;
-        statbuf->st_nlink = 1;
-        statbuf->st_blksize = 512;
-        statbuf->st_blocks = (sz + 511) / 512;
+        {
+            if (vfs_opendir_entry(path, &tmp) < 0)
+                return -1;
+            is_dir = 1;
+        }
+        uint32_t sz = is_dir ? 0 : vfs_size_entry(&tmp);
+        int64_t  mt = is_dir ? 0 : vfs_mtime_entry(&tmp);
+        if (is_dir) vfs_closedir_entry(&tmp);
+        else        vfs_close_entry(&tmp);
+        /* fill zenos_stat_t (matches syscalls.c glue layout):
+           off  0: uint64 zs_dev
+           off  8: uint64 zs_ino
+           off 16: uint32 zs_mode
+           off 20: uint32 zs_nlink
+           off 24: uint32 zs_uid
+           off 28: uint32 zs_gid
+           off 32: uint64 zs_rdev
+           off 40: int64  zs_size
+           off 48: uint64 zs_blksize
+           off 56: int64  zs_blocks
+           off 64: int64  zs_atime
+           off 72: int64  zs_mtime
+           off 80: int64  zs_ctime  */
+        memset(buf, 0, 88);
+        *(uint32_t *)(buf + 16) = is_dir ? 0040755 : 0100644; /* zs_mode */
+        *(uint32_t *)(buf + 20) = 1;                           /* zs_nlink */
+        *(int64_t  *)(buf + 40) = (int64_t)sz;                 /* zs_size */
+        *(uint64_t *)(buf + 48) = 512;                         /* zs_blksize */
+        *(int64_t  *)(buf + 56) = (int64_t)((sz + 511) / 512); /* zs_blocks */
+        *(int64_t  *)(buf + 64) = mt;                           /* zs_atime */
+        *(int64_t  *)(buf + 72) = mt;                           /* zs_mtime */
+        *(int64_t  *)(buf + 80) = mt;                           /* zs_ctime */
         return 0;
     }
 
     case SYSCALL_FSTAT:
     {
         int fd = (int)arg1;
-        stat_t *statbuf = (stat_t *)arg2;
-        if (!statbuf)
+        uint8_t *buf = (uint8_t *)arg2;
+        if (!buf)
             return -1;
+        memset(buf, 0, 88);
         if (fd == 0 || fd == 1 || fd == 2)
         {
-            memset(statbuf, 0, sizeof(stat_t));
-            statbuf->st_mode = 0020666;
+            *(uint32_t *)(buf + 16) = 0020666; /* zs_mode = char device */
             return 0;
         }
         task_t *cur = sched_current_task();
@@ -466,11 +491,11 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (!e->used)
             return -1;
         uint32_t sz = vfs_size_entry(e);
-        statbuf->st_size = sz;
-        statbuf->st_mode = 0100644;
-        statbuf->st_nlink = 1;
-        statbuf->st_blksize = 512;
-        statbuf->st_blocks = (sz + 511) / 512;
+        *(uint32_t *)(buf + 16) = 0100644;                     /* zs_mode */
+        *(uint32_t *)(buf + 20) = 1;                           /* zs_nlink */
+        *(int64_t  *)(buf + 40) = (int64_t)sz;                 /* zs_size */
+        *(uint64_t *)(buf + 48) = 512;                         /* zs_blksize */
+        *(int64_t  *)(buf + 56) = (int64_t)((sz + 511) / 512); /* zs_blocks */
         return 0;
     }
 

@@ -20,6 +20,8 @@ typedef struct {
     FIL         fil;
     int         writable;
     uint32_t    total_written;
+    uint16_t    fdate;   /* FAT modification date (packed) */
+    uint16_t    ftime;   /* FAT modification time (packed) */
 } fd_file_t;
 
 typedef struct pipe_buf {

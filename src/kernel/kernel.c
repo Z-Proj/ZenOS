@@ -78,8 +78,8 @@ void _start(void)
     IoApicInit();
     IoApicSetIrqMapped(14, 0x2E);
     IoApicSetIrqMapped(15, 0x2F);
-    // IoApicSetIrqMapped(8, 0x28); //RTC its
-    // rtc_initialize(); //TODO: Already working but enable when needed
+    IoApicSetIrqMapped(8, 0x28); //RTC irq
+    rtc_initialize();
     sched_init();
     pci_initialize_system();
     IoApicSetIrqMapped(0, 0x22); //HPET

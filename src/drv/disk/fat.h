@@ -50,6 +50,7 @@ int         fat_write_entry(fd_entry_t *e, const void *buf, uint32_t size);
 int         fat_close_entry(fd_entry_t *e);
 int         fat_lseek_entry(fd_entry_t *e, int32_t offset, int whence);
 uint32_t    fat_size_entry(fd_entry_t *e);
+int64_t     fat_mtime_entry(fd_entry_t *e);
 
 int         fat_opendir_entry(const char *path, fd_entry_t *out);
 int         fat_readdir_entry(fd_entry_t *e, char *name_out, int *is_dir_out);

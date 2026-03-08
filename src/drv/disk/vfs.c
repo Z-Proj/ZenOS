@@ -173,6 +173,12 @@ uint32_t vfs_size_entry(fd_entry_t *e)
     return fat_size_entry(e);
 }
 
+int64_t vfs_mtime_entry(fd_entry_t *e)
+{
+    if (!e || !e->used || e->type != FD_FILE) return 0;
+    return fat_mtime_entry(e);
+}
+
 int vfs_opendir_entry(const char *path, fd_entry_t *out)
 {
     if (!path || !out) return -1;

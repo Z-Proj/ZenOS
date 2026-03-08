@@ -3,6 +3,19 @@
 #include "../../libk/string.h"
 #include "../../libk/debug/log.h"
 #include "../../libk/core/mem.h"
+#include "../../drv/rtc.h"
+
+/* Required by FatFs when FF_FS_NORTC == 0 */
+DWORD get_fattime(void) {
+    rtc_time_t t = rtc_get_time();
+    int year = 2000 + t.year;
+    return ((DWORD)(year - 1980) << 25)
+         | ((DWORD)t.month       << 21)
+         | ((DWORD)t.day         << 16)
+         | ((DWORD)t.hours       << 11)
+         | ((DWORD)t.minutes     <<  5)
+         | ((DWORD)(t.seconds / 2));
+}
 
 #define FAT_MAX_VOLS 4
 
@@ -304,6 +317,10 @@ int fat_open_entry_vol(const char *path, int write, fd_entry_t *out, int vol) {
     if (fr != FR_OK) return -1;
     out->type = FD_FILE; out->used = 1;
     out->file.writable = write; out->file.total_written = 0;
+    /* grab modification timestamp from FILINFO */
+    FILINFO fno;
+    out->file.fdate = (f_stat(fpath, &fno) == FR_OK) ? fno.fdate : 0;
+    out->file.ftime = (f_stat(fpath, &fno) == FR_OK) ? fno.ftime : 0;
     return 0;
 }
 
@@ -345,6 +362,30 @@ int fat_lseek_entry(fd_entry_t *e, int32_t offset, int whence) {
 uint32_t fat_size_entry(fd_entry_t *e) {
     if (!e || !e->used || e->type != FD_FILE) return 0;
     return (uint32_t)f_size(&e->file.fil);
+}
+
+/* Decode FAT packed date/time into a Unix timestamp (seconds since 1970).
+   FAT epoch is 1980-01-01. Treated as UTC. */
+int64_t fat_mtime_entry(fd_entry_t *e) {
+    if (!e || !e->used || e->type != FD_FILE) return 0;
+    WORD d = e->file.fdate;
+    WORD t = e->file.ftime;
+    if (d == 0) return 0;
+    int year  = 1980 + ((d >> 9) & 0x7F);
+    int month = (d >> 5) & 0x0F;
+    int day   = (d >> 0) & 0x1F;
+    int hour  = (t >> 11) & 0x1F;
+    int min   = (t >> 5)  & 0x3F;
+    int sec   = ((t >> 0) & 0x1F) * 2;
+    static const int mdays[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    int64_t days = 0;
+    for (int y = 1970; y < year; y++)
+        days += ((y%4==0 && (y%100!=0 || y%400==0)) ? 366 : 365);
+    int leap = (year%4==0 && (year%100!=0 || year%400==0));
+    for (int m = 1; m < month; m++)
+        days += (m == 2 && leap) ? 29 : mdays[m-1];
+    days += day - 1;
+    return days * 86400 + hour * 3600 + min * 60 + sec;
 }
 
 int fat_opendir_entry_vol(const char *path, fd_entry_t *out, int vol) {
