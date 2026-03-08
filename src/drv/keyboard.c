@@ -1,5 +1,6 @@
 #include "keyboard.h"
 #include "vga.h"
+#include "mouse.h"
 #include "../cpu/isr.h"
 #include "../libk/ports.h"
 #include "../libk/spinlock.h"
@@ -442,9 +443,14 @@ int font_id = 3;
 static void kbd_interrupt_handler(registers_t *regs)
 {
     (void)regs;
-    if (!(inportb(PS2_STATUS_PORT) & PS2_STATUS_OUTPUT_FULL)) return;
+    uint8_t status = inportb(PS2_STATUS_PORT);
+    if (!(status & PS2_STATUS_OUTPUT_FULL)) return;
 
     uint8_t scancode = inportb(PS2_DATA_PORT);
+    if (status & 0x20) {
+        mouse_process_byte(scancode);
+        return;
+    }
 
     if (scancode == SCANCODE_EXTENDED_PREFIX) {
         waiting_for_extended_code = true;

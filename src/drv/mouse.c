@@ -2,8 +2,6 @@
 #include "../cpu/isr.h"
 #include "../libk/ports.h"
 #include "vga.h"
-#include "local_apic.h"
-#include "ioapic.h"
 #include "../libk/debug/log.h"
 
 typedef struct
@@ -17,43 +15,57 @@ typedef struct
 
 static mouse_t mouse = {0};
 
-static void mouse_wait(uint8_t type)
+static bool mouse_wait(uint8_t type)
 {
-    uint32_t timeout = 10000;
+    uint32_t timeout = 100000;
     while (timeout--)
     {
+        uint8_t status = inportb(0x64);
         if (type == 0)
         {
-            if (inportb(0x64) & 0x01)
-                return;
+            if (status & 0x01)
+                return true;
         }
         else
         {
-            if (!(inportb(0x64) & 0x02))
-                return;
+            if (!(status & 0x02))
+                return true;
         }
+    }
+    return false;
+}
+
+static void mouse_drain_output(void)
+{
+    for (int i = 0; i < 256; i++)
+    {
+        if (!(inportb(0x64) & 0x01))
+            break;
+        inportb(0x60);
     }
 }
 
-static void mouse_write(uint8_t data)
+static bool mouse_write(uint8_t data)
 {
-    mouse_wait(1);
+    if (!mouse_wait(1))
+        return false;
     outportb(0x64, 0xD4);
-    mouse_wait(1);
+    if (!mouse_wait(1))
+        return false;
     outportb(0x60, data);
+    return true;
 }
 
-static uint8_t mouse_read(void)
+static bool mouse_read(uint8_t *data)
 {
-    mouse_wait(0);
-    return inportb(0x60);
+    if (!mouse_wait(0))
+        return false;
+    *data = inportb(0x60);
+    return true;
 }
 
-void mouse_handler(registers_t *regs)
+void mouse_process_byte(uint8_t data)
 {
-    (void)regs;
-    uint8_t data = inportb(0x60);
-
     switch (mouse.cycle)
     {
     case 0:
@@ -69,54 +81,104 @@ void mouse_handler(registers_t *regs)
         break;
     case 2:
         mouse.packet[2] = data;
+        if (mouse.packet[0] & 0xC0)
+        {
+            mouse.cycle = 0;
+            break;
+        }
         mouse.buttons = mouse.packet[0] & 0x07;
-        int32_t dx = (mouse.packet[0] & 0x10) ? mouse.packet[1] - 256 : mouse.packet[1];
-        int32_t dy = (mouse.packet[0] & 0x20) ? -(mouse.packet[2] - 256) : -mouse.packet[2];
-        mouse.x += dx;
-        mouse.y += dy;
-        if (mouse.x >= framebuffer_width)
-            mouse.x = framebuffer_width - 1;
-        if (mouse.y >= framebuffer_height)
-            mouse.y = framebuffer_height - 1;
+        int32_t dx = (int8_t)mouse.packet[1];
+        int32_t dy = -(int8_t)mouse.packet[2];
+        int32_t next_x = (int32_t)mouse.x + dx;
+        int32_t next_y = (int32_t)mouse.y + dy;
+
+        if (next_x < 0)
+            next_x = 0;
+        if (next_y < 0)
+            next_y = 0;
+        if (next_x >= (int32_t)framebuffer_width)
+            next_x = (int32_t)framebuffer_width - 1;
+        if (next_y >= (int32_t)framebuffer_height)
+            next_y = (int32_t)framebuffer_height - 1;
+
+        mouse.x = (uint32_t)next_x;
+        mouse.y = (uint32_t)next_y;
         mouse.cycle = 0;
         mouse.ready = true;
         break;
     }
 }
 
+void mouse_handler(registers_t *regs)
+{
+    (void)regs;
+    uint8_t status = inportb(0x64);
+    if (!(status & 0x01))
+        return;
+    if (!(status & 0x20))
+        return;
+    mouse_process_byte(inportb(0x60));
+}
+
 void mouse_init(void)
 {
+    mouse_drain_output();
 
-    mouse_wait(1);
+    if (!mouse_wait(1))
+    {
+        log("Mouse init failed: controller busy", 2, 1);
+        return;
+    }
     outportb(0x64, 0xA8);
 
-    mouse_wait(1);
+    if (!mouse_wait(1))
+    {
+        log("Mouse init failed: controller busy", 2, 1);
+        return;
+    }
     outportb(0x64, 0x20);
-    mouse_wait(0);
-    uint8_t status = inportb(0x60);
+    uint8_t status = 0;
+    if (!mouse_read(&status))
+    {
+        log("Mouse init failed: cannot read controller config", 2, 1);
+        return;
+    }
     status |= 0x02;
+    status &= ~0x20;
 
-    mouse_wait(1);
+    if (!mouse_wait(1))
+    {
+        log("Mouse init failed: controller busy", 2, 1);
+        return;
+    }
     outportb(0x64, 0x60);
-    mouse_wait(1);
+    if (!mouse_wait(1))
+    {
+        log("Mouse init failed: controller busy", 2, 1);
+        return;
+    }
     outportb(0x60, status);
 
-    mouse_write(0xF6);
-    mouse_read();
-    mouse_write(0xF4);
-    mouse_read();
+    register_interrupt_handler(IRQ12, mouse_handler, "Mouse Handler");
 
-    IoApicSetEntry(g_ioApicAddr, 12, 0x2C);
-    register_interrupt_handler(0x2C, mouse_handler, "Mouse Handler");
-
-    uint32_t drain_count = 20;
-    while ((inportb(0x64) & 0x01) && drain_count--)
+    uint8_t response = 0;
+    if (!mouse_write(0xF6) || !mouse_read(&response) || response != 0xFA)
     {
-        inportb(0x60);
+        log("Mouse init warning: defaults command ack mismatch (0x%x)", 2, 1, response);
     }
+    response = 0;
+    if (!mouse_write(0xF4) || !mouse_read(&response) || response != 0xFA)
+    {
+        log("Mouse init warning: enable command ack mismatch (0x%x)", 2, 1, response);
+    }
+
+    mouse_drain_output();
 
     mouse.x = framebuffer_width / 2;
     mouse.y = framebuffer_height / 2;
+    mouse.cycle = 0;
+    mouse.ready = false;
+    mouse.buttons = 0;
     log("Mouse Initialized.", 4, 0);
 }
 

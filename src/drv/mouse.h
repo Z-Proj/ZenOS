@@ -5,6 +5,7 @@
 #include <stdbool.h>
 
 void mouse_init(void);
+void mouse_process_byte(uint8_t data);
 uint32_t mouse_x(void);
 uint32_t mouse_y(void);
 uint8_t mouse_button(void);
