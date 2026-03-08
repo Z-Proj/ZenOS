@@ -72,7 +72,6 @@
 #define SYSCALL_DNS_RESOLVE      66
 #define SYSCALL_FUTEX            67
 
-
 #define FUTEX_WAIT               0  
 #define FUTEX_WAKE               1  
 

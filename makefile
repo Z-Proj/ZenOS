@@ -81,7 +81,10 @@ fat:
 	src/drv/disk/fatfs/ff.c \
 	src/drv/disk/fatfs/ffunicode.c \
 	-Isrc/drv/disk/fatfs \
-	-o fat_man
+	-DFF_FS_REENTRANT=0 \
+	-DFF_USE_LFN=2 \
+	-DFF_MAX_LFN=255 \
+	-o fat_man 2>&1
 
 clean:
 	rm -rf $(OBJ) $(KERNEL) $(ISO_IMAGE) $(ISO_DIR) $(BUILD_DIR) src/cpu/ap.bin

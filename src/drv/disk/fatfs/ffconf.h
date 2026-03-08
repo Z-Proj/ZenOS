@@ -113,6 +113,7 @@
 */
 
 
+#ifndef FF_USE_LFN
 #define FF_USE_LFN	2
 #define FF_MAX_LFN		255
 /* The FF_USE_LFN switches the support for LFN (long file name).
@@ -131,6 +132,7 @@
 /  When use stack for the working buffer, take care on stack overflow. When use heap
 /  memory for the working buffer, memory management functions, ff_memalloc() and
 /  ff_memfree() exemplified in ffsystem.c, need to be added to the project. */
+#endif /* FF_USE_LFN */
 
 
 #define FF_LFN_UNICODE	0
@@ -292,7 +294,9 @@
 /      lock control is independent of re-entrancy. */
 
 
+#ifndef FF_FS_REENTRANT
 #define FF_FS_REENTRANT	1
+#endif
 #define FF_FS_TIMEOUT	1000
 /* The option FF_FS_REENTRANT switches the re-entrancy (thread safe) of the FatFs
 /  module itself. Note that regardless of this option, file access to different
