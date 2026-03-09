@@ -19,17 +19,23 @@ rm -f config.cache
 make -j$(nproc)
 make install
 
-# Compile locks.c and add it to libc.a
+CROSS_BUILTINS=$($CROSS/x86_64-zenos-gcc -print-file-name=include)
 $CROSS/x86_64-zenos-gcc -c \
-  -I$SYSROOT/x86_64-zenos/include \
+  -nostdinc \
+  -isystem $CROSS_BUILTINS \
+  -isystem $SYSROOT/x86_64-zenos/include \
   -D_RETARGETABLE_LOCKING \
   -O2 \
   $ZENOS/userland/newlib/newlib-cygwin/newlib/libc/sys/zenos/locks.c \
   -o /tmp/locks.o
 $CROSS/x86_64-zenos-ar r $SYSROOT/x86_64-zenos/lib/libc.a /tmp/locks.o
 
-cp $SYSROOT/x86_64-zenos/lib/libc.a   $ZENOS/userland/libs/
-cp $SYSROOT/x86_64-zenos/lib/libg.a   $ZENOS/userland/libs/
-cp $SYSROOT/x86_64-zenos/lib/libm.a   $ZENOS/userland/libs/
+cp $SYSROOT/x86_64-zenos/lib/libc.a    $ZENOS/userland/libs/
+cp $SYSROOT/x86_64-zenos/lib/libg.a    $ZENOS/userland/libs/
+cp $SYSROOT/x86_64-zenos/lib/libm.a    $ZENOS/userland/libs/
 cp $SYSROOT/x86_64-zenos/lib/libnosys.a $ZENOS/userland/libs/
-cp -r $SYSROOT/x86_64-zenos/include/* $ZENOS/userland/libs/include/
+cp -r $SYSROOT/x86_64-zenos/include/*  $ZENOS/userland/libs/include/
+
+ZENOS_SYS=$ZENOS/userland/newlib/newlib-cygwin/newlib/libc/sys/zenos/sys
+cp $ZENOS_SYS/termios.h $ZENOS/userland/libs/include/sys/termios.h
+cp $ZENOS_SYS/ioctl.h   $ZENOS/userland/libs/include/sys/ioctl.h

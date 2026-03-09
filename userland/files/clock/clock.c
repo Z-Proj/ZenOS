@@ -3,6 +3,8 @@
 #include <string.h>
 #include <stdint.h>
 #include <sys/time.h>
+#include <termios.h>
+#include <unistd.h>
 #include "../userlib.h"
 
 static void print2(int n) {
@@ -19,6 +21,17 @@ int main(int argc, char *argv[]) {
     struct timeval tv;
     int last_sec = -1;
     int hours = 0, mins = 0, secs = 0;
+    struct termios oldt, raw;
+    int have_termios = 0;
+
+    if (tcgetattr(STDIN_FILENO, &oldt) == 0) {
+        raw = oldt;
+        cfmakeraw(&raw);
+        raw.c_cc[VMIN] = 0;
+        raw.c_cc[VTIME] = 0;
+        if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) == 0)
+            have_termios = 1;
+    }
 
     while (1) {
         gettimeofday(&tv, NULL);
@@ -37,10 +50,13 @@ int main(int argc, char *argv[]) {
             fflush(stdout);
         }
 
-        char k = zen_getkey();
-        if (k != 0) break;
+        char k = 0;
+        if (read(STDIN_FILENO, &k, 1) > 0) break;
         zen_halt();
     }
+
+    if (have_termios)
+        tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
 
     fputs("\n", stdout);
     exit(0);

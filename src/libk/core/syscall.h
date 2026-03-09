@@ -71,6 +71,65 @@
 #define SYSCALL_NET_POLL         65
 #define SYSCALL_DNS_RESOLVE      66
 #define SYSCALL_FUTEX            67
+#define SYSCALL_PTY_OPEN         68  
+#define SYSCALL_IOCTL            69  
+#define ZEN_TIOCGWINSZ  0x5413  
+#define ZEN_TIOCSWINSZ  0x5414  
+#define ZEN_TIOCSPTYGID 0x5420  
+#define ZEN_TCGETS      0x5401
+#define ZEN_TCSETS      0x5402
+#define ZEN_TCSETSW     0x5403
+#define ZEN_TCSETSF     0x5404
+#define ZEN_FIONREAD    0x541B
+#define ZEN_NCCS        19
+#define ZEN_IGNBRK      0x00000001
+#define ZEN_BRKINT      0x00000002
+#define ZEN_IGNPAR      0x00000004
+#define ZEN_PARMRK      0x00000008
+#define ZEN_INPCK       0x00000010
+#define ZEN_ISTRIP      0x00000020
+#define ZEN_INLCR       0x00000040
+#define ZEN_IGNCR       0x00000080
+#define ZEN_ICRNL       0x00000100
+#define ZEN_IXON        0x00000400
+#define ZEN_OPOST       0x00000001
+#define ZEN_ONLCR       0x00000004
+#define ZEN_CS8         0x00000030
+#define ZEN_CREAD       0x00000080
+#define ZEN_ISIG        0x00000001
+#define ZEN_ICANON      0x00000002
+#define ZEN_ECHO        0x00000008
+#define ZEN_ECHOE       0x00000010
+#define ZEN_ECHOK       0x00000020
+#define ZEN_IEXTEN      0x00008000
+#define ZEN_VINTR       0
+#define ZEN_VQUIT       1
+#define ZEN_VERASE      2
+#define ZEN_VKILL       3
+#define ZEN_VEOF        4
+#define ZEN_VTIME       5
+#define ZEN_VMIN        6
+#define ZEN_VSTART      8
+#define ZEN_VSTOP       9
+#define ZEN_VSUSP       10
+
+typedef struct {
+    uint32_t c_iflag;
+    uint32_t c_oflag;
+    uint32_t c_cflag;
+    uint32_t c_lflag;
+    uint8_t  c_line;
+    uint8_t  c_cc[ZEN_NCCS];
+    uint32_t c_ispeed;
+    uint32_t c_ospeed;
+} zen_termios_t;
+
+typedef struct {
+    uint16_t ws_row;
+    uint16_t ws_col;
+    uint16_t ws_xpixel;
+    uint16_t ws_ypixel;
+} zen_winsize_t;
 
 #define FUTEX_WAIT               0  
 #define FUTEX_WAKE               1  

@@ -64,7 +64,7 @@ void sched_tick(void);
 task_t *sched_current_task(void);
 task_t *sched_get_task_list(void);
 int sched_kill(uint64_t pid);
-int sched_wait_pid(int64_t pid, int *status);
+int sched_wait_pid(int64_t pid, int *status, int options);
 pid_t sched_fork(uint64_t syscall_frame_ptr);
 int sched_signal(uint64_t pid, int sig);
 extern void task_switch(registers_t *old_regs, registers_t *new_regs);

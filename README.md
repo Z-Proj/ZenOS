@@ -7,9 +7,9 @@
 
 ## Overview
 
-**ZenOS** is a modern **64-bit SMP preemptive operating system**, developed entirely from scratch in **C** and **x86_64 assembly**, bootstrapped with the **Limine** bootloader.
+**ZenOS** is a 64-bit SMP preemptive operating system built from scratch in **C** and **x86_64 assembly**, bootstrapped with the **Limine** bootloader.
 
-The project focuses on clean design, correctness, and real hardware interaction. Everything from the scheduler to the filesystem to the userspace process model is built from the ground up.
+The project focuses on clean design, correctness, and real hardware interaction.
 
 ---
 
@@ -29,11 +29,11 @@ The project focuses on clean design, correctness, and real hardware interaction.
 
 ### Syscalls
 
-66 POSIX + Custom Syscalls covering process management, file I/O, memory, signals, pipes, directories, sockets, time, graphics, and networking.
+70+ POSIX-compatible and custom syscalls covering process management, file I/O, memory, signals, pipes, directories, sockets, PTY, time, and networking.
 
 ### Hardware & Drivers
 
-- VGA framebuffer output
+- Framebuffer output
 - PS/2 keyboard and mouse
 - PC speaker
 - Serial port for debugging and logging
@@ -52,37 +52,36 @@ The project focuses on clean design, correctness, and real hardware interaction.
 
 ### Filesystem
 
-- **VFS** support with multiple drives mountable.
-- **FAT32** via a port of [FatFs](https://elm-chan.org/fsw/ff/) by CHAN
+- VFS layer with support for multiple mountpoints
+- FAT32 via a port of [FatFs](https://elm-chan.org/fsw/ff/) by CHAN
 - Native host-side disk image tooling (`fat_man`)
 
 ### Userspace & Libc
 
 - [Newlib](https://sourceware.org/newlib/) C library, fully compiled and integrated for the ZenOS target.
 - ELF64 userspace programs.
-- Currently **70+** Syscalls present.
+- Currently **70+** Syscalls present. (As of now, ZenOS apps are statically linked.)
 
-#### Current Apps (subject to change):
+### Applications
 
-- **Shell & Core Utils** - shell, echo, yes, sleep (shell.c, echo.c, yes.c, sleep.c)
-- **File Utils** - cat, ls, touch, rm, stat, wc (cat.c, ls.c, touch.c, rm.c, stat.c, wc.c)
-- **Directory Utils** - mkdir, rmdir, pwd (mkdir.c, rmdir.c, pwd.c)
-- **Process Utils** - ps, kill (ps.c, kill.c)
-- **System Info** - uname, sysinfo (uname.c, sysinfo.c)
-- **Math & Science** - calc, primes, fibonacci, counter (calc.c, primes.c, fibonacci.c, counter.c)
-- **Graphics** - GFX Server, GFX Test, edit, figlet, clock, mouse (gfxserver.c, gfxtest.c, edit.c, figlet.c, clock.c, mouse.c)
-- **Compilers** - [TinyCC](https://github.com/TinyCC/tinycc), [SmallerC](https://github.com/alexfru/SmallerC) (cc.c, smlrc.c)
-- **Scripting** - [Lua 5.5.0](https://www.lua.org/) interpreter
-- **Networking** - wget, zen package manager (wget.c, zen.c)
-- **Misc** - hello, beep, snake, init (hello.c, beep.c, snake.c, init.c)
+- **Shell & Core Utils** — shell, echo, yes, sleep, cat, ls, touch, rm, stat, wc, mkdir, rmdir, pwd
+- **Process Utils** — ps, kill
+- **System Info** — uname, time
+- **Math** — calc, primes, fibonacci, counter
+- **Text & UI** — terminal (PTY terminal emulator), edit (text editor), clock, beep, mouse
+- **Compilers** — [TinyCC](https://github.com/TinyCC/tinycc), [SmallerC](https://github.com/alexfru/SmallerC)
+- **Scripting** — [Lua 5.5.0](https://www.lua.org/)
+- **Networking** — wget, zen package manager, nettest
+- **Misc** — hello, init
+
 
 **The `ZenOS.vhd` in the repository usually already has these compiled and ready.**
-A separate `Storage.vhd` is present for uhh... storage.
+A separate `Storage.vhd` is present for storage.
 
-### Graphics & I/O
+### I/O & Display
 
-- [Flanterm](https://codeberg.org/mintsuki/flanterm) terminal renderer
-- Unicode and scalable font support via [SSFN](https://gitlab.com/bztsrc/scalable-font2)
+- [Flanterm](https://codeberg.org/mintsuki/flanterm) for early kernel output
+- Scalable font rendering via [SSFN](https://gitlab.com/bztsrc/scalable-font2)
 - Structured kernel logging with log levels and serial output
 
 ---
@@ -99,23 +98,23 @@ Run `make help` first to see available build commands.
 
 ## Contributions
 
-All good contributions are welcome! Check [ISSUES.md](https://github.com/Z-Proj/ZenOS/blob/main/docs/ISSUES.md) for open problems, or add a feature, fix a bug, or improve the codebase in any way.
+All good contributions are welcome. Check [ISSUES.md](https://github.com/Z-Proj/ZenOS/blob/main/docs/ISSUES.md) for open problems, or add a feature, fix a bug, or improve the codebase.
 
 ---
 
 ## Design Goals
 
-- Maintain a clean, minimal, and readable codebase
-- Provide a solid foundation for experimenting with:
+- Clean, minimal, readable codebase
+- Solid foundation for experimenting with:
   - [x] Kernel subsystems
   - [x] Filesystems
-  - [x] Scheduling
-  - [x] SMP
+  - [x] Scheduling and SMP
   - [x] Userspace ABI design
-  - [x] Unix-compatible process model (fork/exec/signals/pipes)
+  - [x] Unix-compatible process model (fork/exec/signals/pipes/PTY)
   - [x] Networking (TCP/IP, DNS, HTTP)
   - [x] Native C compilation on the OS itself
-  - [ ] Lightweight dual-boot support and everyday utilities
+  - [ ] Lightweight everyday utilities
+  - [ ] Dual-boot support
 
 ZenOS is a learning-oriented project. Understanding the machine comes first.
 
@@ -137,18 +136,18 @@ socat
 
 ## Third Party
 
-- [Limine](https://codeberg.org/Limine/Limine) - bootloader
-- [Flanterm](https://codeberg.org/mintsuki/flanterm) - terminal emulator
-- [SSFN 2.0](https://gitlab.com/bztsrc/scalable-font2/) - scalable screen fonts
-- [FatFs](https://elm-chan.org/fsw/ff/) - FAT32 filesystem library by CHAN
-- [Newlib](https://sourceware.org/newlib/) - C standard library
-- [Lua](https://www.lua.org/) - A powerful lightweight scripting language
-- [TinyCC](https://github.com/TinyCC/tinycc) - Tiny C Compiler, ported to ZenOS
-- [SmallerC](https://github.com/alexfru/SmallerC) - C to assembly compiler
+- [Limine](https://codeberg.org/Limine/Limine) — bootloader
+- [Flanterm](https://codeberg.org/mintsuki/flanterm) — early kernel terminal renderer
+- [SSFN 2.0](https://gitlab.com/bztsrc/scalable-font2/) — scalable screen fonts
+- [FatFs](https://elm-chan.org/fsw/ff/) — FAT32 library by CHAN
+- [Newlib](https://sourceware.org/newlib/) — C standard library
+- [Lua](https://www.lua.org/) — lightweight scripting language
+- [TinyCC](https://github.com/TinyCC/tinycc) — Tiny C Compiler, ported to ZenOS
+- [SmallerC](https://github.com/alexfru/SmallerC) — C to assembly compiler
 
 ---
 
-## Showcase (Can be outdated)
+## Showcase (may be outdated)
 
 <table>
   <tr>

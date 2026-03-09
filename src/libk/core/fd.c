@@ -45,6 +45,18 @@ static void fd_close_entry(fd_entry_t *e)
         e->pipe->refcount--;
         if (e->pipe->refcount <= 0)
             kfree(e->pipe);
+    } else if (e->type == FD_PTY_MASTER) {
+        e->pty->master_refs--;
+        if (e->pty->master_refs <= 0) e->pty->master_open = 0;
+        e->pty->refcount--;
+        if (e->pty->refcount <= 0)
+            kfree(e->pty);
+    } else if (e->type == FD_PTY_SLAVE) {
+        e->pty->slave_refs--;
+        if (e->pty->slave_refs <= 0) e->pty->slave_open = 0;
+        e->pty->refcount--;
+        if (e->pty->refcount <= 0)
+            kfree(e->pty);
     }
 
     memset(e, 0, sizeof(fd_entry_t));
@@ -77,6 +89,14 @@ fd_table_t *fd_table_clone(fd_table_t *src)
             de->pipe->refcount++;
             if (se->type == FD_PIPE_READ) de->pipe->readers++;
             if (se->type == FD_PIPE_WRITE) de->pipe->writers++;
+        } else if (se->type == FD_PTY_MASTER) {
+            /* master fd should not be inherited across fork — skip */
+            de->used = 0;
+            continue;
+        } else if (se->type == FD_PTY_SLAVE) {
+            de->pty = se->pty;
+            de->pty->refcount++;
+            de->pty->slave_refs++;
         }
     }
 

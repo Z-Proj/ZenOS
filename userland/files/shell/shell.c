@@ -435,7 +435,7 @@ static void show_prompt(void) {
         strcpy(cwd, "~");
     }
 
-    fputs(COLOR_BOLD COLOR_GREEN "root@", stdout);
+    fputs(COLOR_BOLD COLOR_GREEN "\nroot@", stdout);
     fputs(hostname, stdout);
     fputs(COLOR_RESET COLOR_BOLD ":", stdout);
     fputs(COLOR_BOLD COLOR_BLUE, stdout);
@@ -447,33 +447,26 @@ static void show_prompt(void) {
 static void read_command(void) {
     buffer_pos = 0;
     memset(command_buffer, 0, MAX_COMMAND_LENGTH);
-    
-    while (1) {
-        zen_halt();
-        char c = zen_getkey();
-        
-        if (c == '\0') {
-            continue;
-        }
-        
-        if (c == '\n' || c == '\r') {
-            command_buffer[buffer_pos] = '\0';
-            fputs("\n", stdout);
-            break;
-        }
-        else if (c == '\b' || c == 127) {
-            if (buffer_pos > 0) {
-                buffer_pos--;
-                command_buffer[buffer_pos] = '\0';
-                fputs("\b \b", stdout);
-            }
-        }
-        else if (c >= 32 && c < 127) {
-            if (buffer_pos < MAX_COMMAND_LENGTH - 1) {
-                command_buffer[buffer_pos++] = c;
-                char buf[2] = {c, '\0'};
-                fputs(buf, stdout);
-            }
+
+    if (!fgets(command_buffer, sizeof(command_buffer), stdin)) {
+        command_buffer[0] = '\0';
+        return;
+    }
+
+    while (command_buffer[buffer_pos] &&
+           command_buffer[buffer_pos] != '\n' &&
+           command_buffer[buffer_pos] != '\r') {
+
+        putchar(command_buffer[buffer_pos]);
+        buffer_pos++;
+    }
+
+    if (command_buffer[buffer_pos] == '\n' || command_buffer[buffer_pos] == '\r') {
+        command_buffer[buffer_pos] = '\0';
+    } else {
+        int c = 0;
+        while ((c = getchar()) != '\n' && c != EOF) {
+            putchar(c);
         }
     }
 }
@@ -535,8 +528,11 @@ static int execute_command(void) {
         fputs(COLOR_YELLOW "' is both a builtin and a file.\n" COLOR_RESET, stdout);
         fputs("  [b] Run builtin   [f] Run file\n> ", stdout);
         char choice = '\0';
+        char line[8];
         while (choice != 'b' && choice != 'f') {
-            choice = zen_getkey();
+            if (!fgets(line, sizeof(line), stdin))
+                return 1;
+            choice = line[0];
         }
         if (choice == 'b') {
             fputs("builtin\n", stdout);

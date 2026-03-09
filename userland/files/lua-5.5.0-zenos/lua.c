@@ -474,21 +474,11 @@ static char *lua_readline (char *buff, const char *prompt) {
   else {
     fputs(prompt, stdout);
     fflush(stdout);
-    int i = 0;
-    int c;
-    while (i < LUA_MAXINPUT - 1) {
-      do { c = zen_getkey(); } while (c == 0);
-      if (c == 4) { if (i == 0) return NULL; break; }
-      if (c == '\n') { putchar('\n'); fflush(stdout); break; }
-      if (c == '\b' || c == 127) {
-        if (i > 0) { i--; fputs("\b \b", stdout); fflush(stdout); }
-        continue;
-      }
-      buff[i++] = (char)c;
-      putchar(c);
-      fflush(stdout);
-    }
-    buff[i] = '\0';
+    if (fgets(buff, LUA_MAXINPUT, stdin) == NULL)
+      return NULL;
+    size_t i = strlen(buff);
+    if (i > 0 && buff[i - 1] == '\n')
+      buff[i - 1] = '\0';
     return buff;
   }
 }

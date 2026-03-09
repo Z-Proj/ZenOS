@@ -205,9 +205,8 @@ static inline int zen_fork(void) { return (int)_sc_ret(_syscall0(51)); }
 static inline int zen_pipe(int pfd[2]) { return (int)_sc_ret(_syscall1(52, (uint64_t)pfd)); }
 static inline int zen_dup(int fd) { return (int)_sc_ret(_syscall1(53, (uint64_t)(unsigned int)fd)); }
 static inline int zen_dup2(int o, int n) { return (int)_sc_ret(_syscall2(54, (uint64_t)(unsigned int)o, (uint64_t)(unsigned int)n)); }
-static inline int zen_ioctl(int fd, unsigned long req, void *argp) { return (int)_sc_ret(_syscall3(61, (uint64_t)(unsigned int)fd, (uint64_t)req, (uint64_t)argp)); }
-static inline char **zen_getenvp(void)             { return (char**)(uintptr_t)_syscall0(62); }
-static inline int zen_setenvp(char **envp)         { return (int)_sc_ret(_syscall1(63, (uint64_t)envp)); }
+static inline char **zen_getenvp(void)             { (void)0; return NULL; }
+static inline int zen_setenvp(char **envp)         { (void)envp; return 0; }
 static inline int zen_kill(int pid, int sig)   { return (int)_sc_ret(_syscall2(47, (uint64_t)(unsigned int)pid, (uint64_t)(unsigned int)sig)); }
 static inline int zen_sigaction(int sig, void *act, void *old) { return (int)_sc_ret(_syscall3(58, (uint64_t)(unsigned int)sig, (uint64_t)act, (uint64_t)old)); }
 static inline int zen_sigreturn(void)              { return (int)_sc_ret(_syscall0(59)); }
@@ -218,6 +217,98 @@ static inline void zen_sleep_ms(uint32_t ms) { _syscall1(30, ms); }
 static inline void zen_log(const char *msg, uint32_t level, uint32_t vis)
 {
     _syscall3(40, (uint64_t)msg, level, vis);
+}
+
+
+static inline int zen_pty_open(int *sfd)
+{
+    return (int)_sc_ret(_syscall1(68, (uint64_t)sfd));
+}
+
+
+static inline int zen_ioctl(int fd, unsigned long req, void *argp)
+{
+    return (int)_sc_ret(_syscall3(69, (uint64_t)(unsigned int)fd,
+                                  (uint64_t)req, (uint64_t)argp));
+}
+
+#define ZEN_TIOCGWINSZ  0x5413
+#define ZEN_TIOCSWINSZ  0x5414
+#define ZEN_TCGETS      0x5401
+#define ZEN_TCSETS      0x5402
+#define ZEN_TCSETSW     0x5403
+#define ZEN_TCSETSF     0x5404
+#define ZEN_FIONREAD    0x541B
+
+#define ZEN_NCCS        19
+
+#define ZEN_IGNBRK      0x00000001
+#define ZEN_BRKINT      0x00000002
+#define ZEN_IGNPAR      0x00000004
+#define ZEN_PARMRK      0x00000008
+#define ZEN_INPCK       0x00000010
+#define ZEN_ISTRIP      0x00000020
+#define ZEN_INLCR       0x00000040
+#define ZEN_IGNCR       0x00000080
+#define ZEN_ICRNL       0x00000100
+#define ZEN_IXON        0x00000400
+
+#define ZEN_OPOST       0x00000001
+#define ZEN_ONLCR       0x00000004
+
+#define ZEN_CS8         0x00000030
+#define ZEN_CREAD       0x00000080
+
+#define ZEN_ISIG        0x00000001
+#define ZEN_ICANON      0x00000002
+#define ZEN_ECHO        0x00000008
+#define ZEN_ECHOE       0x00000010
+#define ZEN_ECHOK       0x00000020
+#define ZEN_IEXTEN      0x00008000
+
+#define ZEN_VINTR       0
+#define ZEN_VQUIT       1
+#define ZEN_VERASE      2
+#define ZEN_VKILL       3
+#define ZEN_VEOF        4
+#define ZEN_VTIME       5
+#define ZEN_VMIN        6
+#define ZEN_VSTART      8
+#define ZEN_VSTOP       9
+#define ZEN_VSUSP       10
+
+#define ZEN_TCSANOW     0
+#define ZEN_TCSADRAIN   1
+#define ZEN_TCSAFLUSH   2
+
+typedef struct {
+    uint16_t ws_row, ws_col, ws_xpixel, ws_ypixel;
+} zen_winsize_t;
+
+typedef struct {
+    uint32_t c_iflag;
+    uint32_t c_oflag;
+    uint32_t c_cflag;
+    uint32_t c_lflag;
+    uint8_t  c_line;
+    uint8_t  c_cc[ZEN_NCCS];
+    uint32_t c_ispeed;
+    uint32_t c_ospeed;
+} zen_termios_t;
+
+static inline int zen_tcgetattr(int fd, zen_termios_t *tio)
+{
+    return zen_ioctl(fd, ZEN_TCGETS, tio);
+}
+
+static inline int zen_tcsetattr(int fd, int actions, const zen_termios_t *tio)
+{
+    unsigned long req = ZEN_TCSETS;
+    if (actions == ZEN_TCSADRAIN)
+        req = ZEN_TCSETSW;
+    else if (actions == ZEN_TCSAFLUSH)
+        req = ZEN_TCSETSF;
+    return zen_ioctl(fd, req, (void *)tio);
 }
 
 #endif

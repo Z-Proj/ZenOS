@@ -99,6 +99,362 @@ static void dispatch_pending_signals(task_t *task)
     }
 }
 
+static int pty_push_m2s(pty_buf_t *pty, uint8_t ch)
+{
+    if (pty->m2s_count >= PTY_BUF_SIZE)
+        return 0;
+    pty->m2s_data[pty->m2s_write] = ch;
+    pty->m2s_write = (pty->m2s_write + 1) % PTY_BUF_SIZE;
+    pty->m2s_count++;
+    return 1;
+}
+
+static int pty_pop_m2s(pty_buf_t *pty, uint8_t *out)
+{
+    if (pty->m2s_count == 0)
+        return 0;
+    if (out)
+        *out = pty->m2s_data[pty->m2s_read];
+    pty->m2s_read = (pty->m2s_read + 1) % PTY_BUF_SIZE;
+    pty->m2s_count--;
+    if (pty->m2s_ready > 0)
+        pty->m2s_ready--;
+    return 1;
+}
+
+static int pty_pop_m2s_tail_unready(pty_buf_t *pty)
+{
+    if (pty->m2s_count <= pty->m2s_ready || pty->m2s_count == 0)
+        return 0;
+    pty->m2s_write = (pty->m2s_write + PTY_BUF_SIZE - 1) % PTY_BUF_SIZE;
+    pty->m2s_count--;
+    return 1;
+}
+
+static int pty_push_s2m_nowait(pty_buf_t *pty, uint8_t ch)
+{
+    if (pty->s2m_count >= PTY_BUF_SIZE)
+        return 0;
+    pty->s2m_data[pty->s2m_write] = ch;
+    pty->s2m_write = (pty->s2m_write + 1) % PTY_BUF_SIZE;
+    pty->s2m_count++;
+    return 1;
+}
+
+static int pty_push_s2m_wait(pty_buf_t *pty, uint8_t ch)
+{
+    while (pty->s2m_count >= PTY_BUF_SIZE)
+    {
+        if (!pty->master_open)
+            return 0;
+        sched_yield();
+    }
+    return pty_push_s2m_nowait(pty, ch);
+}
+
+static void pty_write_echo(pty_buf_t *pty, uint8_t ch)
+{
+    pty_push_s2m_nowait(pty, ch);
+}
+
+static void pty_defaults(pty_buf_t *pty)
+{
+    pty->iflag = ZEN_ICRNL | ZEN_IXON;
+    pty->oflag = ZEN_OPOST | ZEN_ONLCR;
+    pty->cflag = ZEN_CREAD | ZEN_CS8;
+    pty->lflag = ZEN_ISIG | ZEN_ICANON | ZEN_ECHO | ZEN_ECHOE | ZEN_ECHOK | ZEN_IEXTEN;
+    memset(pty->cc, 0, sizeof(pty->cc));
+    pty->cc[ZEN_VINTR] = 3;
+    pty->cc[ZEN_VQUIT] = 28;
+    pty->cc[ZEN_VERASE] = 127;
+    pty->cc[ZEN_VKILL] = 21;
+    pty->cc[ZEN_VEOF] = 4;
+    pty->cc[ZEN_VTIME] = 0;
+    pty->cc[ZEN_VMIN] = 1;
+    pty->cc[ZEN_VSTART] = 17;
+    pty->cc[ZEN_VSTOP] = 19;
+    pty->cc[ZEN_VSUSP] = 26;
+    pty->ispeed = 38400;
+    pty->ospeed = 38400;
+}
+
+static void pty_export_termios(pty_buf_t *pty, zen_termios_t *t)
+{
+    if (!pty || !t)
+        return;
+    memset(t, 0, sizeof(*t));
+    t->c_iflag = pty->iflag;
+    t->c_oflag = pty->oflag;
+    t->c_cflag = pty->cflag;
+    t->c_lflag = pty->lflag;
+    memcpy(t->c_cc, pty->cc, sizeof(pty->cc));
+    t->c_ispeed = pty->ispeed;
+    t->c_ospeed = pty->ospeed;
+}
+
+static void pty_import_termios(pty_buf_t *pty, const zen_termios_t *t, int flush_input)
+{
+    if (!pty || !t)
+        return;
+    uint32_t old_lflag = pty->lflag;
+    pty->iflag = t->c_iflag;
+    pty->oflag = t->c_oflag;
+    pty->cflag = t->c_cflag;
+    pty->lflag = t->c_lflag;
+    memcpy(pty->cc, t->c_cc, sizeof(pty->cc));
+    pty->ispeed = t->c_ispeed;
+    pty->ospeed = t->c_ospeed;
+    if (flush_input)
+    {
+        pty->m2s_read = 0;
+        pty->m2s_write = 0;
+        pty->m2s_count = 0;
+        pty->m2s_ready = 0;
+        pty->eof_pending = 0;
+        pty->esc_state = 0;
+    }
+    if ((old_lflag & ZEN_ICANON) == 0 || (pty->lflag & ZEN_ICANON) == 0)
+    {
+        pty->m2s_ready = pty->m2s_count;
+        if ((pty->lflag & ZEN_ICANON) == 0)
+        {
+            pty->eof_pending = 0;
+            pty->esc_state = 0;
+        }
+    }
+}
+
+static int64_t pty_slave_read(pty_buf_t *pty, uint8_t *dst, uint32_t size)
+{
+    uint32_t n = 0;
+    if (size == 0)
+        return 0;
+
+    if (pty->lflag & ZEN_ICANON)
+    {
+        while (n < size)
+        {
+            while (pty->m2s_ready == 0)
+            {
+                if (pty->eof_pending)
+                {
+                    pty->eof_pending = 0;
+                    return (int64_t)n;
+                }
+                if (!pty->master_open)
+                    return (int64_t)n;
+                sched_yield();
+            }
+            uint8_t ch = 0;
+            if (!pty_pop_m2s(pty, &ch))
+                continue;
+            dst[n++] = ch;
+            if (ch == '\n')
+                break;
+        }
+        return (int64_t)n;
+    }
+
+    uint8_t vmin = pty->cc[ZEN_VMIN];
+    if (vmin == 0)
+    {
+        while (n < size)
+        {
+            uint8_t ch = 0;
+            if (!pty_pop_m2s(pty, &ch))
+                break;
+            dst[n++] = ch;
+        }
+        return (int64_t)n;
+    }
+
+    while (pty->m2s_count < vmin)
+    {
+        if (!pty->master_open)
+        {
+            if (pty->m2s_count == 0)
+                return 0;
+            break;
+        }
+        sched_yield();
+    }
+
+    while (n < size)
+    {
+        uint8_t ch = 0;
+        if (!pty_pop_m2s(pty, &ch))
+            break;
+        dst[n++] = ch;
+    }
+    return (int64_t)n;
+}
+
+static int64_t pty_master_read(pty_buf_t *pty, uint8_t *dst, uint32_t size)
+{
+    uint32_t n = 0;
+    while (n < size && pty->s2m_count > 0)
+    {
+        dst[n++] = pty->s2m_data[pty->s2m_read];
+        pty->s2m_read = (pty->s2m_read + 1) % PTY_BUF_SIZE;
+        pty->s2m_count--;
+    }
+    return (int64_t)n;
+}
+
+static int64_t pty_master_write(pty_buf_t *pty, const uint8_t *src, uint32_t size)
+{
+    uint32_t written = 0;
+    if (!pty->slave_open)
+        return -1;
+
+    for (uint32_t i = 0; i < size; i++)
+    {
+        uint8_t ch = src[i];
+
+        if (pty->iflag & ZEN_IGNCR)
+        {
+            if (ch == '\r')
+            {
+                written++;
+                continue;
+            }
+        }
+        else if ((pty->iflag & ZEN_ICRNL) && ch == '\r')
+        {
+            ch = '\n';
+        }
+        else if ((pty->iflag & ZEN_INLCR) && ch == '\n')
+        {
+            ch = '\r';
+        }
+
+        if (pty->lflag & ZEN_ICANON)
+        {
+            uint8_t verase = pty->cc[ZEN_VERASE] ? pty->cc[ZEN_VERASE] : 127;
+            uint8_t vkill = pty->cc[ZEN_VKILL] ? pty->cc[ZEN_VKILL] : 21;
+            uint8_t veof = pty->cc[ZEN_VEOF] ? pty->cc[ZEN_VEOF] : 4;
+
+            if (pty->esc_state == 1)
+            {
+                if (ch == '[' || ch == 'O')
+                    pty->esc_state = 2;
+                else
+                    pty->esc_state = 0;
+                written++;
+                continue;
+            }
+            if (pty->esc_state == 2)
+            {
+                if (ch >= 0x40 && ch <= 0x7E)
+                    pty->esc_state = 0;
+                written++;
+                continue;
+            }
+            if (ch == 0x1B)
+            {
+                pty->esc_state = 1;
+                written++;
+                continue;
+            }
+
+            if (ch != veof)
+                pty->eof_pending = 0;
+
+            if (ch == verase || ch == '\b')
+            {
+                if (pty_pop_m2s_tail_unready(pty) && (pty->lflag & ZEN_ECHO))
+                {
+                    if (pty->lflag & ZEN_ECHOE)
+                    {
+                        pty_write_echo(pty, '\b');
+                        pty_write_echo(pty, ' ');
+                        pty_write_echo(pty, '\b');
+                    }
+                    else
+                    {
+                        pty_write_echo(pty, ch);
+                    }
+                }
+                written++;
+                continue;
+            }
+
+            if (ch == vkill)
+            {
+                while (pty_pop_m2s_tail_unready(pty)) {}
+                if ((pty->lflag & ZEN_ECHO) && (pty->lflag & ZEN_ECHOK))
+                    pty_write_echo(pty, '\n');
+                written++;
+                continue;
+            }
+
+            if (ch == veof)
+            {
+                if (pty->m2s_count == pty->m2s_ready)
+                    pty->eof_pending = 1;
+                else
+                    pty->m2s_ready = pty->m2s_count;
+                written++;
+                continue;
+            }
+        }
+
+        while (!pty_push_m2s(pty, ch))
+        {
+            if (!pty->slave_open)
+                return written ? (int64_t)written : -1;
+            sched_yield();
+        }
+
+        if ((pty->lflag & ZEN_ICANON) && ch == '\n')
+            pty->m2s_ready = pty->m2s_count;
+        else if ((pty->lflag & ZEN_ICANON) == 0)
+            pty->m2s_ready = pty->m2s_count;
+
+        if (pty->lflag & ZEN_ECHO)
+        {
+            if (ch == '\n')
+            {
+                pty_write_echo(pty, '\r');
+                pty_write_echo(pty, '\n');
+            }
+            else if (ch == '\t')
+            {
+                pty_write_echo(pty, ch);
+            }
+            else if (ch >= 32 && ch != 127)
+            {
+                pty_write_echo(pty, ch);
+            }
+        }
+
+        written++;
+    }
+
+    return (int64_t)written;
+}
+
+static int64_t pty_slave_write(pty_buf_t *pty, const uint8_t *src, uint32_t size)
+{
+    uint32_t written = 0;
+    if (!pty->master_open)
+        return -1;
+
+    for (uint32_t i = 0; i < size; i++)
+    {
+        uint8_t ch = src[i];
+        if ((pty->oflag & ZEN_OPOST) && (pty->oflag & ZEN_ONLCR) && ch == '\n')
+        {
+            if (!pty_push_s2m_wait(pty, '\r'))
+                break;
+        }
+        if (!pty_push_s2m_wait(pty, ch))
+            break;
+        written++;
+    }
+    return (int64_t)written;
+}
+
 uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5)
 {
     switch (num)
@@ -158,7 +514,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return -1;
         for (uint32_t i = 0; i < len && str[i]; i++){
             printc(str[i]);
-            serial_write_char(str[i]);
+            // serial_write_char(str[i]);
         }
         return 0;
     }
@@ -241,6 +597,14 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         }
         if (!e)
             return -1;
+        if (e->type == FD_PTY_SLAVE)
+        {
+            return pty_slave_read(e->pty, (uint8_t *)buffer, size);
+        }
+        if (e->type == FD_PTY_MASTER)
+        {
+            return pty_master_read(e->pty, (uint8_t *)buffer, size);
+        }
         if (e->type == FD_PIPE_READ)
         {
             uint8_t *cbuf = (uint8_t *)buffer;
@@ -336,12 +700,20 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             const char *p = (const char *)buffer;
             for (uint32_t i = 0; i < size; i++){
                 printc(p[i]);
-                serial_write_char(p[i]);
+                // serial_write_char(p[i]);
             }
             return (int64_t)size;
         }
         if (!e)
             return -1;
+        if (e->type == FD_PTY_SLAVE)
+        {
+            return pty_slave_write(e->pty, (const uint8_t *)buffer, size);
+        }
+        if (e->type == FD_PTY_MASTER)
+        {
+            return pty_master_write(e->pty, (const uint8_t *)buffer, size);
+        }
         if (e->type == FD_PIPE_WRITE)
         {
             const uint8_t *cbuf = (const uint8_t *)buffer;
@@ -481,11 +853,27 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         fd_entry_t *e = &cur->fd_table->entries[fd];
         if (!e->used)
             return -1;
+        if (e->type == FD_PTY_MASTER || e->type == FD_PTY_SLAVE ||
+            e->type == FD_PIPE_READ || e->type == FD_PIPE_WRITE ||
+            e->type == FD_DEV)
+        {
+            *(uint32_t *)(buf + 16) = 0020666;
+            *(uint32_t *)(buf + 20) = 1;
+            return 0;
+        }
+        if (e->type == FD_DIR)
+        {
+            *(uint32_t *)(buf + 16) = 0040755;
+            *(uint32_t *)(buf + 20) = 1;
+            return 0;
+        }
+        if (e->type != FD_FILE)
+            return -1;
         uint32_t sz = vfs_size_entry(e);
-        *(uint32_t *)(buf + 16) = 0100644;                    
-        *(uint32_t *)(buf + 20) = 1;                          
-        *(int64_t  *)(buf + 40) = (int64_t)sz;                
-        *(uint64_t *)(buf + 48) = 512;                        
+        *(uint32_t *)(buf + 16) = 0100644;
+        *(uint32_t *)(buf + 20) = 1;
+        *(int64_t  *)(buf + 40) = (int64_t)sz;
+        *(uint64_t *)(buf + 48) = 512;
         *(int64_t  *)(buf + 56) = (int64_t)((sz + 511) / 512);
         return 0;
     }
@@ -906,7 +1294,8 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     {
         int64_t pid = (int64_t)arg1;
         int *wstatus = (int *)arg2;
-        return sched_wait_pid(pid, wstatus);
+        int options = (int)arg3;
+        return sched_wait_pid(pid, wstatus, options);
     }
 
     case SYSCALL_LIST_TASKS:
@@ -1008,6 +1397,18 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             if (src->type == FD_PIPE_WRITE)
                 src->pipe->writers++;
         }
+        else if (src->type == FD_PTY_MASTER)
+        {
+            src->pty->refcount++;
+            src->pty->master_refs++;
+            src->pty->master_open = 1;
+        }
+        else if (src->type == FD_PTY_SLAVE)
+        {
+            src->pty->refcount++;
+            src->pty->slave_refs++;
+            src->pty->slave_open = 1;
+        }
         return nfd;
     }
 
@@ -1038,6 +1439,18 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                 src->pipe->readers++;
             if (src->type == FD_PIPE_WRITE)
                 src->pipe->writers++;
+        }
+        else if (src->type == FD_PTY_MASTER)
+        {
+            src->pty->refcount++;
+            src->pty->master_refs++;
+            src->pty->master_open = 1;
+        }
+        else if (src->type == FD_PTY_SLAVE)
+        {
+            src->pty->refcount++;
+            src->pty->slave_refs++;
+            src->pty->slave_open = 1;
         }
         return newfd;
     }
@@ -1267,6 +1680,128 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return (uint64_t)woken;
         }
         return (uint64_t)(int64_t)-22;
+    }
+
+    case SYSCALL_PTY_OPEN:
+    {
+       
+        int *slave_fd_out = (int *)(uintptr_t)arg1;
+        task_t *cur = sched_current_task();
+        if (!cur || !cur->fd_table || !slave_fd_out)
+            return (uint64_t)(int64_t)-1;
+
+        pty_buf_t *pty = (pty_buf_t *)kmalloc(sizeof(pty_buf_t));
+        if (!pty) return (uint64_t)(int64_t)-1;
+        memset(pty, 0, sizeof(pty_buf_t));
+
+        pty->ws_rows   = 24;
+        pty->ws_cols   = 80;
+        pty->ws_xpixel = 0;
+        pty->ws_ypixel = 0;
+        pty->master_open = 1;
+        pty->master_refs = 1;
+        pty->slave_open  = 1;
+        pty->slave_refs  = 1;
+        pty->refcount    = 2;
+        pty_defaults(pty);
+
+        int mfd = fd_alloc(cur->fd_table);
+        if (mfd < 0) { kfree(pty); return (uint64_t)(int64_t)-1; }
+        cur->fd_table->entries[mfd].used = 1;
+
+        int sfd = fd_alloc(cur->fd_table);
+        if (sfd < 0)
+        {
+            cur->fd_table->entries[mfd].used = 0;
+            kfree(pty);
+            return (uint64_t)(int64_t)-1;
+        }
+
+        fd_entry_t *me = &cur->fd_table->entries[mfd];
+        memset(me, 0, sizeof(*me));
+        me->used = 1;
+        me->type = FD_PTY_MASTER;
+        me->pty = pty;
+
+        fd_entry_t *se = &cur->fd_table->entries[sfd];
+        memset(se, 0, sizeof(*se));
+        se->used = 1;
+        se->type = FD_PTY_SLAVE;
+        se->pty = pty;
+
+        *slave_fd_out = sfd;
+        return (uint64_t)(unsigned int)mfd;
+    }
+
+    case SYSCALL_IOCTL:
+    {
+        int fd          = (int)arg1;
+        unsigned long req = (unsigned long)arg2;
+        void *argp      = (void *)(uintptr_t)arg3;
+
+        task_t *cur = sched_current_task();
+        if (!cur || !cur->fd_table) return (uint64_t)(int64_t)-1;
+
+        fd_entry_t *e = NULL;
+        if (fd >= 0 && fd < TASK_MAX_FDS && cur->fd_table->entries[fd].used)
+            e = &cur->fd_table->entries[fd];
+
+        if (!e) return (uint64_t)(int64_t)-1;
+
+        if (e->type == FD_PTY_MASTER || e->type == FD_PTY_SLAVE)
+        {
+            pty_buf_t *pty = e->pty;
+            if ((req == ZEN_TCGETS || req == ZEN_TCSETS || req == ZEN_TCSETSW || req == ZEN_TCSETSF) && !argp)
+                return (uint64_t)(int64_t)-1;
+            if (req == ZEN_TCGETS)
+            {
+                pty_export_termios(pty, (zen_termios_t *)argp);
+                return 0;
+            }
+            if (req == ZEN_TCSETS || req == ZEN_TCSETSW)
+            {
+                pty_import_termios(pty, (const zen_termios_t *)argp, 0);
+                return 0;
+            }
+            if (req == ZEN_TCSETSF)
+            {
+                pty_import_termios(pty, (const zen_termios_t *)argp, 1);
+                return 0;
+            }
+            if (req == ZEN_TIOCGWINSZ && argp)
+            {
+                zen_winsize_t *ws = (zen_winsize_t *)argp;
+                ws->ws_row    = pty->ws_rows;
+                ws->ws_col    = pty->ws_cols;
+                ws->ws_xpixel = pty->ws_xpixel;
+                ws->ws_ypixel = pty->ws_ypixel;
+                return 0;
+            }
+            if (req == ZEN_TIOCSWINSZ && argp)
+            {
+                zen_winsize_t *ws = (zen_winsize_t *)argp;
+                pty->ws_rows   = ws->ws_row;
+                pty->ws_cols   = ws->ws_col;
+                pty->ws_xpixel = ws->ws_xpixel;
+                pty->ws_ypixel = ws->ws_ypixel;
+                return 0;
+            }
+            if (req == ZEN_FIONREAD && argp)
+            {
+                int *out = (int *)argp;
+                if (e->type == FD_PTY_MASTER)
+                    *out = (int)pty->s2m_count;
+                else if (pty->lflag & ZEN_ICANON)
+                    *out = (int)pty->m2s_ready;
+                else
+                    *out = (int)pty->m2s_count;
+                return 0;
+            }
+            if (req == ZEN_TIOCSPTYGID)
+                return 0;
+            return 0;
+        }
+        return 0;
     }
 
     default:

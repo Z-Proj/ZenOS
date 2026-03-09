@@ -603,8 +603,9 @@ static int write_wait_status(task_t *task, int *status_ptr, int value)
     return 0;
 }
 
-int sched_wait_pid(int64_t pid, int *status)
+int sched_wait_pid(int64_t pid, int *status, int options)
 {
+#define WNOHANG 1
     if (!current_task)
         return -1;
     if (write_wait_status(current_task, status, 0) < 0)
@@ -684,6 +685,14 @@ int sched_wait_pid(int64_t pid, int *status)
         current_task->wait_result_pid = -1;
         current_task->wait_status = 0;
         current_task->waiting_on_pid = 1;
+
+        if (options & WNOHANG)
+        {
+            current_task->waiting_on_pid = 0;
+            spinlock_release(&sched_lock);
+            return 0;
+        }
+
         current_task->state = TASK_BLOCKED;
 
         spinlock_release(&sched_lock);
