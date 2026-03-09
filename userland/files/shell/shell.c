@@ -259,7 +259,7 @@ static void cmd_exec(int argc, char* argv[]) {
     if (pid == 0) {
         execv(argv[1], &argv[1]);
         fputs(COLOR_RED "Failed to execute\n" COLOR_RESET, stdout);
-        exit(1);
+        return;
     }
 
     fputs(COLOR_YELLOW "Executing: " COLOR_RESET, stdout);
@@ -282,7 +282,7 @@ static void cmd_execwait(int argc, char* argv[]) {
     if (pid == 0) {
         execv(argv[1], &argv[1]);
         fputs(COLOR_RED "Failed to execute\n" COLOR_RESET, stdout);
-        exit(1);
+        return;
     }
 
     int status;
@@ -301,7 +301,7 @@ static void run_file(const char *path, int argc, char *argv[]) {
         fputs(COLOR_RED "Failed to execute: " COLOR_RESET, stdout);
         fputs(path, stdout);
         fputs("\n", stdout);
-        exit(1);
+        return;
     }
 }
 
