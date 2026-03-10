@@ -302,7 +302,7 @@ int main(void)
     sbuf.bg    = 0;
 
     CELL_W   = 8;
-    CELL_H   = 16;
+    CELL_H   = 18;
     TERM_COLS = (int)(fb_w / CELL_W);
     TERM_ROWS = (int)(fb_h / CELL_H);
     if (TERM_COLS < 1)  TERM_COLS = 80;
