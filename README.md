@@ -68,7 +68,7 @@ The project focuses on clean design, correctness, and real hardware interaction.
 - **Process Utils** — ps, kill
 - **System Info** — uname, time
 - **Math** — calc, primes, fibonacci, counter
-- **Text & UI** — terminal (PTY terminal emulator), edit (text editor), clock, beep, mouse
+- **Text & UI** — terminal (PTY terminal emulator), edit (text editor), clock, beep, mouse, [FIGlet](https://github.com/cmatsuoka/figlet).
 - **Compilers** — [TinyCC](https://github.com/TinyCC/tinycc), [SmallerC](https://github.com/alexfru/SmallerC)
 - **Scripting** — [Lua 5.5.0](https://www.lua.org/)
 - **Networking** — wget, zen package manager, nettest
@@ -144,6 +144,7 @@ socat
 - [Lua](https://www.lua.org/) — lightweight scripting language
 - [TinyCC](https://github.com/TinyCC/tinycc) — Tiny C Compiler, ported to ZenOS
 - [SmallerC](https://github.com/alexfru/SmallerC) — C to assembly compiler
+- [FIGlet](https://github.com/cmatsuoka/figlet) — Large ASCII text renderer
 
 ---
 
