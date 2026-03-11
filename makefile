@@ -136,7 +136,7 @@ qemu:
 	-serial stdio \
 	-netdev user,id=net0 \
 	-device e1000,netdev=net0 \
-	-display gtk,gl=on \
+	-display sdl,grab-mod=rctrl,show-cursor=on \
 	-enable-kvm \
 	-cpu host
 

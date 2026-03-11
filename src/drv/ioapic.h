@@ -1,6 +1,7 @@
 #include "stdint.h"
 
 extern uint8_t *g_ioApicAddr;
+extern uint32_t g_ioApicGsiBase;
 
 void IoApicInit();
 void IoApicSetEntry(uint8_t *base, uint8_t index, uint64_t data);

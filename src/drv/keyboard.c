@@ -440,18 +440,8 @@ static void switcher_move(int direction)
 
 int font_id = 3;
 
-static void kbd_interrupt_handler(registers_t *regs)
+static void kbd_handle_scancode(uint8_t scancode)
 {
-    (void)regs;
-    uint8_t status = inportb(PS2_STATUS_PORT);
-    if (!(status & PS2_STATUS_OUTPUT_FULL)) return;
-
-    uint8_t scancode = inportb(PS2_DATA_PORT);
-    if (status & 0x20) {
-        mouse_process_byte(scancode);
-        return;
-    }
-
     if (scancode == SCANCODE_EXTENDED_PREFIX) {
         waiting_for_extended_code = true;
         return;
@@ -520,6 +510,16 @@ static void kbd_interrupt_handler(registers_t *regs)
         if (c != 0)
             buffer_put_char(c);
     }
+}
+
+static void kbd_interrupt_handler(registers_t *regs)
+{
+    (void)regs;
+    uint8_t status = inportb(PS2_STATUS_PORT);
+    if (!(status & PS2_STATUS_OUTPUT_FULL)) return;
+    if (status & 0x20) return;
+    uint8_t scancode = inportb(PS2_DATA_PORT);
+    kbd_handle_scancode(scancode);
 }
 
 void kbd_switcher_tick(void)

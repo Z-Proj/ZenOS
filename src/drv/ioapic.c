@@ -7,6 +7,7 @@
 #include "../libk/debug/log.h"
 
 uint8_t *g_ioApicAddr;
+uint32_t g_ioApicGsiBase;
 
 #define IOREGSEL 0x00
 #define IOWIN 0x10
@@ -49,8 +50,31 @@ void IoApicSetIrq(uint8_t *base, uint8_t irq, uint8_t vector, uint8_t dest_apic_
 
 void IoApicSetIrqMapped(int irq, int vector)
 {
-    int gsi = AcpiRemapIrq(irq);
-    IoApicSetIrq(g_ioApicAddr, gsi, vector, LocalApicGetId());
+    int gsi = irq;
+    uint16_t flags = 0;
+    AcpiGetIrqOverride(irq, &gsi, &flags);
+
+    int ioapic_irq = gsi - (int)g_ioApicGsiBase;
+    if (ioapic_irq < 0)
+        return;
+
+    uint16_t pol = flags & 0x3;
+    uint16_t trg = (flags >> 2) & 0x3;
+    uint8_t polarity = (pol == 3) ? 1 : 0;
+    uint8_t trigger = (trg == 3) ? 1 : 0;
+
+    uint64_t entry = vector |
+                    (0 << 8) |
+                    (0 << 11) |
+                    ((uint64_t)polarity << 13) |
+                    (0 << 14) |
+                    ((uint64_t)trigger << 15) |
+                    (0 << 16) |
+                    ((uint64_t)LocalApicGetId() << 56);
+
+    IoApicSetEntry(g_ioApicAddr, (uint8_t)ioapic_irq, entry);
+    log("IOAPIC map irq=%d gsi=%d base=%u pin=%d flags=0x%x pol=%u trg=%u vec=0x%x", 1, 0,
+        irq, gsi, g_ioApicGsiBase, ioapic_irq, (unsigned)flags, polarity, trigger, vector);
 }
 
 void IoApicInit()

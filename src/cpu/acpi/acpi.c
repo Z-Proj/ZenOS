@@ -342,6 +342,7 @@ static void AcpiParseApic(AcpiMadt *madt) {
         if (header->type == APIC_TYPE_IO_APIC) {
             ApicIoApic *s = (ApicIoApic *)p;
             g_ioApicAddr = (uint8_t *)(uintptr_t)s->ioApicAddress;
+            g_ioApicGsiBase = s->globalSystemInterruptBase;
         }
         else if (header->type == APIC_TYPE_INTERRUPT_OVERRIDE) {
             irq_overrides++;
@@ -466,8 +467,17 @@ void AcpiInit(void) {
 }
 
 int AcpiRemapIrq(int irq) {
+    int gsi = irq;
+    AcpiGetIrqOverride(irq, &gsi, NULL);
+    return gsi;
+}
+
+bool AcpiGetIrqOverride(int irq, int *gsi, uint16_t *flags) {
+    if (gsi) *gsi = irq;
+    if (flags) *flags = 0;
+
     if (!s_madt)
-        return irq;
+        return false;
 
     uint8_t *p = (uint8_t *)(s_madt + 1);
     uint8_t *end = (uint8_t *)s_madt + s_madt->header.length;
@@ -477,13 +487,15 @@ int AcpiRemapIrq(int irq) {
         if (header->type == APIC_TYPE_INTERRUPT_OVERRIDE) {
             ApicInterruptOverride *s = (ApicInterruptOverride *)p;
             if (s->source == irq) {
-                return s->interrupt;
+                if (gsi) *gsi = s->interrupt;
+                if (flags) *flags = s->flags;
+                return true;
             }
         }
         p += header->length;
     }
 
-    return irq;
+    return false;
 }
 
 bool AcpiIsEnabled(void) {

@@ -112,18 +112,12 @@ void mouse_process_byte(uint8_t data)
 void mouse_handler(registers_t *regs)
 {
     (void)regs;
-    uint8_t status = inportb(0x64);
-    if (!(status & 0x01))
-        return;
-    if (!(status & 0x20))
-        return;
     mouse_process_byte(inportb(0x60));
 }
 
 void mouse_init(void)
 {
     mouse_drain_output();
-
     if (!mouse_wait(1))
     {
         log("Mouse init failed: controller busy", 2, 1);
@@ -159,18 +153,13 @@ void mouse_init(void)
     }
     outportb(0x60, status);
 
-    register_interrupt_handler(IRQ12, mouse_handler, "Mouse Handler");
-
     uint8_t response = 0;
-    if (!mouse_write(0xF6) || !mouse_read(&response) || response != 0xFA)
-    {
-        log("Mouse init warning: defaults command ack mismatch (0x%x)", 2, 1, response);
-    }
-    response = 0;
-    if (!mouse_write(0xF4) || !mouse_read(&response) || response != 0xFA)
-    {
-        log("Mouse init warning: enable command ack mismatch (0x%x)", 2, 1, response);
-    }
+    mouse_write(0xF6);
+    mouse_read(&response);
+    mouse_write(0xF4);
+    mouse_read(&response);
+
+    register_interrupt_handler(IRQ12, mouse_handler, "Mouse Handler");
 
     mouse_drain_output();
 
