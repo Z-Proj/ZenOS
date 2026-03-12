@@ -48,7 +48,7 @@ user:
 	$(USER_DIR)/build_elf.sh
 
 init:
-	@printf "/mnt/drv0/bin/terminal" > init.run
+	@printf "/mnt/drv0/bin/shell" > init.run
 	./fat_man ZenOS.vhd mkdir /sys
 	./fat_man ZenOS.vhd import init.run /sys/init.run
 	@rm init.run

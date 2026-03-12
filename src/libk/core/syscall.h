@@ -73,6 +73,9 @@
 #define SYSCALL_FUTEX            67
 #define SYSCALL_PTY_OPEN         68  
 #define SYSCALL_IOCTL            69  
+#define SYSCALL_SHM_CREATE       70
+#define SYSCALL_SHM_OPEN         71
+#define SYSCALL_SHM_CLOSE        72
 #define ZEN_TIOCGWINSZ  0x5413  
 #define ZEN_TIOCSWINSZ  0x5414  
 #define ZEN_TIOCSPTYGID 0x5420  
@@ -192,6 +195,14 @@ typedef struct {
     uint64_t pid;
     char name[64];
 } task_info_t;
+
+#define SHM_NAME_MAX 64
+#define SHM_MAX      32
+
+typedef struct {
+    uint64_t addr;
+    uint64_t size;
+} shm_info_t;
 
 void init_syscalls(void);
 uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5);

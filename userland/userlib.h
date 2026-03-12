@@ -311,4 +311,28 @@ static inline int zen_tcsetattr(int fd, int actions, const zen_termios_t *tio)
     return zen_ioctl(fd, req, (void *)tio);
 }
 
+#define SYSCALL_SHM_CREATE 70
+#define SYSCALL_SHM_OPEN   71
+#define SYSCALL_SHM_CLOSE  72
+
+typedef struct {
+    uint64_t addr;
+    uint64_t size;
+} shm_info_t;
+
+static inline int zen_shm_create(const char *name, size_t size, shm_info_t *out)
+{
+    return (int)_sc_ret(_syscall3(SYSCALL_SHM_CREATE, (uint64_t)name, (uint64_t)size, (uint64_t)out));
+}
+
+static inline int zen_shm_open(const char *name, shm_info_t *out)
+{
+    return (int)_sc_ret(_syscall2(SYSCALL_SHM_OPEN, (uint64_t)name, (uint64_t)out));
+}
+
+static inline int zen_shm_close(const char *name)
+{
+    return (int)_sc_ret(_syscall1(SYSCALL_SHM_CLOSE, (uint64_t)name));
+}
+
 #endif

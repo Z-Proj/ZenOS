@@ -24,6 +24,17 @@
 extern void syscall_entry(void);
 extern tss_t tss;
 
+#define SHM_VIRT_BASE 0x0000500000000000ULL
+
+typedef struct {
+    char     name[SHM_NAME_MAX];
+    uint64_t phys;
+    size_t   pages;
+    bool     in_use;
+} shm_region_t;
+
+static shm_region_t shm_table[SHM_MAX];
+
 void init_syscalls(void)
 {
     uint64_t star = ((uint64_t)0x08 << 32) | ((uint64_t)0x10 << 48);
@@ -1802,6 +1813,96 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return 0;
         }
         return 0;
+    }
+
+    case SYSCALL_SHM_CREATE:
+    {
+        const char *name = (const char *)arg1;
+        size_t size      = (size_t)arg2;
+        shm_info_t *info = (shm_info_t *)arg3;
+        if (!name || size == 0 || !info)
+            return -1;
+
+        for (int i = 0; i < SHM_MAX; i++)
+            if (shm_table[i].in_use && strcmp(shm_table[i].name, name) == 0)
+                return -1;
+
+        int slot = -1;
+        for (int i = 0; i < SHM_MAX; i++)
+            if (!shm_table[i].in_use) { slot = i; break; }
+        if (slot < 0)
+            return -1;
+
+        size_t pages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
+        uint64_t phys = alloc_pages(pages);
+        if (!phys)
+            return -1;
+
+        task_t *current = sched_current_task();
+        if (!current || !current->pml4) { free_page(phys); return -1; }
+
+        uint64_t virt = SHM_VIRT_BASE + (uint64_t)slot * 0x10000000ULL;
+        for (size_t i = 0; i < pages; i++)
+            map_page(current->pml4, virt + i * PAGE_SIZE, phys + i * PAGE_SIZE,
+                     PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+
+        strncpy(shm_table[slot].name, name, SHM_NAME_MAX - 1);
+        shm_table[slot].name[SHM_NAME_MAX - 1] = '\0';
+        shm_table[slot].phys   = phys;
+        shm_table[slot].pages  = pages;
+        shm_table[slot].in_use = true;
+
+        info->addr = virt;
+        info->size = pages * PAGE_SIZE;
+        return 0;
+    }
+
+    case SYSCALL_SHM_OPEN:
+    {
+        const char *name = (const char *)arg1;
+        shm_info_t *info = (shm_info_t *)arg2;
+        if (!name || !info)
+            return -1;
+
+        int slot = -1;
+        for (int i = 0; i < SHM_MAX; i++)
+            if (shm_table[i].in_use && strcmp(shm_table[i].name, name) == 0)
+                { slot = i; break; }
+        if (slot < 0)
+            return -1;
+
+        task_t *current = sched_current_task();
+        if (!current || !current->pml4)
+            return -1;
+
+        uint64_t virt = SHM_VIRT_BASE + (uint64_t)slot * 0x10000000ULL;
+        for (size_t i = 0; i < shm_table[slot].pages; i++)
+            map_page(current->pml4, virt + i * PAGE_SIZE,
+                     shm_table[slot].phys + i * PAGE_SIZE,
+                     PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+
+        info->addr = virt;
+        info->size = shm_table[slot].pages * PAGE_SIZE;
+        return 0;
+    }
+
+    case SYSCALL_SHM_CLOSE:
+    {
+        const char *name = (const char *)arg1;
+        if (!name)
+            return -1;
+
+        for (int i = 0; i < SHM_MAX; i++)
+        {
+            if (shm_table[i].in_use && strcmp(shm_table[i].name, name) == 0)
+            {
+                for (size_t p = 0; p < shm_table[i].pages; p++)
+                    free_page(shm_table[i].phys + p * PAGE_SIZE);
+                shm_table[i].in_use = false;
+                return 0;
+            }
+        }
+        return -1;
     }
 
     default:
