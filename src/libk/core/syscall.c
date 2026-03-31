@@ -18,7 +18,6 @@
 #include "../../cpu/gdt.h"
 #include "../../cpu/smp.h"
 #include "../string.h"
-#include "../debug/serial.h"
 #include "mem.h"
 #include "socket.h"
 
@@ -71,10 +70,22 @@ void init_syscalls(void)
 
 void syscall_prepare_user_return(uint64_t gs_base)
 {
+    tss_t *cpu_tss = gdt_get_tss(smp_current_cpu_index());
+    if (!cpu_tss)
+        cpu_tss = gdt_get_tss(smp_bsp_cpu_index());
+
     uint32_t gs_lo = (uint32_t)(gs_base & 0xFFFFFFFF);
     uint32_t gs_hi = (uint32_t)(gs_base >> 32);
     __asm__ volatile("wrmsr" : : "c"(0xC0000101), "a"(gs_lo), "d"(gs_hi));
 
+    uint64_t kernel_gs_base = (uint64_t)cpu_tss;
+    uint32_t kgs_lo = (uint32_t)(kernel_gs_base & 0xFFFFFFFF);
+    uint32_t kgs_hi = (uint32_t)(kernel_gs_base >> 32);
+    __asm__ volatile("wrmsr" : : "c"(0xC0000102), "a"(kgs_lo), "d"(kgs_hi));
+}
+
+void syscall_prepare_sysret_return(uint64_t gs_base)
+{
     tss_t *cpu_tss = gdt_get_tss(smp_current_cpu_index());
     if (!cpu_tss)
         cpu_tss = gdt_get_tss(smp_bsp_cpu_index());
@@ -82,7 +93,11 @@ void syscall_prepare_user_return(uint64_t gs_base)
     uint64_t kernel_gs_base = (uint64_t)cpu_tss;
     uint32_t kgs_lo = (uint32_t)(kernel_gs_base & 0xFFFFFFFF);
     uint32_t kgs_hi = (uint32_t)(kernel_gs_base >> 32);
-    __asm__ volatile("wrmsr" : : "c"(0xC0000102), "a"(kgs_lo), "d"(kgs_hi));
+    __asm__ volatile("wrmsr" : : "c"(0xC0000101), "a"(kgs_lo), "d"(kgs_hi));
+
+    uint32_t gs_lo = (uint32_t)(gs_base & 0xFFFFFFFF);
+    uint32_t gs_hi = (uint32_t)(gs_base >> 32);
+    __asm__ volatile("wrmsr" : : "c"(0xC0000102), "a"(gs_lo), "d"(gs_hi));
 }
 
 static void dispatch_pending_signals(task_t *task)

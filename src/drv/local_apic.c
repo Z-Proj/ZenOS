@@ -80,8 +80,7 @@ static void LocalApicOut(int reg, uint32_t data)
 
 static void lapic_timer_handler(registers_t *regs)
 {
-    (void)regs;
-    sched_tick();
+    sched_tick(regs);
 }
 
 static uint32_t lapic_timer_calibrate(uint32_t frequency_hz)

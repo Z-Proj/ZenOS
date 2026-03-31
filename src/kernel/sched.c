@@ -45,8 +45,7 @@ static task_t *sched_current_task_for_cpu(uint32_t cpu_index)
 
 static void sched_ipi_handler(registers_t *regs)
 {
-    (void)regs;
-    sched_tick();
+    sched_tick(regs);
 }
 
 static void idle_task_loop(void)
@@ -91,7 +90,7 @@ static task_t *create_kernel_task_locked(void (*entry)(void), const char *name, 
     task->is_kernel_task = 1;
     task->is_idle_task = is_idle_task;
     task->pml4 = get_kernel_pml4();
-    task->parent_pid = 0;
+    task->parent_pid = TASK_NO_PARENT;
     task->wait_status = 0;
     task->wait_pid_target = -1;
     task->wait_result_pid = -1;
@@ -274,7 +273,7 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
     task->argc = argc;
     task->argv = argv;
     task->envp = NULL;
-    task->parent_pid = 0;
+    task->parent_pid = TASK_NO_PARENT;
     task->wait_status = 0;
     task->wait_pid_target = -1;
     task->wait_result_pid = -1;
@@ -422,7 +421,7 @@ static void reap_dead_tasks(void)
         if (iter->state == TASK_DEAD && iter->running_cpu < 0)
         {
             task_t *parent = NULL;
-            if (iter->parent_pid != 0)
+            if (iter->parent_pid != TASK_NO_PARENT)
                 parent = find_task_by_pid_locked(iter->parent_pid);
 
             if (parent && parent->state != TASK_DEAD && !iter->wait_collected)
@@ -557,6 +556,37 @@ static task_t *get_next_task_locked(uint32_t cpu_index)
     return find_next_task_locked(cpu_index, 1);
 }
 
+static void sched_switch_locked(sched_cpu_state_t *cpu_state, task_t *new_task, uint32_t cpu_index, uint64_t rflags, registers_t *save_regs)
+{
+    new_task->state = TASK_RUNNING;
+    new_task->running_cpu = (int32_t)cpu_index;
+    new_task->last_cpu = (int32_t)cpu_index;
+    new_task->time_slice_remaining = TIME_SLICE;
+
+    tss_t *tss = gdt_get_tss(cpu_index);
+    if (tss)
+        tss->rsp0 = new_task->kernel_stack + TASK_STACK_SIZE;
+
+    page_table_t *active_pml4 = cpu_state->active_pml4 ? cpu_state->active_pml4 : get_kernel_pml4();
+    if (new_task->pml4 != active_pml4)
+        switch_page_directory(new_task->pml4);
+
+    cpu_state->active_pml4 = new_task->pml4;
+    cpu_state->current_task = new_task;
+
+    if (!new_task->is_kernel_task && (new_task->regs.cs & 3))
+        syscall_prepare_user_return(0);
+    else if (!new_task->is_kernel_task)
+        syscall_prepare_sysret_return(0);
+
+    spinlock_release_noirq(&sched_lock);
+
+    task_switch(save_regs, &new_task->regs);
+
+    if (rflags & 0x200)
+        __asm__ volatile("sti" ::: "memory");
+}
+
 void sched_yield(void)
 {
     if (!scheduler_enabled)
@@ -574,6 +604,10 @@ void sched_yield(void)
         old_task->state = TASK_READY;
         old_task->running_cpu = -1;
         old_task->time_slice_remaining = TIME_SLICE;
+    }
+    else if (old_task && old_task->running_cpu == (int32_t)cpu_index)
+    {
+        old_task->running_cpu = -1;
     }
 
     task_t *new_task = get_next_task_locked(cpu_index);
@@ -597,34 +631,11 @@ void sched_yield(void)
         return;
     }
 
-    new_task->state = TASK_RUNNING;
-    new_task->running_cpu = (int32_t)cpu_index;
-    new_task->last_cpu = (int32_t)cpu_index;
-    new_task->time_slice_remaining = TIME_SLICE;
-
-    tss_t *tss = gdt_get_tss(cpu_index);
-    if (tss)
-        tss->rsp0 = new_task->kernel_stack + TASK_STACK_SIZE;
-
-    page_table_t *active_pml4 = cpu_state->active_pml4 ? cpu_state->active_pml4 : get_kernel_pml4();
-    if (new_task->pml4 != active_pml4)
-        switch_page_directory(new_task->pml4);
-
-    cpu_state->active_pml4 = new_task->pml4;
-    cpu_state->current_task = new_task;
-
-    if (!new_task->is_kernel_task)
-        syscall_prepare_user_return(0);
-
-    spinlock_release_noirq(&sched_lock);
-
-    task_switch(old_task ? &old_task->regs : &cpu_state->bootstrap_regs, &new_task->regs);
-
-    if (rflags & 0x200)
-        __asm__ volatile("sti" ::: "memory");
+    sched_switch_locked(cpu_state, new_task, cpu_index, rflags,
+                        old_task ? &old_task->regs : &cpu_state->bootstrap_regs);
 }
 
-void sched_tick(void)
+void sched_tick(registers_t *irq_regs)
 {
     task_t *current = sched_current_task();
     if (!scheduler_enabled || !current)
@@ -634,7 +645,51 @@ void sched_tick(void)
         current->time_slice_remaining--;
 
     if (current->time_slice_remaining == 0)
-        sched_yield();
+    {
+        if (!irq_regs || !(irq_regs->cs & 3) || !current || current->is_kernel_task)
+        {
+            sched_yield();
+            return;
+        }
+
+        uint32_t cpu_index = smp_current_cpu_index();
+        sched_cpu_state_t *cpu_state = sched_get_cpu_state(cpu_index);
+        uint64_t rflags = spinlock_acquire_irqsave(&sched_lock);
+
+        reap_dead_tasks();
+
+        current->regs = *irq_regs;
+
+        if (current->state == TASK_RUNNING)
+        {
+            current->state = TASK_READY;
+            current->running_cpu = -1;
+            current->time_slice_remaining = TIME_SLICE;
+        }
+
+        task_t *new_task = get_next_task_locked(cpu_index);
+
+        if (!new_task)
+        {
+            if (current->state == TASK_READY)
+            {
+                current->state = TASK_RUNNING;
+                current->running_cpu = (int32_t)cpu_index;
+            }
+            spinlock_release_irqrestore(&sched_lock, rflags);
+            return;
+        }
+
+        if (new_task == current)
+        {
+            current->state = TASK_RUNNING;
+            current->running_cpu = (int32_t)cpu_index;
+            spinlock_release_irqrestore(&sched_lock, rflags);
+            return;
+        }
+
+        sched_switch_locked(cpu_state, new_task, cpu_index, rflags, &cpu_state->bootstrap_regs);
+    }
 }
 
 task_t *sched_current_task(void)

@@ -3,6 +3,7 @@
 #include "../../libk/string.h"
 #include "../../libk/debug/log.h"
 #include "../../libk/core/mem.h"
+#include "../../libk/spinlock.h"
 #include "../net/pci.h"
 #include "../local_apic.h"
 #include "../../cpu/isr.h"
@@ -41,6 +42,7 @@ static prdt_entry_t *prdt = NULL;
 static uint8_t *bounce_buf = NULL;
 static uint64_t bounce_buf_phys = 0;
 static uint64_t prdt_phys = 0;
+static spinlock_t ata_dma_lock;
 
 static void ata_delay(uint16_t base_io)
 {
@@ -189,6 +191,7 @@ ata_device_type_t ata_detect_drive(uint8_t drive)
 
 ata_error_t ata_init(void)
 {
+    spinlock_init(&ata_dma_lock);
     pci_device_t *ide = pci_find_device_by_class(PCI_CLASS_STORAGE, PCI_SUBCLASS_IDE);
     if (ide)
     {
@@ -271,6 +274,7 @@ ata_error_t ata_identify_drive(uint8_t drive, uint16_t *buffer)
 
 static ata_error_t ata_dma_transfer(uint8_t drive, uint32_t lba, uint8_t count, void *buffer, int write)
 {
+    uint64_t lock_flags = spinlock_acquire_irqsave(&ata_dma_lock);
     uint16_t base_io     = drives[drive].base_io;
     uint8_t  chan        = (drive < 2) ? 0 : 1;
     uint16_t bm_base     = bmide_base + (chan ? 8 : 0);
@@ -312,24 +316,41 @@ static ata_error_t ata_dma_transfer(uint8_t drive, uint32_t lba, uint8_t count, 
 
     outportb(bm_base + BMIDE_REG_CMD, (write ? 0 : BMIDE_CMD_WRITE) | BMIDE_CMD_START);
 
-    asm volatile("sti");
+    timeout_counter = 0;
     while (!irq_fired[chan])
-        asm volatile("hlt");
-    asm volatile("cli");
+    {
+        uint8_t bm_status = inportb(bm_base + BMIDE_REG_STATUS);
+        if (!(bm_status & BMIDE_STATUS_ACTIVE))
+            break;
+        if (++timeout_counter >= ATA_TIMEOUT_MS * 100000)
+        {
+            outportb(bm_base + BMIDE_REG_CMD, 0);
+            spinlock_release_irqrestore(&ata_dma_lock, lock_flags);
+            return ATA_ERR_TIMEOUT;
+        }
+        asm volatile("pause" ::: "memory");
+    }
 
     outportb(bm_base + BMIDE_REG_CMD, 0);
 
     if (inportb(bm_base + BMIDE_REG_STATUS) & BMIDE_STATUS_ERR)
+    {
+        spinlock_release_irqrestore(&ata_dma_lock, lock_flags);
         return ATA_ERR_GENERAL;
+    }
 
     current_selected_drive = -1;
     ata_error_t bsy = ata_wait_ready(base_io);
     if (bsy != ATA_SUCCESS)
+    {
+        spinlock_release_irqrestore(&ata_dma_lock, lock_flags);
         return bsy;
+    }
 
     if (!write && using_bounce)
         memcpy(buffer, bounce_buf, total_bytes);
 
+    spinlock_release_irqrestore(&ata_dma_lock, lock_flags);
     return ATA_SUCCESS;
 }
 

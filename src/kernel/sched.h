@@ -13,6 +13,7 @@ typedef int64_t pid_t;
 #define TIME_SLICE 2
 #define MAX_TASKS 2048
 #define SCHED_IPI_VECTOR IRQ3
+#define TASK_NO_PARENT UINT64_MAX
 
 typedef enum
 {
@@ -67,7 +68,7 @@ void sched_ap_entry(void);
 task_t *task_create(void (*entry)(void), const char *name);
 task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pml4, int argc, char **argv);
 void sched_yield(void);
-void sched_tick(void);
+void sched_tick(registers_t *irq_regs);
 task_t *sched_current_task(void);
 task_t *sched_get_task_list(void);
 uint32_t sched_list_tasks(task_info_t *infos, uint32_t max_count);

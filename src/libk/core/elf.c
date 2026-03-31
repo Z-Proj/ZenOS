@@ -263,7 +263,8 @@ static int load_elf_file(const char *filename, uint8_t **elf_data_out, uint32_t 
     }
 
     uint32_t bytes_read = 0;
-    if (vfs_read(fd, elf_data, filesize, &bytes_read) != 0 || bytes_read != filesize) {
+    int read_rc = vfs_read(fd, elf_data, filesize, &bytes_read);
+    if (read_rc != 0 || bytes_read != filesize) {
         kfree(elf_data);
         vfs_close(fd);
         return -1;

@@ -100,15 +100,9 @@ void _start(void)
     vfs_init();
     if (!(framebuffer_bpp == 32))
         log("\nZenOS only supports 32bpp displays right now.\n", 2, 1);
-    // char *init_argv[] = {"kernel"};
-    // if (elf_exec("/mnt/drv0/bin/init", 1, init_argv) < 0)
-    //     log("No init program found.", 0, 1);
-    char *ulog_a_argv[] = {"/mnt/drv0/bin/ulog_a"};
-    char *ulog_b_argv[] = {"/mnt/drv0/bin/ulog_b"};
-    if (elf_exec("/mnt/drv0/bin/ulog_a", 1, ulog_a_argv) < 0)
-        log("No ulog_a program found.", 0, 1);
-    if (elf_exec("/mnt/drv0/bin/ulog_b", 1, ulog_b_argv) < 0)
-        log("No ulog_b program found.", 0, 1);
+    char *init_argv[] = {"kernel"};
+    if (elf_exec("/mnt/drv0/bin/init", 1, init_argv) < 0)
+        log("No init program found.", 0, 1);
     kbd_init_focus();
     sched_start();
     for (;;)
