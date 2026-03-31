@@ -205,6 +205,7 @@ typedef struct {
 } shm_info_t;
 
 void init_syscalls(void);
+void syscall_prepare_user_return(uint64_t gs_base);
 uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5);
 
 #endif

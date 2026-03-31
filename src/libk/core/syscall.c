@@ -16,13 +16,13 @@
 #include "../../drv/hpet.h"
 #include "../../cpu/acpi/acpi.h"
 #include "../../cpu/gdt.h"
+#include "../../cpu/smp.h"
 #include "../string.h"
 #include "../debug/serial.h"
 #include "mem.h"
 #include "socket.h"
 
 extern void syscall_entry(void);
-extern tss_t tss;
 
 #define SHM_VIRT_BASE 0x0000500000000000ULL
 
@@ -37,7 +37,7 @@ static shm_region_t shm_table[SHM_MAX];
 
 void init_syscalls(void)
 {
-    uint64_t star = ((uint64_t)0x08 << 32) | ((uint64_t)0x10 << 48);
+    uint64_t star = ((uint64_t)0x08 << 32) | ((uint64_t)0x13 << 48);
     uint32_t star_lo = star & 0xFFFFFFFF;
     uint32_t star_hi = star >> 32;
     __asm__ volatile("wrmsr" : : "c"(0xC0000081), "a"(star_lo), "d"(star_hi));
@@ -55,12 +55,34 @@ void init_syscalls(void)
     efer_lo |= 1;
     __asm__ volatile("wrmsr" : : "c"(0xC0000080), "a"(efer_lo), "d"(efer_hi));
 
-    uint64_t kernel_gs_base = (uint64_t)&tss;
+    __asm__ volatile("wrmsr" : : "c"(0xC0000101), "a"(0), "d"(0));
+
+    tss_t *cpu_tss = gdt_get_tss(smp_current_cpu_index());
+    if (!cpu_tss)
+        cpu_tss = gdt_get_tss(smp_bsp_cpu_index());
+
+    uint64_t kernel_gs_base = (uint64_t)cpu_tss;
     uint32_t gs_lo = kernel_gs_base & 0xFFFFFFFF;
     uint32_t gs_hi = kernel_gs_base >> 32;
     __asm__ volatile("wrmsr" : : "c"(0xC0000102), "a"(gs_lo), "d"(gs_hi));
 
     log("Syscalls initialized.", 4, 0);
+}
+
+void syscall_prepare_user_return(uint64_t gs_base)
+{
+    uint32_t gs_lo = (uint32_t)(gs_base & 0xFFFFFFFF);
+    uint32_t gs_hi = (uint32_t)(gs_base >> 32);
+    __asm__ volatile("wrmsr" : : "c"(0xC0000101), "a"(gs_lo), "d"(gs_hi));
+
+    tss_t *cpu_tss = gdt_get_tss(smp_current_cpu_index());
+    if (!cpu_tss)
+        cpu_tss = gdt_get_tss(smp_bsp_cpu_index());
+
+    uint64_t kernel_gs_base = (uint64_t)cpu_tss;
+    uint32_t kgs_lo = (uint32_t)(kernel_gs_base & 0xFFFFFFFF);
+    uint32_t kgs_hi = (uint32_t)(kernel_gs_base >> 32);
+    __asm__ volatile("wrmsr" : : "c"(0xC0000102), "a"(kgs_lo), "d"(kgs_hi));
 }
 
 static void dispatch_pending_signals(task_t *task)
@@ -1313,27 +1335,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     {
         task_info_t *infos = (task_info_t *)arg1;
         uint32_t max_count = (uint32_t)arg2;
-        if (!infos || max_count == 0)
-            return 0;
-        task_t *head = sched_get_task_list();
-        if (!head)
-            return 0;
-        uint32_t count = 0;
-        task_t *t = head;
-        do
-        {
-            if (count >= max_count)
-                break;
-            if (t->state != TASK_DEAD)
-            {
-                infos[count].pid = t->pid;
-                strncpy(infos[count].name, t->name, 63);
-                infos[count].name[63] = '\0';
-                count++;
-            }
-            t = t->next;
-        } while (t != head);
-        return count;
+        return sched_list_tasks(infos, max_count);
     }
 
     case SYSCALL_FORK:
@@ -1640,56 +1642,14 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_FUTEX:
     {
-       
         volatile uint32_t *uaddr = (volatile uint32_t *)(uintptr_t)arg1;
-        int op  = (int)arg2;
+        int op = (int)arg2;
         uint32_t val = (uint32_t)arg3;
 
-        if (!uaddr)
-            return (uint64_t)(int64_t)-22;
-
         if (op == FUTEX_WAIT)
-        {
-           
-            uint32_t cur = __atomic_load_n(uaddr, __ATOMIC_SEQ_CST);
-            if (cur != val)
-                return (uint64_t)(int64_t)-11;
-
-            task_t *me = sched_current_task();
-            if (!me)
-                return (uint64_t)(int64_t)-22;
-
-            me->futex_wait_addr = (uint64_t)(uintptr_t)uaddr;
-            me->futex_woken     = 0;
-            me->state           = TASK_BLOCKED;
-
-           
-            sched_yield();
-
-            me->futex_wait_addr = 0;
-            return 0;
-        }
-        else if (op == FUTEX_WAKE)
-        {
-            uint32_t to_wake = val;  
-            uint32_t woken   = 0;
-            uint64_t wake_addr = (uint64_t)(uintptr_t)uaddr;
-
-            task_t *t = sched_get_task_list();
-            while (t && woken < to_wake)
-            {
-                if (t->state == TASK_BLOCKED &&
-                    t->futex_wait_addr == wake_addr)
-                {
-                    t->futex_woken     = 1;
-                    t->futex_wait_addr = 0;
-                    t->state           = TASK_READY;
-                    woken++;
-                }
-                t = t->next;
-            }
-            return (uint64_t)woken;
-        }
+            return (uint64_t)(int64_t)sched_futex_wait(uaddr, val);
+        if (op == FUTEX_WAKE)
+            return (uint64_t)sched_futex_wake(uaddr, val);
         return (uint64_t)(int64_t)-22;
     }
 

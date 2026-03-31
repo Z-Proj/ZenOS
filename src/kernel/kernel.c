@@ -1,7 +1,3 @@
-/**
- * The ZenOS Kernel
- */
-
 #include "../libk/debug/serial.h"
 #include "../libk/debug/log.h"
 #include "../libk/core/mem.h"
@@ -34,34 +30,6 @@
 #include "../drv/disk/fat.h"
 #include "../drv/disk/vfs.h"
 
-// void play_bootup_sequence() //Probably going to be deprecated
-// {
-//     speaker_note(3, 0);
-//     for (int i = 0; i < 7000000; i++)
-//         asm volatile("nop");
-//     speaker_note(3, 2);
-//     for (int i = 0; i < 7000000; i++)
-//         asm volatile("nop");
-//     speaker_note(3, 4);
-//     for (int i = 0; i < 7000000; i++)
-//         asm volatile("nop");
-//     speaker_note(4, 0);
-//     for (int i = 0; i < 14000000; i++)
-//         asm volatile("nop");
-//     speaker_note(4, 7);
-//     for (int i = 0; i < 7000000; i++)
-//         asm volatile("nop");
-//     speaker_note(5, 0);
-//     for (int i = 0; i < 30000000; i++)
-//         asm volatile("nop");
-//     speaker_pause();
-//     for(;;)__asm__ __volatile__("hlt");
-// }
-
-void idle(void){
-    for(;;)asm volatile("sti; hlt");
-}
-
 void _start(void)
 {
     serial_init();
@@ -70,44 +38,52 @@ void _start(void)
     init_kernel_heap();
     enable_sse_and_fpu();
     vga_init();
-    init_gdt();
+    smp_prepare();
+    init_gdt_for_cpu(smp_bsp_cpu_index());
     init_idt();
-    init_syscalls();
     AcpiInit();
     LocalApicInit();
+    init_syscalls();
     IoApicInit();
     IoApicSetIrqMapped(14, 0x2E);
     IoApicSetIrqMapped(15, 0x2F);
-    IoApicSetIrqMapped(8, 0x28); //RTC irq
+    IoApicSetIrqMapped(8, 0x28);
     rtc_initialize();
     sched_init();
     pci_initialize_system();
-    IoApicSetIrqMapped(0, 0x22); //HPET
+    IoApicSetIrqMapped(0, 0x22);
     hpet_init(200);
-    IoApicSetIrqMapped(1, 0x21); //Keyboard
+    LocalApicTimerInit(200);
+    IoApicSetIrqMapped(1, 0x21);
     init_keyboard();
     ata_init();
     uint8_t boot_drive = 0;
-    for (int i = 0; i < 4; i++) {
-        if (ata_drive_exists(i) == ATA_SUCCESS) {
+    for (int i = 0; i < 4; i++)
+    {
+        if (ata_drive_exists(i) == ATA_SUCCESS)
+        {
             boot_drive = i;
             log("Drive selected for use: %i", 1, 0, i);
             break;
         }
     }
-    if (fat_init(boot_drive) != FAT_OK) {
+    if (fat_init(boot_drive) != FAT_OK)
+    {
         log("Unable to mount FAT. Format drive? (y/*)", 2, 1);
         __asm__ __volatile__("sti");
         char flag = wait_for_key();
         __asm__ __volatile__("cli");
-        if (flag == 'y' || flag == 'Y') {
+        if (flag == 'y' || flag == 'Y')
+        {
             log("Formatting drive %d...", 1, 0, boot_drive);
             fat_format(boot_drive);
-        } else {
+        }
+        else
+        {
             log("Leaving drive unattached.", 1, 0);
         }
     }
-    IoApicSetIrqMapped(12, 0x2C); //Mouse
+    IoApicSetIrqMapped(12, 0x2C);
     mouse_init();
     init_smp();
     e1000_init();
@@ -117,18 +93,18 @@ void _start(void)
     log("Running In Debug Mode.", 2, 1);
     detect_cpu_info(0);
     print_mem_info(1);
-    char fat_debug_buf[4096]; fat_list(fat_debug_buf, sizeof(fat_debug_buf)); log(fat_debug_buf, 1, 1);
+    char fat_debug_buf[4096];
+    fat_list(fat_debug_buf, sizeof(fat_debug_buf));
+    log(fat_debug_buf, 1, 1);
 #endif
     vfs_init();
-    if(!(framebuffer_bpp == 32))
+    if (!(framebuffer_bpp == 32))
         log("\nZenOS only supports 32bpp displays right now.\n", 2, 1);
-    task_create(idle, "Idle");
-    char *init_argv[] = { "kernel" };
+    char *init_argv[] = {"kernel"};
     if (elf_exec("/mnt/drv0/bin/init", 1, init_argv) < 0)
         log("No init program found.", 0, 1);
-    asm volatile("sti");
-    sched_start();
     kbd_init_focus();
+    sched_start();
     for (;;)
         ;
 }

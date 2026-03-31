@@ -6,11 +6,13 @@ typedef int64_t pid_t;
 #include "../cpu/isr.h"
 #include "../libk/core/mem.h"
 #include "../libk/core/fd.h"
+#include "../libk/core/syscall.h"
 #include "signal.h"
 
 #define TASK_STACK_SIZE (256 * 1024)
 #define TIME_SLICE 2
 #define MAX_TASKS 2048
+#define SCHED_IPI_VECTOR IRQ3
 
 typedef enum
 {
@@ -31,6 +33,7 @@ typedef struct task
     uint64_t stack_size;
     uint64_t time_slice_remaining;
     int is_kernel_task;
+    int is_idle_task;
     page_table_t *pml4;
     uint64_t heap_brk;
     int argc;
@@ -51,18 +54,25 @@ typedef struct task
     uint32_t sig_pending;
     uint32_t sig_mask;
     uint64_t sig_trampoline;
+    int32_t pinned_cpu;
+    int32_t running_cpu;
+    int32_t last_cpu;
     char cwd[256];
     struct task *next;
 } task_t;
 
 void sched_init(void);
 void sched_start(void);
+void sched_ap_entry(void);
 task_t *task_create(void (*entry)(void), const char *name);
 task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pml4, int argc, char **argv);
 void sched_yield(void);
 void sched_tick(void);
 task_t *sched_current_task(void);
 task_t *sched_get_task_list(void);
+uint32_t sched_list_tasks(task_info_t *infos, uint32_t max_count);
+int sched_futex_wait(volatile uint32_t *uaddr, uint32_t expected);
+uint32_t sched_futex_wake(volatile uint32_t *uaddr, uint32_t count);
 int sched_kill(uint64_t pid);
 int sched_wait_pid(int64_t pid, int *status, int options);
 pid_t sched_fork(uint64_t syscall_frame_ptr);

@@ -77,15 +77,11 @@ isr_stub:
     mov ax, 0x10
     mov ds, ax
     mov es, ax
-    mov fs, ax
-    mov gs, ax
     mov rdi, rsp
     call isr_handler
     pop rax
     mov ds, ax
     mov es, ax
-    mov fs, ax
-    mov gs, ax
     pop r15
     pop r14
     pop r13
@@ -151,15 +147,11 @@ irq_stub:
     mov ax, 0x10
     mov ds, ax
     mov es, ax
-    mov fs, ax
-    mov gs, ax
     mov rdi, rsp
     call irq_handler
     pop rax
     mov ds, ax
     mov es, ax
-    mov fs, ax
-    mov gs, ax
     pop r15
     pop r14
     pop r13

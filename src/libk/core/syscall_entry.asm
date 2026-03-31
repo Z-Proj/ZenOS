@@ -2,12 +2,11 @@
 section .text
 global syscall_entry
 extern syscall_handler
-extern tss
 
 syscall_entry:
     swapgs
     mov r9, rsp
-    mov rsp, qword [rel tss + 4]
+    mov rsp, qword [gs:4]
 
     push r9
     push rcx

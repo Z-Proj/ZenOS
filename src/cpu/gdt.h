@@ -23,6 +23,7 @@ struct tss_struct
 } __attribute__((packed));
 typedef struct tss_struct tss_t;
 
-void init_gdt();
+tss_t *gdt_get_tss(uint32_t cpu_index);
+void init_gdt_for_cpu(uint32_t cpu_index);
 
 #endif

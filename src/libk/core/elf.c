@@ -5,13 +5,13 @@
 #include "../../drv/disk/fat.h"
 #include "../../drv/disk/vfs.h"
 #include "mem.h"
+#include "syscall.h"
 
 #define EXEC_MAX_ARGS    128
 #define EXEC_MAX_ENVP    128
 #define EXEC_MAX_STRLEN  4096
 #define USER_STACK_BASE  0x700000000000ULL
 
-extern void user_task_entry(void);
 extern void exec_enter_user(uint64_t entry, uint64_t user_rsp) __attribute__((noreturn));
 
 typedef struct {
@@ -461,17 +461,16 @@ int elf_execve_replace(const char *filename, int argc, char **argv, char **envp)
     task->name[sizeof(task->name) - 1] = '\0';
 
     memset(&task->regs, 0, sizeof(task->regs));
-    task->regs.rip = (uint64_t)user_task_entry;
-    task->regs.rdi = loaded.entry;
-    task->regs.rsi = user_rsp;
+    task->regs.rip = loaded.entry;
     task->regs.rbp = user_rsp;
     task->regs.userrsp = user_rsp;
     task->regs.rflags = 0x202;
-    task->regs.cs = 0x08;
-    task->regs.ss = 0x10;
-    task->regs.ds = 0x10;
+    task->regs.cs = 0x23;
+    task->regs.ss = 0x1B;
+    task->regs.ds = 0x1B;
 
     switch_page_directory(new_pml4);
+    syscall_prepare_user_return(0);
 
     if (old_pml4 && old_pml4 != get_kernel_pml4() && old_pml4 != new_pml4)
         free_page_directory(old_pml4);

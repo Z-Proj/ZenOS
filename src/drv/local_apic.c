@@ -1,6 +1,9 @@
 #include "local_apic.h"
 #include "../cpu/idt.h"
+#include "../cpu/isr.h"
 #include "../cpu/acpi/acpi.h"
+#include "../drv/hpet.h"
+#include "../kernel/sched.h"
 #include "../libk/debug/log.h"
 
 uint8_t *g_localApicAddr = (uint8_t*)0xFEE00000;
@@ -30,6 +33,11 @@ uint8_t *g_localApicAddr = (uint8_t*)0xFEE00000;
 #define LAPIC_TICR                      0x0380  // Initial Count (for Timer)
 #define LAPIC_TCCR                      0x0390  // Current Count (for Timer)
 #define LAPIC_TDCR                      0x03e0  // Divide Configuration (for Timer)
+
+#define LAPIC_TIMER_VECTOR              IRQ3
+#define LAPIC_TIMER_PERIODIC            (1u << 17)
+#define LAPIC_TIMER_MASKED              (1u << 16)
+#define LAPIC_TIMER_DIVIDE_16           0x3
 
 
 #define ICR_FIXED                       0x00000000
@@ -70,6 +78,36 @@ static void LocalApicOut(int reg, uint32_t data)
     *(volatile uint32_t *)(g_localApicAddr + reg) = data;
 }
 
+static void lapic_timer_handler(registers_t *regs)
+{
+    (void)regs;
+    sched_tick();
+}
+
+static uint32_t lapic_timer_calibrate(uint32_t frequency_hz)
+{
+    if (!frequency_hz)
+        return 0;
+
+    LocalApicOut(LAPIC_TDCR, LAPIC_TIMER_DIVIDE_16);
+    LocalApicOut(LAPIC_TIMER, LAPIC_TIMER_MASKED | LAPIC_TIMER_VECTOR);
+    LocalApicOut(LAPIC_TICR, 0xffffffffu);
+
+    uint64_t start_ns = hpet_monotonic_ns();
+    while ((hpet_monotonic_ns() - start_ns) < 10000000ULL)
+        __asm__ volatile("pause" ::: "memory");
+
+    uint32_t elapsed = 0xffffffffu - LocalApicIn(LAPIC_TCCR);
+    uint32_t initial_count = (uint32_t)(((uint64_t)elapsed * 100ULL) / frequency_hz);
+    if (initial_count < 16)
+        initial_count = 16;
+
+    LocalApicOut(LAPIC_TIMER, LAPIC_TIMER_MASKED | LAPIC_TIMER_VECTOR);
+    LocalApicOut(LAPIC_TICR, 0);
+
+    return initial_count;
+}
+
 
 void LocalApicInit()
 {
@@ -80,6 +118,18 @@ void LocalApicInit()
 
     LocalApicOut(LAPIC_SVR, 0x100 | 0xff);
     log("Local APIC Initialized.", 4, 0);
+}
+
+void LocalApicTimerInit(uint32_t frequency_hz)
+{
+    uint32_t initial_count = lapic_timer_calibrate(frequency_hz);
+    if (!initial_count)
+        return;
+
+    register_interrupt_handler(LAPIC_TIMER_VECTOR, lapic_timer_handler, "LAPIC Timer");
+    LocalApicOut(LAPIC_TDCR, LAPIC_TIMER_DIVIDE_16);
+    LocalApicOut(LAPIC_TIMER, LAPIC_TIMER_VECTOR | LAPIC_TIMER_PERIODIC);
+    LocalApicOut(LAPIC_TICR, initial_count);
 }
 
 
@@ -105,6 +155,26 @@ void LocalApicSendStartup(int apic_id, int vector)
     LocalApicOut(LAPIC_ICRHI, apic_id << ICR_DESTINATION_SHIFT);
     LocalApicOut(LAPIC_ICRLO, vector | ICR_STARTUP
         | ICR_PHYSICAL | ICR_ASSERT | ICR_EDGE | ICR_NO_SHORTHAND);
+
+    while (LocalApicIn(LAPIC_ICRLO) & ICR_SEND_PENDING)
+        ;
+}
+
+void LocalApicSendFixed(int apic_id, int vector)
+{
+    LocalApicOut(LAPIC_ICRHI, apic_id << ICR_DESTINATION_SHIFT);
+    LocalApicOut(LAPIC_ICRLO, (uint32_t)vector | ICR_FIXED
+        | ICR_PHYSICAL | ICR_ASSERT | ICR_EDGE | ICR_NO_SHORTHAND);
+
+    while (LocalApicIn(LAPIC_ICRLO) & ICR_SEND_PENDING)
+        ;
+}
+
+void LocalApicBroadcastFixed(int vector)
+{
+    LocalApicOut(LAPIC_ICRHI, 0);
+    LocalApicOut(LAPIC_ICRLO, (uint32_t)vector | ICR_FIXED
+        | ICR_PHYSICAL | ICR_ASSERT | ICR_EDGE | ICR_ALL_EXCLUDING_SELF);
 
     while (LocalApicIn(LAPIC_ICRLO) & ICR_SEND_PENDING)
         ;
