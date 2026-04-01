@@ -84,55 +84,67 @@ static inline long zenos_do_syscall0(long num) {
 	asm volatile("syscall"
 		: "=a"(ret)
 		: "a"(num)
-		: "rcx", "r11", "rdi", "rsi", "rdx", "r10", "r8", "r9", "memory");
+		: "rcx", "r11", "rdi", "rsi", "rdx", "r10", "r8", "r9", "cc", "memory");
 	return ret;
 }
 
 static inline long zenos_do_syscall1(long num, long a1) {
 	long ret;
+	register long rdi asm("rdi") = a1;
 	asm volatile("syscall"
-		: "=a"(ret)
-		: "a"(num), "D"(a1)
-		: "rcx", "r11", "rsi", "rdx", "r10", "r8", "r9", "memory");
+		: "=a"(ret), "+D"(rdi)
+		: "a"(num)
+		: "rcx", "r11", "rsi", "rdx", "r10", "r8", "r9", "cc", "memory");
 	return ret;
 }
 
 static inline long zenos_do_syscall2(long num, long a1, long a2) {
 	long ret;
+	register long rdi asm("rdi") = a1;
+	register long rsi asm("rsi") = a2;
 	asm volatile("syscall"
-		: "=a"(ret)
-		: "a"(num), "D"(a1), "S"(a2)
-		: "rcx", "r11", "rdx", "r10", "r8", "r9", "memory");
+		: "=a"(ret), "+D"(rdi), "+S"(rsi)
+		: "a"(num)
+		: "rcx", "r11", "rdx", "r10", "r8", "r9", "cc", "memory");
 	return ret;
 }
 
 static inline long zenos_do_syscall3(long num, long a1, long a2, long a3) {
 	long ret;
+	register long rdi asm("rdi") = a1;
+	register long rsi asm("rsi") = a2;
+	register long rdx asm("rdx") = a3;
 	asm volatile("syscall"
-		: "=a"(ret)
-		: "a"(num), "D"(a1), "S"(a2), "d"(a3)
-		: "rcx", "r11", "r10", "r8", "r9", "memory");
+		: "=a"(ret), "+D"(rdi), "+S"(rsi), "+d"(rdx)
+		: "a"(num)
+		: "rcx", "r11", "r10", "r8", "r9", "cc", "memory");
 	return ret;
 }
 
 static inline long zenos_do_syscall4(long num, long a1, long a2, long a3, long a4) {
 	long ret;
+	register long rdi asm("rdi") = a1;
+	register long rsi asm("rsi") = a2;
+	register long rdx asm("rdx") = a3;
 	register long r10 asm("r10") = a4;
 	asm volatile("syscall"
-		: "=a"(ret)
-		: "a"(num), "D"(a1), "S"(a2), "d"(a3), "r"(r10)
-		: "rcx", "r11", "r8", "r9", "memory");
+		: "=a"(ret), "+D"(rdi), "+S"(rsi), "+d"(rdx), "+r"(r10)
+		: "a"(num)
+		: "rcx", "r11", "r8", "r9", "cc", "memory");
 	return ret;
 }
 
 static inline long zenos_do_syscall5(long num, long a1, long a2, long a3, long a4, long a5) {
 	long ret;
+	register long rdi asm("rdi") = a1;
+	register long rsi asm("rsi") = a2;
+	register long rdx asm("rdx") = a3;
 	register long r10 asm("r10") = a4;
 	register long r8 asm("r8") = a5;
 	asm volatile("syscall"
-		: "=a"(ret)
-		: "a"(num), "D"(a1), "S"(a2), "d"(a3), "r"(r10), "r"(r8)
-		: "rcx", "r11", "r9", "memory");
+		: "=a"(ret), "+D"(rdi), "+S"(rsi), "+d"(rdx), "+r"(r10), "+r"(r8)
+		: "a"(num)
+		: "rcx", "r11", "r9", "cc", "memory");
 	return ret;
 }
 

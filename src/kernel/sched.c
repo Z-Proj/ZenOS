@@ -618,7 +618,24 @@ void sched_tick(registers_t *irq_regs)
 
     if (current->time_slice_remaining == 0)
     {
-        if (!irq_regs || !(irq_regs->cs & 3) || !current || current->is_kernel_task)
+        if (!irq_regs || !current)
+        {
+            sched_yield();
+            return;
+        }
+
+        if (!(irq_regs->cs & 3))
+        {
+            if (current->is_kernel_task)
+            {
+                sched_yield();
+                return;
+            }
+            current->time_slice_remaining = TIME_SLICE;
+            return;
+        }
+
+        if (current->is_kernel_task)
         {
             sched_yield();
             return;

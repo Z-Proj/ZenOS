@@ -95,7 +95,7 @@ static void cmd_cd(int argc, char* argv[]) {
         fputs(COLOR_RED "Usage: cd <directory>\n" COLOR_RESET, stdout);
         return;
     }
-    
+
     if (chdir(argv[1]) == 0) {
         fputs(COLOR_GREEN "Changed to: " COLOR_RESET, stdout);
         fputs(argv[1], stdout);
@@ -601,7 +601,6 @@ int main(int argc, char *argv[]) {
     while (1) {
         show_prompt();
         read_command();
-        
         if (!execute_command()) {
             break;
         }

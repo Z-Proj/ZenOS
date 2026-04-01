@@ -80,8 +80,9 @@ void isr_handler(registers_t* regs)
             uint64_t cr2;
             __asm__ volatile("mov %%cr2, %0" : "=r"(cr2));
             if (regs->cs & 3) {
-                log("\n=== USERSPACE FAULT (Page Fault) ===\n         - Task: %s (PID %d)\n         - Faulting address: 0x%lx\n         - RIP: 0x%lx\n         - %s\n         - Terminating task...", 2, 1,
-                    sched_current_task()->name, sched_current_task()->pid, cr2, regs->rip,
+                log("\n=== USERSPACE FAULT (Page Fault) ===\n         - Task: %s (PID %d)\n         - Faulting address: 0x%lx\n         - RIP: 0x%lx\n         - RSP: 0x%lx\n         - FS: 0x%lx\n         - GS: 0x%lx\n         - %s\n         - Terminating task...", 2, 1,
+                    sched_current_task()->name, sched_current_task()->pid, cr2, regs->rip, regs->userrsp,
+                    sched_current_task()->user_fs_base, sched_current_task()->user_gs_base,
                     (regs->err_code & 1) ? "Page protection violation" : "Page not present");
                 sched_current_task()->state = TASK_DEAD;
                 sched_yield();

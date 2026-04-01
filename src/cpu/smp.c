@@ -25,7 +25,7 @@ static uint32_t g_bsp_cpu_index = 0;
 
 void ap_entry(struct limine_smp_info *info) {
     uint32_t cpu_index = (uint32_t)info->extra_argument;
-    asm volatile("mov %0, %%rsp" : : "r" (ap_stacks[cpu_index] + STACK_SIZE) : "memory");
+    // asm volatile("mov %0, %%rsp" : : "r" (ap_stacks[cpu_index] + STACK_SIZE) : "memory");
     enable_sse_and_fpu();
     init_gdt_for_cpu(cpu_index);
     init_idt();

@@ -29,12 +29,10 @@ void sound_err()
 
 void log_internal(const char *file, int line, const char *fmt, int level, int visibility, ...)
 {
-    char *logline = kmalloc(1280);
-    if (!logline)
-    {
-        serial_write_string("\x1b[38;2;255;50;50m[log.c]- CRITICAL: kmalloc failed in log_internal!\n");
-        return;
-    }
+    char header[256];
+    char message[1024];
+    char cpuid_str[16];
+    char logline[1408];
     uint64_t cpuid = LocalApicGetId();
     uint64_t rflags;
     asm volatile("pushfq; pop %0; cli" : "=r"(rflags));
@@ -67,20 +65,10 @@ void log_internal(const char *file, int line, const char *fmt, int level, int vi
     va_list args;
     va_start(args, visibility);
 
-    char *header = kmalloc(256);
-    if (!header)
-    {
-        kfree(logline);
-        spinlock_release(&loglock);
-        if (rflags & 0x200)
-            asm volatile("sti");
-        return;
-    }
-
     if (level < 1 || level > 4)
     {
         sound_err();
-        snprintf(header, 256, "\nInduced Kernel Panic\n\n    - At : %s\n    - Line : %d.\n\n    - Error Log : ", file, line);
+        snprintf(header, sizeof(header), "\nInduced Kernel Panic\n\n    - At : %s\n    - Line : %d.\n\n    - Error Log : ", file, line);
     }
     else
     {
@@ -90,44 +78,18 @@ void log_internal(const char *file, int line, const char *fmt, int level, int vi
         {
             filename = slash + 1;
         }
-        snprintf(header, 256, "[%s:%d]- ", filename, line);
+        snprintf(header, sizeof(header), "[%s:%d]- ", filename, line);
     }
 
-    char *message = kmalloc(1024);
-    if (!message)
-    {
-        kfree(header);
-        kfree(logline);
-        spinlock_release(&loglock);
-        if (rflags & 0x200)
-            asm volatile("sti");
-        return;
-    }
-
-    vsnprintf(message, 1024, fmt, args);
+    vsnprintf(message, sizeof(message), fmt, args);
     va_end(args);
 
-    char *cpuid_str = kmalloc(16);
-    if (!cpuid_str)
-    {
-        kfree(message);
-        kfree(header);
-        kfree(logline);
-        spinlock_release(&loglock);
-        if (rflags & 0x200)
-            asm volatile("sti");
-        return;
-    }
-
     if (cpuid != 0)
-        snprintf(cpuid_str, 16, "[CPU%d]- ", cpuid);
+        snprintf(cpuid_str, sizeof(cpuid_str), "[CPU%d]- ", cpuid);
     else
         cpuid_str[0] = '\0';
 
-    strcpy(logline, header);
-    strcat(logline, cpuid_str);
-    strcat(logline, message);
-    strcat(logline, "\n");
+    snprintf(logline, sizeof(logline), "%s%s%s\n", header, cpuid_str, message);
 
     serial_write_string(color_seq);
     serial_write_string(logline);
@@ -139,11 +101,6 @@ void log_internal(const char *file, int line, const char *fmt, int level, int vi
         prints(logline);
         prints("\x1b[0m");
     }
-
-    kfree(cpuid_str);
-    kfree(message);
-    kfree(header);
-    kfree(logline);
 
     spinlock_release(&loglock);
 

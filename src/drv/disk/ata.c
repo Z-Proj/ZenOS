@@ -42,7 +42,7 @@ static prdt_entry_t *prdt = NULL;
 static uint8_t *bounce_buf = NULL;
 static uint64_t bounce_buf_phys = 0;
 static uint64_t prdt_phys = 0;
-static spinlock_t ata_dma_lock;
+static spinlock_t ata_lock;
 
 static void ata_delay(uint16_t base_io)
 {
@@ -170,16 +170,20 @@ ata_device_type_t ata_detect_drive(uint8_t drive)
     if (drive >= 4)
         return ATA_DEVICE_UNKNOWN;
 
+    spinlock_acquire_raw(&ata_lock);
     uint16_t base_io = (drive < 2) ? ATA_PRIMARY_IO : ATA_SECONDARY_IO;
     uint8_t drive_select = drive & 1;
 
     ata_select_drive(base_io, drive_select);
 
-    if (ata_wait_ready(base_io) != ATA_SUCCESS)
+    if (ata_wait_ready(base_io) != ATA_SUCCESS) {
+        spinlock_release_raw(&ata_lock);
         return ATA_DEVICE_UNKNOWN;
+    }
 
     uint8_t cl = inportb(base_io + ATA_REG_LBA1);
     uint8_t ch = inportb(base_io + ATA_REG_LBA2);
+    spinlock_release_raw(&ata_lock);
 
     if (cl == 0x14 && ch == 0xEB) return ATA_DEVICE_PATAPI;
     if (cl == 0x69 && ch == 0x96) return ATA_DEVICE_SATAPI;
@@ -191,7 +195,7 @@ ata_device_type_t ata_detect_drive(uint8_t drive)
 
 ata_error_t ata_init(void)
 {
-    spinlock_init(&ata_dma_lock);
+    spinlock_init(&ata_lock);
     pci_device_t *ide = pci_find_device_by_class(PCI_CLASS_STORAGE, PCI_SUBCLASS_IDE);
     if (ide)
     {
@@ -258,23 +262,28 @@ ata_error_t ata_identify_drive(uint8_t drive, uint16_t *buffer)
     if (drive >= 4 || !drives[drive].exists || !buffer)
         return ATA_ERR_INVALID_PARAM;
 
+    spinlock_acquire_raw(&ata_lock);
     uint16_t base_io = drives[drive].base_io;
     ata_select_drive(base_io, drives[drive].drive_select);
     ata_error_t err = ata_wait_ready(base_io);
-    if (err != ATA_SUCCESS)
+    if (err != ATA_SUCCESS) {
+        spinlock_release_raw(&ata_lock);
         return err;
+    }
     outportb(base_io + ATA_REG_COMMAND, ATA_CMD_IDENTIFY);
     err = ata_wait_drq(base_io);
-    if (err != ATA_SUCCESS)
+    if (err != ATA_SUCCESS) {
+        spinlock_release_raw(&ata_lock);
         return err;
+    }
     for (int i = 0; i < 256; i++)
         buffer[i] = inportw(base_io + ATA_REG_DATA);
+    spinlock_release_raw(&ata_lock);
     return ATA_SUCCESS;
 }
 
 static ata_error_t ata_dma_transfer(uint8_t drive, uint32_t lba, uint8_t count, void *buffer, int write)
 {
-    uint64_t lock_flags = spinlock_acquire_irqsave(&ata_dma_lock);
     uint16_t base_io     = drives[drive].base_io;
     uint8_t  chan        = (drive < 2) ? 0 : 1;
     uint16_t bm_base     = bmide_base + (chan ? 8 : 0);
@@ -325,7 +334,6 @@ static ata_error_t ata_dma_transfer(uint8_t drive, uint32_t lba, uint8_t count, 
         if (++timeout_counter >= ATA_TIMEOUT_MS * 100000)
         {
             outportb(bm_base + BMIDE_REG_CMD, 0);
-            spinlock_release_irqrestore(&ata_dma_lock, lock_flags);
             return ATA_ERR_TIMEOUT;
         }
         asm volatile("pause" ::: "memory");
@@ -335,22 +343,17 @@ static ata_error_t ata_dma_transfer(uint8_t drive, uint32_t lba, uint8_t count, 
 
     if (inportb(bm_base + BMIDE_REG_STATUS) & BMIDE_STATUS_ERR)
     {
-        spinlock_release_irqrestore(&ata_dma_lock, lock_flags);
         return ATA_ERR_GENERAL;
     }
 
     current_selected_drive = -1;
     ata_error_t bsy = ata_wait_ready(base_io);
     if (bsy != ATA_SUCCESS)
-    {
-        spinlock_release_irqrestore(&ata_dma_lock, lock_flags);
         return bsy;
-    }
 
     if (!write && using_bounce)
         memcpy(buffer, bounce_buf, total_bytes);
 
-    spinlock_release_irqrestore(&ata_dma_lock, lock_flags);
     return ATA_SUCCESS;
 }
 
@@ -359,15 +362,21 @@ ata_error_t ata_read_sectors(uint8_t drive, uint32_t lba, uint8_t count, void *b
     if (drive >= 4 || !drives[drive].exists || !buffer || count == 0 || count > ATA_MAX_SECTORS)
         return ATA_ERR_INVALID_PARAM;
 
+    spinlock_acquire_raw(&ata_lock);
     uint16_t base_io = drives[drive].base_io;
 
     ata_select_drive(base_io, drives[drive].drive_select);
     ata_error_t err = ata_wait_ready(base_io);
-    if (err != ATA_SUCCESS)
+    if (err != ATA_SUCCESS) {
+        spinlock_release_raw(&ata_lock);
         return err;
+    }
 
-    if (dma_available)
-        return ata_dma_transfer(drive, lba, count, buffer, 0);
+    if (dma_available) {
+        err = ata_dma_transfer(drive, lba, count, buffer, 0);
+        spinlock_release_raw(&ata_lock);
+        return err;
+    }
 
     uint16_t *buf = (uint16_t *)buffer;
     ata_setup_lba28(base_io, lba, count, drives[drive].drive_select);
@@ -376,11 +385,14 @@ ata_error_t ata_read_sectors(uint8_t drive, uint32_t lba, uint8_t count, void *b
     for (int sector = 0; sector < count; sector++)
     {
         err = ata_wait_drq(base_io);
-        if (err != ATA_SUCCESS)
+        if (err != ATA_SUCCESS) {
+            spinlock_release_raw(&ata_lock);
             return err;
+        }
         for (int word = 0; word < 256; word++)
             buf[sector * 256 + word] = inportw(base_io + ATA_REG_DATA);
     }
+    spinlock_release_raw(&ata_lock);
     return ATA_SUCCESS;
 }
 
@@ -389,16 +401,21 @@ ata_error_t ata_write_sectors(uint8_t drive, uint32_t lba, uint8_t count, const 
     if (drive >= 4 || !drives[drive].exists || !buffer || count == 0 || count > ATA_MAX_SECTORS)
         return ATA_ERR_INVALID_PARAM;
 
+    spinlock_acquire_raw(&ata_lock);
     uint16_t base_io = drives[drive].base_io;
 
     ata_select_drive(base_io, drives[drive].drive_select);
     ata_error_t err = ata_wait_ready(base_io);
-    if (err != ATA_SUCCESS)
+    if (err != ATA_SUCCESS) {
+        spinlock_release_raw(&ata_lock);
         return err;
+    }
 
     if (dma_available)
     {
-        return ata_dma_transfer(drive, lba, count, (void *)buffer, 1);
+        err = ata_dma_transfer(drive, lba, count, (void *)buffer, 1);
+        spinlock_release_raw(&ata_lock);
+        return err;
     }
 
     const uint16_t *buf = (const uint16_t *)buffer;
@@ -408,22 +425,28 @@ ata_error_t ata_write_sectors(uint8_t drive, uint32_t lba, uint8_t count, const 
     for (int sector = 0; sector < count; sector++)
     {
         err = ata_wait_drq(base_io);
-        if (err != ATA_SUCCESS)
+        if (err != ATA_SUCCESS) {
+            spinlock_release_raw(&ata_lock);
             return err;
+        }
         for (int word = 0; word < 256; word++)
             outportw(base_io + ATA_REG_DATA, buf[sector * 256 + word]);
     }
 
     err = ata_wait_ready(base_io);
-    if (err != ATA_SUCCESS)
+    if (err != ATA_SUCCESS) {
+        spinlock_release_raw(&ata_lock);
         return err;
+    }
     outportb(base_io + ATA_REG_COMMAND, ATA_CMD_CACHE_FLUSH);
-    return ata_wait_ready(base_io);
+    err = ata_wait_ready(base_io);
+    spinlock_release_raw(&ata_lock);
+    return err;
 }
 
 ata_error_t ata_drive_exists(int pdrv)
 {
-    if (pdrv > 4 || pdrv < 0)
+    if (pdrv >= 4 || pdrv < 0)
         return ATA_ERR_INVALID_PARAM;
     if (drives[pdrv].exists)
         return ATA_SUCCESS;
