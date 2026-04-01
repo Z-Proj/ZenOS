@@ -76,6 +76,7 @@
 #define SYSCALL_SHM_CREATE       70
 #define SYSCALL_SHM_OPEN         71
 #define SYSCALL_SHM_CLOSE        72
+#define SYSCALL_SET_FOCUS        73
 #define ZEN_TIOCGWINSZ  0x5413  
 #define ZEN_TIOCSWINSZ  0x5414  
 #define ZEN_TIOCSPTYGID 0x5420  

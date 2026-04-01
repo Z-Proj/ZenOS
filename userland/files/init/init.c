@@ -75,6 +75,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        zen_set_focus(pid);
         launched++;
     }
 

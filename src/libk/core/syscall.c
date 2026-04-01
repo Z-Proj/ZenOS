@@ -634,8 +634,9 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                 char c = 0;
                 while (!c)
                 {
-                    __asm__ volatile("sti; hlt; cli" ::: "memory");
                     c = get_key();
+                    if (!c)
+                        sched_yield();
                 }
                 cbuf[i] = c;
                 if (c == '\n')
@@ -1878,6 +1879,11 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             }
         }
         return -1;
+    }
+
+    case SYSCALL_SET_FOCUS:
+    {
+        return kbd_set_focused_pid(arg1);
     }
 
     default:

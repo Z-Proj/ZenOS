@@ -578,6 +578,27 @@ uint64_t kbd_get_focused_pid(void)
     return kbd_focused_pid;
 }
 
+int kbd_set_focused_pid(uint64_t pid)
+{
+    task_t *head = sched_get_task_list();
+    if (!head)
+        return -1;
+
+    task_t *t = head;
+    do {
+        if (t->pid == pid &&
+            strcmp(t->name, "Idle") != 0 &&
+            t->state != TASK_DEAD) {
+            kbd_focused_pid = pid;
+            focus_initialized = true;
+            return 0;
+        }
+        t = t->next;
+    } while (t != head);
+
+    return -1;
+}
+
 void kbd_transfer_focus(uint64_t dead_pid)
 {
     if (kbd_focused_pid != dead_pid) return;

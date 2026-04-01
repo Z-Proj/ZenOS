@@ -314,6 +314,7 @@ static inline int zen_tcsetattr(int fd, int actions, const zen_termios_t *tio)
 #define SYSCALL_SHM_CREATE 70
 #define SYSCALL_SHM_OPEN   71
 #define SYSCALL_SHM_CLOSE  72
+#define SYSCALL_SET_FOCUS  73
 
 typedef struct {
     uint64_t addr;
@@ -333,6 +334,11 @@ static inline int zen_shm_open(const char *name, shm_info_t *out)
 static inline int zen_shm_close(const char *name)
 {
     return (int)_sc_ret(_syscall1(SYSCALL_SHM_CLOSE, (uint64_t)name));
+}
+
+static inline int zen_set_focus(int pid)
+{
+    return (int)_sc_ret(_syscall1(SYSCALL_SET_FOCUS, (uint64_t)(uint32_t)pid));
 }
 
 #endif
