@@ -259,13 +259,9 @@ static void run_foreground(const char *path, char *argv[]) {
         _exit(127);
     }
 
-    zen_set_focus(pid);
-
     int status = 0;
     if (waitpid(pid, &status, 0) < 0)
         fputs(COLOR_RED "waitpid failed\n" COLOR_RESET, stdout);
-
-    zen_set_focus(getpid());
 }
 
 static void cmd_exec(int argc, char* argv[]) {
@@ -590,7 +586,7 @@ static void show_banner(void) {
     fputs(COLOR_RESET, stdout);
     fputs(COLOR_YELLOW "ZenOS Shell\n" COLOR_RESET, stdout);
     fputs("Type 'help' for commands.\n", stdout);
-    fputs(COLOR_CYAN "F1 key" COLOR_RESET " to shift keyboard focus.\n\n", stdout);
+    fputs("\n", stdout);
 }
 
 int main(int argc, char *argv[]) {
@@ -603,7 +599,6 @@ int main(int argc, char *argv[]) {
     show_banner();
     
     while (1) {
-        zen_set_focus(getpid());
         show_prompt();
         read_command();
         

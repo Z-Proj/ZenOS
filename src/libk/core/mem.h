@@ -8,6 +8,7 @@
 #define KERNEL_VIRT_OFFSET 0xffff800000000000
 #define USER_SPACE_BASE 0x400000
 #define USER_STACK_TOP 0x800000000000
+#define USER_STACK_BASE 0x700000000000ULL
 #define USER_SPACE_START 0x400000      
 #define USER_SPACE_END   0x800000000000 
 #define USER_HEAP_START  0x10000000 
@@ -39,6 +40,7 @@ void* krealloc(void* ptr, size_t size);
 void init_vmm(void);
 page_table_t* create_page_directory(void);
 void map_page(page_table_t* pml4, uint64_t virt, uint64_t phys, uint64_t flags);
+int protect_page(page_table_t* pml4, uint64_t virt, uint64_t flags);
 void switch_page_directory(page_table_t* pml4);
 uint64_t virt_to_phys(page_table_t* pml4, uint64_t virt);
 void unmap_page(page_table_t* pml4, uint64_t virt);

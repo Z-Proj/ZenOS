@@ -512,13 +512,6 @@ static void kbd_handle_scancode(uint8_t scancode)
         update_modifier_state(scancode, true, false);
         input_enqueue_key(input_keycode_from_scancode(scancode, 0), 1);
 
-        bool shift = modifiers.left_shift || modifiers.right_shift;
-
-        if (scancode == KBD_SCANCODE2_F1) {
-            switcher_show(shift ? -1 : 1);
-            return;
-        }
-        
         if (scancode == KBD_SCANCODE2_F2) {
             font(font_id++);
             if(font_id > 3) font_id = 0;
@@ -589,72 +582,29 @@ void init_keyboard(void)
 
 void kbd_init_focus(void)
 {
-    task_t *head = sched_get_task_list();
-    if (!head) return;
-    task_t *t = head;
-    do {
-        if (strcmp(t->name, "Idle") != 0 && t->state != TASK_DEAD) {
-            kbd_focused_pid = t->pid;
-            focus_initialized = true;
-            return;
-        }
-        t = t->next;
-    } while (t != head);
+    focus_initialized = false;
+    kbd_focused_pid = 0;
 }
 
 uint64_t kbd_get_focused_pid(void)
 {
-    return kbd_focused_pid;
+    return 0;
 }
 
 int kbd_set_focused_pid(uint64_t pid)
 {
-    task_t *head = sched_get_task_list();
-    if (!head)
-        return -1;
-
-    task_t *t = head;
-    do {
-        if (t->pid == pid &&
-            strcmp(t->name, "Idle") != 0 &&
-            t->state != TASK_DEAD) {
-            kbd_focused_pid = pid;
-            focus_initialized = true;
-            return 0;
-        }
-        t = t->next;
-    } while (t != head);
-
-    return -1;
+    (void)pid;
+    return 0;
 }
 
 void kbd_transfer_focus(uint64_t dead_pid)
 {
     if (kbd_focused_pid != dead_pid) return;
-
-    task_t *head = sched_get_task_list();
-    if (!head) return;
-
-    task_t *t = head;
-    do {
-        if (t->pid != dead_pid &&
-            strcmp(t->name, "Idle") != 0 &&
-            t->state != TASK_DEAD) {
-            kbd_focused_pid = t->pid;
-            return;
-        }
-        t = t->next;
-    } while (t != head);
+    kbd_focused_pid = 0;
 }
 
 char get_key(void)
 {
-    if (!focus_initialized) return buffer_get_char();
-
-    task_t *current = sched_current_task();
-    if (!current) return 0;
-    if (current->pid != kbd_focused_pid) return 0;
-
     return buffer_get_char();
 }
 

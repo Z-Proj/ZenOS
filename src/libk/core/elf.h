@@ -12,11 +12,24 @@
 #define ELF_MAGIC 0x464C457F
 #define ELF_CLASS_64 2
 #define ET_EXEC 2
+#define ET_DYN 3
 #define EM_X86_64 62
 #define PT_LOAD 1
+#define PT_INTERP 3
+#define PT_PHDR 6
 #define PF_X 0x1
 #define PF_W 0x2
 #define PF_R 0x4
+#define AT_NULL 0
+#define AT_PHDR 3
+#define AT_PHENT 4
+#define AT_PHNUM 5
+#define AT_PAGESZ 6
+#define AT_BASE 7
+#define AT_ENTRY 9
+#define AT_SECURE 23
+#define AT_RANDOM 25
+#define AT_EXECFN 31
 
 typedef struct
 {

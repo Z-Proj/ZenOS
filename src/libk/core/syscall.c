@@ -24,6 +24,8 @@
 extern void syscall_entry(void);
 
 #define SHM_VIRT_BASE 0x0000500000000000ULL
+#define USER_MMAP_START 0x0000200000000000ULL
+#define USER_MMAP_END   SHM_VIRT_BASE
 
 typedef struct {
     char     name[SHM_NAME_MAX];
@@ -34,70 +36,173 @@ typedef struct {
 
 static shm_region_t shm_table[SHM_MAX];
 
+#define MSR_EFER            0xC0000080
+#define MSR_STAR            0xC0000081
+#define MSR_LSTAR           0xC0000082
+#define MSR_FMASK           0xC0000084
+#define MSR_FS_BASE         0xC0000100
+#define MSR_KERNEL_GS_BASE  0xC0000101
+#define MSR_GS_BASE         0xC0000102
+
+static inline void write_msr64(uint32_t msr, uint64_t value)
+{
+    __asm__ volatile("wrmsr" : : "c"(msr), "a"((uint32_t)value), "d"((uint32_t)(value >> 32)));
+}
+
+static uint64_t user_page_flags_from_prot(int prot)
+{
+    uint64_t flags = PAGE_PRESENT;
+    if (prot != 0)
+        flags |= PAGE_USER;
+    if (prot & 0x2)
+        flags |= PAGE_WRITABLE;
+    return flags;
+}
+
+static int user_range_is_free(page_table_t *pml4, uint64_t start, size_t pages)
+{
+    if (!pml4)
+        return 0;
+
+    for (size_t i = 0; i < pages; i++)
+    {
+        if (virt_to_phys(pml4, start + i * PAGE_SIZE))
+            return 0;
+    }
+
+    return 1;
+}
+
+static void user_unmap_range(task_t *task, uint64_t start, size_t pages)
+{
+    if (!task || !task->pml4)
+        return;
+
+    for (size_t i = 0; i < pages; i++)
+    {
+        uint64_t virt = start + i * PAGE_SIZE;
+        uint64_t phys = virt_to_phys(task->pml4, virt);
+        if (phys)
+        {
+            free_page(phys);
+            unmap_page(task->pml4, virt);
+        }
+    }
+}
+
+static uint64_t user_find_mmap_range(task_t *task, uint64_t hint, size_t pages)
+{
+    if (!task || !task->pml4 || !pages)
+        return 0;
+
+    uint64_t size = (uint64_t)pages * PAGE_SIZE;
+    uint64_t start = hint ? (hint & ~(uint64_t)(PAGE_SIZE - 1)) : task->mmap_base;
+    if (start < USER_MMAP_START)
+        start = USER_MMAP_START;
+
+    for (uint64_t base = start; base + size <= USER_MMAP_END; base += PAGE_SIZE)
+    {
+        if (user_range_is_free(task->pml4, base, pages))
+            return base;
+    }
+
+    for (uint64_t base = USER_MMAP_START; base + size <= start; base += PAGE_SIZE)
+    {
+        if (user_range_is_free(task->pml4, base, pages))
+            return base;
+    }
+
+    return 0;
+}
+
+static int write_user_u64(task_t *task, uint64_t uaddr, uint64_t value)
+{
+    if (!task || !task->pml4)
+        return -14;
+
+    uint64_t page0 = uaddr & ~(uint64_t)(PAGE_SIZE - 1);
+    uint64_t off0 = uaddr & (PAGE_SIZE - 1);
+    uint64_t phys0 = virt_to_phys(task->pml4, page0);
+    if (!phys0)
+        return -14;
+
+    uint8_t bytes[sizeof(uint64_t)];
+    memcpy(bytes, &value, sizeof(uint64_t));
+
+    uint8_t *dst0 = (uint8_t *)(phys0 + KERNEL_VIRT_OFFSET + off0);
+    size_t first = PAGE_SIZE - off0;
+    if (first >= sizeof(uint64_t))
+    {
+        memcpy(dst0, bytes, sizeof(uint64_t));
+        return 0;
+    }
+
+    memcpy(dst0, bytes, first);
+
+    uint64_t page1 = page0 + PAGE_SIZE;
+    uint64_t phys1 = virt_to_phys(task->pml4, page1);
+    if (!phys1)
+        return -14;
+
+    uint8_t *dst1 = (uint8_t *)(phys1 + KERNEL_VIRT_OFFSET);
+    memcpy(dst1, bytes + first, sizeof(uint64_t) - first);
+    return 0;
+}
+
 void init_syscalls(void)
 {
     uint64_t star = ((uint64_t)0x08 << 32) | ((uint64_t)0x13 << 48);
-    uint32_t star_lo = star & 0xFFFFFFFF;
-    uint32_t star_hi = star >> 32;
-    __asm__ volatile("wrmsr" : : "c"(0xC0000081), "a"(star_lo), "d"(star_hi));
+    write_msr64(MSR_STAR, star);
 
     uint64_t lstar = (uint64_t)&syscall_entry;
-    uint32_t lstar_lo = lstar & 0xFFFFFFFF;
-    uint32_t lstar_hi = lstar >> 32;
-    __asm__ volatile("wrmsr" : : "c"(0xC0000082), "a"(lstar_lo), "d"(lstar_hi));
+    write_msr64(MSR_LSTAR, lstar);
 
     uint64_t fmask = 0x200;
-    __asm__ volatile("wrmsr" : : "c"(0xC0000084), "a"(fmask), "d"(0));
+    write_msr64(MSR_FMASK, fmask);
 
     uint32_t efer_lo, efer_hi;
-    __asm__ volatile("rdmsr" : "=a"(efer_lo), "=d"(efer_hi) : "c"(0xC0000080));
+    __asm__ volatile("rdmsr" : "=a"(efer_lo), "=d"(efer_hi) : "c"(MSR_EFER));
     efer_lo |= 1;
-    __asm__ volatile("wrmsr" : : "c"(0xC0000080), "a"(efer_lo), "d"(efer_hi));
+    write_msr64(MSR_EFER, ((uint64_t)efer_hi << 32) | efer_lo);
 
-    __asm__ volatile("wrmsr" : : "c"(0xC0000101), "a"(0), "d"(0));
+    write_msr64(MSR_FS_BASE, 0);
+    write_msr64(MSR_KERNEL_GS_BASE, 0);
 
     tss_t *cpu_tss = gdt_get_tss(smp_current_cpu_index());
     if (!cpu_tss)
         cpu_tss = gdt_get_tss(smp_bsp_cpu_index());
 
     uint64_t kernel_gs_base = (uint64_t)cpu_tss;
-    uint32_t gs_lo = kernel_gs_base & 0xFFFFFFFF;
-    uint32_t gs_hi = kernel_gs_base >> 32;
-    __asm__ volatile("wrmsr" : : "c"(0xC0000102), "a"(gs_lo), "d"(gs_hi));
+    write_msr64(MSR_GS_BASE, kernel_gs_base);
 
     log("Syscalls initialized.", 4, 0);
 }
 
 void syscall_prepare_user_return(uint64_t gs_base)
 {
+    task_t *current = sched_current_task();
     tss_t *cpu_tss = gdt_get_tss(smp_current_cpu_index());
     if (!cpu_tss)
         cpu_tss = gdt_get_tss(smp_bsp_cpu_index());
 
-    uint32_t gs_lo = (uint32_t)(gs_base & 0xFFFFFFFF);
-    uint32_t gs_hi = (uint32_t)(gs_base >> 32);
-    __asm__ volatile("wrmsr" : : "c"(0xC0000101), "a"(gs_lo), "d"(gs_hi));
+    write_msr64(MSR_FS_BASE, current ? current->user_fs_base : 0);
+    write_msr64(MSR_KERNEL_GS_BASE, gs_base);
 
     uint64_t kernel_gs_base = (uint64_t)cpu_tss;
-    uint32_t kgs_lo = (uint32_t)(kernel_gs_base & 0xFFFFFFFF);
-    uint32_t kgs_hi = (uint32_t)(kernel_gs_base >> 32);
-    __asm__ volatile("wrmsr" : : "c"(0xC0000102), "a"(kgs_lo), "d"(kgs_hi));
+    write_msr64(MSR_GS_BASE, kernel_gs_base);
 }
 
 void syscall_prepare_sysret_return(uint64_t gs_base)
 {
+    task_t *current = sched_current_task();
     tss_t *cpu_tss = gdt_get_tss(smp_current_cpu_index());
     if (!cpu_tss)
         cpu_tss = gdt_get_tss(smp_bsp_cpu_index());
 
+    write_msr64(MSR_FS_BASE, current ? current->user_fs_base : 0);
     uint64_t kernel_gs_base = (uint64_t)cpu_tss;
-    uint32_t kgs_lo = (uint32_t)(kernel_gs_base & 0xFFFFFFFF);
-    uint32_t kgs_hi = (uint32_t)(kernel_gs_base >> 32);
-    __asm__ volatile("wrmsr" : : "c"(0xC0000101), "a"(kgs_lo), "d"(kgs_hi));
-
-    uint32_t gs_lo = (uint32_t)(gs_base & 0xFFFFFFFF);
-    uint32_t gs_hi = (uint32_t)(gs_base >> 32);
-    __asm__ volatile("wrmsr" : : "c"(0xC0000102), "a"(gs_lo), "d"(gs_hi));
+    write_msr64(MSR_KERNEL_GS_BASE, kernel_gs_base);
+    write_msr64(MSR_GS_BASE, gs_base);
 }
 
 static void dispatch_pending_signals(task_t *task)
@@ -1123,28 +1228,48 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         size_t length = (size_t)arg2;
         int prot = (int)arg3;
         int flags = (int)arg4;
-        (void)flags;
 
         task_t *current = sched_current_task();
-        if (!current || !current->pml4)
+        if (!current || !current->pml4 || length == 0)
             return -1;
 
-        uint64_t virt_start = addr ? (uint64_t)addr : USER_HEAP_START + 0x10000000;
         size_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
+        uint64_t virt_start = 0;
+        uint64_t page_flags = user_page_flags_from_prot(prot);
 
-        uint64_t page_flags = PAGE_PRESENT | PAGE_USER;
-        if (prot & 0x2)
-            page_flags |= PAGE_WRITABLE;
+        if (flags & 0x10)
+        {
+            if (!addr || ((uint64_t)addr & (PAGE_SIZE - 1)))
+                return -1;
+            virt_start = (uint64_t)addr;
+            if (virt_start < USER_MMAP_START || virt_start + (uint64_t)pages * PAGE_SIZE > USER_MMAP_END)
+                return -1;
+            user_unmap_range(current, virt_start, pages);
+        }
+        else
+        {
+            virt_start = user_find_mmap_range(current, (uint64_t)addr, pages);
+            if (!virt_start)
+                return -1;
+        }
 
+        size_t mapped_pages = 0;
         for (size_t i = 0; i < pages; i++)
         {
             uint64_t virt = virt_start + (i * PAGE_SIZE);
             uint64_t phys = alloc_page();
             if (!phys)
+            {
+                user_unmap_range(current, virt_start, mapped_pages);
                 return -1;
+            }
+            memset((void *)(phys + KERNEL_VIRT_OFFSET), 0, PAGE_SIZE);
             map_page(current->pml4, virt, phys, page_flags);
+            mapped_pages++;
         }
 
+        if (!(flags & 0x10))
+            current->mmap_base = virt_start + (uint64_t)pages * PAGE_SIZE;
         return virt_start;
     }
 
@@ -1157,19 +1282,34 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (!current || !current->pml4)
             return -1;
 
+        if (((uint64_t)addr & (PAGE_SIZE - 1)) || length == 0)
+            return -1;
+
         uint64_t virt_start = (uint64_t)addr;
         size_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
+        user_unmap_range(current, virt_start, pages);
+        return 0;
+    }
+
+    case SYSCALL_MPROTECT:
+    {
+        void *addr = (void *)arg1;
+        size_t length = (size_t)arg2;
+        int prot = (int)arg3;
+
+        task_t *current = sched_current_task();
+        if (!current || !current->pml4 || ((uint64_t)addr & (PAGE_SIZE - 1)) || length == 0)
+            return -1;
+
+        size_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
+        uint64_t page_flags = user_page_flags_from_prot(prot);
 
         for (size_t i = 0; i < pages; i++)
         {
-            uint64_t virt = virt_start + (i * PAGE_SIZE);
-            uint64_t phys = virt_to_phys(current->pml4, virt);
-            if (phys)
-            {
-                free_page(phys);
-                unmap_page(current->pml4, virt);
-            }
+            if (protect_page(current->pml4, (uint64_t)addr + i * PAGE_SIZE, page_flags) < 0)
+                return -1;
         }
+
         return 0;
     }
 
@@ -1419,10 +1559,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_IS_FOCUSED:
     {
-        task_t *current = sched_current_task();
-        if (!current)
-            return 0;
-        return (current->pid == kbd_get_focused_pid()) ? 1 : 0;
+        return 1;
     }
 
     case SYSCALL_KILL:
@@ -1986,7 +2123,33 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_SET_FOCUS:
     {
-        return kbd_set_focused_pid(arg1);
+        (void)arg1;
+        return 0;
+    }
+
+    case SYSCALL_ARCH_PRCTL:
+    {
+        task_t *current = sched_current_task();
+        if (!current || current->is_kernel_task)
+            return -38;
+
+        switch (arg1)
+        {
+        case ARCH_SET_FS:
+            current->user_fs_base = arg2;
+            write_msr64(MSR_FS_BASE, arg2);
+            return 0;
+        case ARCH_GET_FS:
+            return write_user_u64(current, arg2, current->user_fs_base);
+        case ARCH_SET_GS:
+            current->user_gs_base = arg2;
+            write_msr64(MSR_KERNEL_GS_BASE, arg2);
+            return 0;
+        case ARCH_GET_GS:
+            return write_user_u64(current, arg2, current->user_gs_base);
+        default:
+            return -22;
+        }
     }
 
     default:

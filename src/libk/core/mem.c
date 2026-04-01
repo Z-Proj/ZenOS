@@ -547,6 +547,34 @@ void map_page(page_table_t *pml4, uint64_t virt, uint64_t phys, uint64_t flags)
     __asm__ volatile("invlpg (%0)" : : "r"(virt) : "memory");
 }
 
+int protect_page(page_table_t *pml4, uint64_t virt, uint64_t flags)
+{
+    uint64_t pml4_idx = get_pml4_index(virt);
+    uint64_t pdpt_idx = get_pdpt_index(virt);
+    uint64_t pd_idx = get_pd_index(virt);
+    uint64_t pt_idx = get_pt_index(virt);
+
+    if (!(pml4->entries[pml4_idx] & PAGE_PRESENT))
+        return -1;
+    page_table_t *pdpt = (page_table_t *)((pml4->entries[pml4_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
+
+    if (!(pdpt->entries[pdpt_idx] & PAGE_PRESENT) || (pdpt->entries[pdpt_idx] & (1ULL << 7)))
+        return -1;
+    page_table_t *pd = (page_table_t *)((pdpt->entries[pdpt_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
+
+    if (!(pd->entries[pd_idx] & PAGE_PRESENT) || (pd->entries[pd_idx] & (1ULL << 7)))
+        return -1;
+    page_table_t *pt = (page_table_t *)((pd->entries[pd_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
+
+    if (!(pt->entries[pt_idx] & PAGE_PRESENT))
+        return -1;
+
+    uint64_t phys = pt->entries[pt_idx] & 0x000FFFFFFFFFF000;
+    pt->entries[pt_idx] = phys | (flags & 0x8000000000000FFF);
+    __asm__ volatile("invlpg (%0)" : : "r"(virt) : "memory");
+    return 0;
+}
+
 void switch_page_directory(page_table_t *pml4)
 {
     uint64_t phys = (uint64_t)pml4 - KERNEL_VIRT_OFFSET;

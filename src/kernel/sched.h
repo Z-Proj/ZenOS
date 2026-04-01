@@ -37,6 +37,7 @@ typedef struct task
     int is_idle_task;
     page_table_t *pml4;
     uint64_t heap_brk;
+    uint64_t mmap_base;
     int argc;
     char **argv;
     int exit_code;
@@ -55,6 +56,8 @@ typedef struct task
     uint32_t sig_pending;
     uint32_t sig_mask;
     uint64_t sig_trampoline;
+    uint64_t user_fs_base;
+    uint64_t user_gs_base;
     int32_t pinned_cpu;
     int32_t running_cpu;
     int32_t last_cpu;
@@ -66,7 +69,7 @@ void sched_init(void);
 void sched_start(void);
 void sched_ap_entry(void);
 task_t *task_create(void (*entry)(void), const char *name);
-task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pml4, int argc, char **argv);
+task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp);
 void sched_yield(void);
 void sched_tick(registers_t *irq_regs);
 task_t *sched_current_task(void);

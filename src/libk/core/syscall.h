@@ -77,6 +77,8 @@
 #define SYSCALL_SHM_OPEN         71
 #define SYSCALL_SHM_CLOSE        72
 #define SYSCALL_SET_FOCUS        73
+#define SYSCALL_ARCH_PRCTL       74
+#define SYSCALL_MPROTECT         75
 #define ZEN_TIOCGWINSZ  0x5413  
 #define ZEN_TIOCSWINSZ  0x5414  
 #define ZEN_TIOCSPTYGID 0x5420  
@@ -137,6 +139,11 @@ typedef struct {
 
 #define FUTEX_WAIT               0  
 #define FUTEX_WAKE               1  
+
+#define ARCH_SET_GS              0x1001
+#define ARCH_SET_FS              0x1002
+#define ARCH_GET_FS              0x1003
+#define ARCH_GET_GS              0x1004
 
 typedef struct {
     uint8_t  ip[4];
