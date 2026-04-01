@@ -53,8 +53,8 @@ typedef struct task
     uint64_t futex_wait_addr;
     int futex_woken;
     zen_sigaction_t sighandlers[NSIG];
-    uint32_t sig_pending;
-    uint32_t sig_mask;
+    uint64_t sig_pending;
+    uint64_t sig_mask;
     uint64_t sig_trampoline;
     uint64_t user_fs_base;
     uint64_t user_gs_base;

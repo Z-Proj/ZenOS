@@ -14,7 +14,7 @@
 #define SSFN_realloc realloc
 #define SSFN_free    free
 #include "ssfn.h"
-#include "../libs/harp_api.h"
+#include "../../include/harp_api.h"
 
 extern char _binary_mono_sfn_start;
 

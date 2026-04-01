@@ -15,7 +15,7 @@
 #include <unistd.h>
 #include <sys/time.h>
 #include <linux/input.h>
-#include "../userlib.h"
+#include "../../userlib.h"
 
 extern char _binary_FreeSansB_sfn_start;
 

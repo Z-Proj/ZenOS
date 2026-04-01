@@ -5,7 +5,7 @@
 #include <sys/time.h>
 #include <termios.h>
 #include <unistd.h>
-#include "../userlib.h"
+#include "../../userlib.h"
 
 static void print2(int n) {
     char s[3] = { '0' + n / 10, '0' + n % 10, '\0' };

@@ -256,6 +256,7 @@ elif host_machine.system() == 'zenos'
 	libc_include_dirs += include_directories('sysdeps/zenos/include')
 	rtld_include_dirs += include_directories('options/bsd/include')
 	libc_include_dirs += include_directories('options/bsd/include')
+	internal_conf.set10('MLIBC_MMAP_ALLOCATE_DSO', true)
 	subdir('sysdeps/zenos')
 elif host_machine.system() == 'lemon'
 	rtld_include_dirs += include_directories('sysdeps/lemon/include')
@@ -549,6 +550,7 @@ if not headers_only
 			cpp_args: ld_cpp_args,
 			include_directories: rtld_include_dirs,
 			dependencies: rtld_deps + rtlib_deps,
+			link_args: ['-Wl,-Bsymbolic-functions'],
 			install: true
 		)
 		hide_everything_ld = (meson.current_source_dir()

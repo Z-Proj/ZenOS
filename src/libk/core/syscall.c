@@ -212,12 +212,12 @@ static void dispatch_pending_signals(task_t *task)
 
     for (int sig = 1; sig < NSIG; sig++)
     {
-        if (!(task->sig_pending & (1u << sig)))
+        if (!(task->sig_pending & (1ull << sig)))
             continue;
-        if (task->sig_mask & (1u << sig))
+        if (task->sig_mask & (1ull << sig))
             continue;
 
-        task->sig_pending &= ~(1u << sig);
+        task->sig_pending &= ~(1ull << sig);
         zen_sigaction_t *sa = &task->sighandlers[sig];
 
         if (sa->handler == SIG_DFL || sa->handler == 0)
@@ -1814,8 +1814,8 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     case SYSCALL_SIGPROCMASK:
     {
         int how = (int)arg1;
-        uint32_t *set = (uint32_t *)arg2;
-        uint32_t *oldset = (uint32_t *)arg3;
+        uint64_t *set = (uint64_t *)arg2;
+        uint64_t *oldset = (uint64_t *)arg3;
         task_t *cur = sched_current_task();
         if (!cur)
             return -1;

@@ -58,9 +58,9 @@ The project focuses on clean design, correctness, and real hardware interaction.
 
 ### Userspace & Libc
 
-- [Newlib](https://sourceware.org/newlib/) C library, fully compiled and integrated for the ZenOS target.
+- [mlibc](https://github.com/managarm/mlibc) C library, integrated for the ZenOS target.
 - ELF64 userspace programs.
-- Currently **70+** Syscalls present. (As of now, ZenOS apps are statically linked.)
+- Shared-library userspace with `/usr/lib/ld.so` and `libc.so`.
 
 ### Applications
 
@@ -140,7 +140,7 @@ socat
 - [Flanterm](https://codeberg.org/mintsuki/flanterm) — early kernel terminal renderer
 - [SSFN 2.0](https://gitlab.com/bztsrc/scalable-font2/) — scalable screen fonts
 - [FatFs](https://elm-chan.org/fsw/ff/) — FAT32 library by CHAN
-- [Newlib](https://sourceware.org/newlib/) — C standard library
+- [mlibc](https://github.com/managarm/mlibc) — C standard library
 - [Lua](https://www.lua.org/) — lightweight scripting language
 - [TinyCC](https://github.com/TinyCC/tinycc) — Tiny C Compiler, ported to ZenOS
 - [SmallerC](https://github.com/alexfru/SmallerC) — C to assembly compiler

@@ -82,8 +82,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define EXIT_FAILURE 1
 #define EXIT_SUCCESS 0
 
-// fgetpos/fsetpos provided by newlib stdio.h
-
 #define CAN_COMPILE_32BIT
 
 #else // #ifndef __SMALLER_C__

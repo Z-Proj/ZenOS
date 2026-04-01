@@ -442,8 +442,8 @@ int sys_sigaction(int sig, const struct sigaction *act, struct sigaction *oldact
 }
 
 int sys_sigprocmask(int how, const sigset_t *set, sigset_t *retrieve) {
-	uint32_t new_mask = set ? static_cast<uint32_t>(*set) : 0;
-	uint32_t old_mask = 0;
+	uint64_t new_mask = set ? static_cast<uint64_t>(*set) : 0;
+	uint64_t old_mask = 0;
 	long ret = zenos_do_syscall3(ZENOS_SYSCALL_SIGPROCMASK, how,
 			set ? reinterpret_cast<long>(&new_mask) : 0,
 			retrieve ? reinterpret_cast<long>(&old_mask) : 0);
@@ -451,7 +451,7 @@ int sys_sigprocmask(int how, const sigset_t *set, sigset_t *retrieve) {
 	if(e)
 		return e;
 	if(retrieve)
-		*retrieve = old_mask;
+		*retrieve = static_cast<sigset_t>(old_mask);
 	return 0;
 }
 

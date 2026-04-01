@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <sys/wait.h>
-#include "../userlib.h"
+#include "../../userlib.h"
 
 #define MAX_LINE 256
 #define MAX_ARGS 32

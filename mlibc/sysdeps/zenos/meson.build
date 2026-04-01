@@ -75,6 +75,7 @@ if not no_headers
 
 	install_headers(
 		'include/linux/fb.h',
+		'include/linux/input.h',
 		subdir: 'linux'
 	)
 

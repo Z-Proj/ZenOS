@@ -6,3 +6,4 @@ build/
 fat_man
 *.elf
 funcs.txt
+userland/sysroot/

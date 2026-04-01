@@ -8,6 +8,8 @@ FATMAN="./fat_man"
 [ -x "$FATMAN" ]   || { echo "[!] fat_man not found"; exit 1; }
 [ -f "$VHD_PATH" ] || { echo "[!] VHD not found"; exit 1; }
 
+./userland/install_mlibc.sh
+
 $FATMAN "$VHD_PATH" mkdir /bin || true
 
 FAILED=0

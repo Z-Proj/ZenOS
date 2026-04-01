@@ -1192,7 +1192,7 @@ int sched_signal(uint64_t pid, int sig)
                 return 0;
             }
 
-            t->sig_pending |= (1u << sig);
+            t->sig_pending |= (1ull << sig);
             if (t->state == TASK_BLOCKED)
                 t->state = TASK_READY;
             spinlock_release(&sched_lock);
