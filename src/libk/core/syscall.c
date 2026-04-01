@@ -252,6 +252,78 @@ static void dispatch_pending_signals(task_t *task)
     }
 }
 
+static int64_t console_read_fallback(void *buffer, uint32_t size)
+{
+    if (!buffer)
+        return -1;
+    if (!size)
+        return 0;
+
+    char *cbuf = (char *)buffer;
+    uint32_t total = 0;
+    while (total < size)
+    {
+        char c = 0;
+        while (!c)
+        {
+            c = get_key();
+            if (!c)
+                sched_yield();
+        }
+        cbuf[total++] = c;
+        if (c == '\n' || kbd_pending_chars() == 0)
+            break;
+    }
+    return (int64_t)total;
+}
+
+static int64_t console_ioctl_fallback(unsigned long req, void *argp)
+{
+    if (req == ZEN_TCGETS)
+    {
+        if (!argp)
+            return -1;
+        zen_termios_t *tio = (zen_termios_t *)argp;
+        memset(tio, 0, sizeof(*tio));
+        tio->c_iflag = ZEN_ICRNL | ZEN_IXON;
+        tio->c_oflag = ZEN_OPOST | ZEN_ONLCR;
+        tio->c_cflag = ZEN_CS8 | ZEN_CREAD;
+        tio->c_lflag = ZEN_ISIG | ZEN_ICANON | ZEN_ECHO | ZEN_ECHOE | ZEN_ECHOK | ZEN_IEXTEN;
+        tio->c_cc[ZEN_VINTR] = 3;
+        tio->c_cc[ZEN_VQUIT] = 28;
+        tio->c_cc[ZEN_VERASE] = 127;
+        tio->c_cc[ZEN_VKILL] = 21;
+        tio->c_cc[ZEN_VEOF] = 4;
+        tio->c_cc[ZEN_VTIME] = 0;
+        tio->c_cc[ZEN_VMIN] = 1;
+        tio->c_cc[ZEN_VSTART] = 17;
+        tio->c_cc[ZEN_VSTOP] = 19;
+        tio->c_cc[ZEN_VSUSP] = 26;
+        return 0;
+    }
+    if (req == ZEN_TCSETS || req == ZEN_TCSETSW || req == ZEN_TCSETSF)
+        return 0;
+    if (req == ZEN_TIOCGWINSZ)
+    {
+        if (!argp)
+            return -1;
+        zen_winsize_t *ws = (zen_winsize_t *)argp;
+        ws->ws_col = framebuffer_width ? (uint16_t)(framebuffer_width / 8) : 80;
+        ws->ws_row = framebuffer_height ? (uint16_t)(framebuffer_height / 16) : 25;
+        ws->ws_xpixel = (uint16_t)framebuffer_width;
+        ws->ws_ypixel = (uint16_t)framebuffer_height;
+        return 0;
+    }
+    if (req == ZEN_FIONREAD)
+    {
+        if (!argp)
+            return -1;
+        *(int *)argp = (int)kbd_pending_chars();
+        return 0;
+    }
+    return -1;
+}
+
 static int pty_push_m2s(pty_buf_t *pty, uint8_t ch)
 {
     if (pty->m2s_count >= PTY_BUF_SIZE)
@@ -814,23 +886,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                 e = cand;
         }
         if (fd == 0 && !e)
-        {
-            char *cbuf = (char *)buffer;
-            for (uint32_t i = 0; i < size; i++)
-            {
-                char c = 0;
-                while (!c)
-                {
-                    c = get_key();
-                    if (!c)
-                        sched_yield();
-                }
-                cbuf[i] = c;
-                if (c == '\n')
-                    return (int64_t)(i + 1);
-            }
-            return (int64_t)size;
-        }
+            return console_read_fallback(buffer, size);
         if (!e)
             return -1;
         if (e->type == FD_PTY_SLAVE)
@@ -976,6 +1032,15 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             }
             return (int64_t)size;
         }
+        if (e->type == FD_DEV)
+        {
+            struct dev_entry *d = e->dev_ops;
+            if (!d || !d->write)
+                return -1;
+            if (d->write(buffer, size) < 0)
+                return -1;
+            return (int64_t)size;
+        }
         if (e->type != FD_FILE)
             return -1;
         if (size == 0)
@@ -1026,11 +1091,13 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return -1;
         if (fd < 0 || fd >= TASK_MAX_FDS)
             return -1;
+        if (fd == 0 || fd == 1 || fd == 2)
+            return -29;
         fd_entry_t *e = &cur->fd_table->entries[fd];
         if (!e->used)
             return -1;
         if (e->type != FD_FILE)
-            return -1;
+            return -29;
         return vfs_lseek_entry(e, offset, whence);
     }
 
@@ -1966,7 +2033,12 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (fd >= 0 && fd < TASK_MAX_FDS && cur->fd_table->entries[fd].used)
             e = &cur->fd_table->entries[fd];
 
-        if (!e) return (uint64_t)(int64_t)-1;
+        if (!e)
+        {
+            if (fd == 0 || fd == 1 || fd == 2)
+                return (uint64_t)console_ioctl_fallback(req, argp);
+            return (uint64_t)(int64_t)-1;
+        }
 
         if (e->type == FD_PTY_MASTER || e->type == FD_PTY_SLAVE)
         {

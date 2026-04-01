@@ -36,6 +36,7 @@ void kbd_transfer_focus(uint64_t dead_pid);
 
 char get_key(void);
 char wait_for_key(void);
+size_t kbd_pending_chars(void);
 void read_line(char *buffer, size_t max_size, bool print);
 bool is_key_pressed(uint8_t scancode);
 bool is_shift_pressed(void);

@@ -272,6 +272,16 @@ int sys_isatty(int fd) {
 	return ENOTTY;
 }
 
+int sys_ttyname(int fd, char *buf, size_t size) {
+	static constexpr const char path[] = "/dev/tty";
+	if(size < sizeof(path))
+		return ERANGE;
+	if(int e = sys_isatty(fd); e)
+		return e;
+	memcpy(buf, path, sizeof(path));
+	return 0;
+}
+
 int sys_getcwd(char *buffer, size_t size) {
 	long ret = zenos_do_syscall2(ZENOS_SYSCALL_GETCWD, reinterpret_cast<long>(buffer), size);
 	return sc_error(ret);

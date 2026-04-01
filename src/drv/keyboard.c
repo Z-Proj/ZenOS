@@ -614,6 +614,14 @@ char wait_for_key(void)
     return get_key();
 }
 
+size_t kbd_pending_chars(void)
+{
+    uint64_t rflags = spinlock_acquire_irqsave(&kbdlock);
+    size_t count = key_buffer.count;
+    spinlock_release_irqrestore(&kbdlock, rflags);
+    return count;
+}
+
 void read_line(char *buffer, size_t max_size, bool print)
 {
     size_t pos = 0;

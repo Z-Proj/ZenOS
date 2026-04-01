@@ -1,7 +1,11 @@
 #include "devfs.h"
+#include "../keyboard.h"
+#include "../vga.h"
+#include "../../libk/core/syscall.h"
 #include "../../libk/string.h"
 #include "../../libk/core/mem.h"
 #include "../../libk/debug/log.h"
+#include "../../kernel/sched.h"
 
 #define DEVFS_MAX_DEVS 32
 
@@ -42,6 +46,93 @@ static int dev_urandom_read(void *buf, uint32_t size, uint32_t *got)
     return 0;
 }
 
+static int dev_console_read(void *buf, uint32_t size, uint32_t *got)
+{
+    if (!buf)
+        return -1;
+    if (!size)
+    {
+        if (got) *got = 0;
+        return 0;
+    }
+
+    char *out = (char *)buf;
+    uint32_t total = 0;
+    while (total < size)
+    {
+        char c = 0;
+        while (!c)
+        {
+            c = get_key();
+            if (!c)
+                sched_yield();
+        }
+        out[total++] = c;
+        if (kbd_pending_chars() == 0)
+            break;
+    }
+
+    if (got) *got = total;
+    return 0;
+}
+
+static int dev_console_write(const void *buf, uint32_t size)
+{
+    const char *str = (const char *)buf;
+    if (!str)
+        return -1;
+    for (uint32_t i = 0; i < size; i++)
+        printc(str[i]);
+    return 0;
+}
+
+static int dev_console_ioctl(unsigned long req, void *argp)
+{
+    if (req == ZEN_TCGETS)
+    {
+        if (!argp)
+            return -1;
+        zen_termios_t *tio = (zen_termios_t *)argp;
+        memset(tio, 0, sizeof(*tio));
+        tio->c_iflag = ZEN_ICRNL | ZEN_IXON;
+        tio->c_oflag = ZEN_OPOST | ZEN_ONLCR;
+        tio->c_cflag = ZEN_CS8 | ZEN_CREAD;
+        tio->c_lflag = ZEN_ISIG | ZEN_ICANON | ZEN_ECHO | ZEN_ECHOE | ZEN_ECHOK | ZEN_IEXTEN;
+        tio->c_cc[ZEN_VINTR] = 3;
+        tio->c_cc[ZEN_VQUIT] = 28;
+        tio->c_cc[ZEN_VERASE] = 127;
+        tio->c_cc[ZEN_VKILL] = 21;
+        tio->c_cc[ZEN_VEOF] = 4;
+        tio->c_cc[ZEN_VTIME] = 0;
+        tio->c_cc[ZEN_VMIN] = 1;
+        tio->c_cc[ZEN_VSTART] = 17;
+        tio->c_cc[ZEN_VSTOP] = 19;
+        tio->c_cc[ZEN_VSUSP] = 26;
+        return 0;
+    }
+    if (req == ZEN_TCSETS || req == ZEN_TCSETSW || req == ZEN_TCSETSF)
+        return 0;
+    if (req == ZEN_TIOCGWINSZ)
+    {
+        if (!argp)
+            return -1;
+        zen_winsize_t *ws = (zen_winsize_t *)argp;
+        ws->ws_col = framebuffer_width ? (uint16_t)(framebuffer_width / 8) : 80;
+        ws->ws_row = framebuffer_height ? (uint16_t)(framebuffer_height / 16) : 25;
+        ws->ws_xpixel = (uint16_t)framebuffer_width;
+        ws->ws_ypixel = (uint16_t)framebuffer_height;
+        return 0;
+    }
+    if (req == ZEN_FIONREAD)
+    {
+        if (!argp)
+            return -1;
+        *(int *)argp = (int)kbd_pending_chars();
+        return 0;
+    }
+    return -1;
+}
+
 void devfs_init(void)
 {
     dev_count = 0;
@@ -49,6 +140,8 @@ void devfs_init(void)
     devfs_register("zero",    dev_zero_read,    dev_null_write, NULL);
     devfs_register("urandom", dev_urandom_read, dev_null_write, NULL);
     devfs_register("random",  dev_urandom_read, dev_null_write, NULL);
+    devfs_register("tty",     dev_console_read, dev_console_write, dev_console_ioctl);
+    devfs_register("console", dev_console_read, dev_console_write, dev_console_ioctl);
     log("devfs: %d devices registered.", 4, 0, dev_count);
 }
 
