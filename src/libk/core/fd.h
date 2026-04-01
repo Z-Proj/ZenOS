@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "../../drv/disk/fatfs/ff.h"
+#include "../spinlock.h"
 
 #define TASK_MAX_FDS 32
 #define PTY_NCCS 19
@@ -57,6 +58,7 @@ typedef struct pty_buf
     int32_t pgrp;
     int eof_pending;
     uint8_t esc_state;
+    spinlock_t lock;
 } pty_buf_t;
 
 typedef struct
@@ -79,6 +81,7 @@ typedef struct pipe_buf
     int readers;
     int writers;
     int refcount;
+    spinlock_t lock;
 } pipe_buf_t;
 
 typedef struct

@@ -60,6 +60,16 @@ void spinlock_release_noirq(spinlock_t *lock)
     __sync_lock_release(&lock->locked);
 }
 
+void spinlock_acquire_raw(spinlock_t *lock)
+{
+    _spin_wait(lock);
+}
+
+void spinlock_release_raw(spinlock_t *lock)
+{
+    __sync_lock_release(&lock->locked);
+}
+
 uint64_t spinlock_acquire_irqsave(spinlock_t *lock)
 {
     uint64_t rflags = _flags_cli();

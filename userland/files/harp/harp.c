@@ -11,8 +11,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <linux/input.h>
 #include "../userlib.h"
 
 extern char _binary_FreeSansB_sfn_start;
@@ -530,6 +532,12 @@ static int drag_base_x = 0, drag_base_y = 0;
 static int dragging = 0;
 
 static socket_file_t *ev_sock = NULL;
+static int kbd_fd = -1;
+static int mouse_fd = -1;
+static uint32_t pointer_x = 0;
+static uint32_t pointer_y = 0;
+static uint8_t pointer_btn = 0;
+static int tab_pressed = 0;
 
 #define DTILE 32
 #define MAX_DTX 80
@@ -1047,7 +1055,7 @@ static void cursor_stamp(int mx, int my)
 
 static void push_to_fb(void)
 {
-    uint32_t mx = zen_mouse_x(), my = zen_mouse_y();
+    uint32_t mx = pointer_x, my = pointer_y;
     uint32_t *dst = (uint32_t *)(uintptr_t)fb.addr;
     cursor_restore_from_backbuf();
     if (dirty_full)
@@ -1240,6 +1248,98 @@ static void poll_events(void)
     }
 }
 
+static void clamp_pointer(void)
+{
+    if (pointer_x >= SCR_W)
+        pointer_x = SCR_W ? SCR_W - 1 : 0;
+    if (pointer_y >= SCR_H)
+        pointer_y = SCR_H ? SCR_H - 1 : 0;
+}
+
+static void pump_keyboard_events(void)
+{
+    if (kbd_fd < 0)
+        return;
+
+    int avail = 0;
+    if (zen_ioctl(kbd_fd, ZEN_FIONREAD, &avail) < 0)
+        return;
+
+    while (avail >= (int)sizeof(struct input_event))
+    {
+        struct input_event event;
+        int n = read(kbd_fd, &event, sizeof(event));
+        if (n != (int)sizeof(event))
+            break;
+        if (event.type == EV_KEY && event.code == KEY_TAB && event.value == 1)
+            tab_pressed = 1;
+        avail -= (int)sizeof(event);
+    }
+}
+
+static void pump_mouse_events(void)
+{
+    if (mouse_fd < 0)
+        return;
+
+    int avail = 0;
+    if (zen_ioctl(mouse_fd, ZEN_FIONREAD, &avail) < 0)
+        return;
+
+    while (avail >= (int)sizeof(struct input_event))
+    {
+        struct input_event event;
+        int n = read(mouse_fd, &event, sizeof(event));
+        if (n != (int)sizeof(event))
+            break;
+
+        if (event.type == EV_REL)
+        {
+            if (event.code == REL_X)
+            {
+                int32_t next_x = (int32_t)pointer_x + event.value;
+                if (next_x < 0)
+                    next_x = 0;
+                pointer_x = (uint32_t)next_x;
+            }
+            else if (event.code == REL_Y)
+            {
+                int32_t next_y = (int32_t)pointer_y + event.value;
+                if (next_y < 0)
+                    next_y = 0;
+                pointer_y = (uint32_t)next_y;
+            }
+            clamp_pointer();
+        }
+        else if (event.type == EV_KEY)
+        {
+            if (event.code == BTN_LEFT)
+            {
+                if (event.value)
+                    pointer_btn |= 1;
+                else
+                    pointer_btn &= (uint8_t)~1u;
+            }
+            else if (event.code == BTN_MIDDLE)
+            {
+                if (event.value)
+                    pointer_btn |= 2;
+                else
+                    pointer_btn &= (uint8_t)~2u;
+            }
+            else if (event.code == BTN_RIGHT)
+            {
+                if (event.value)
+                    pointer_btn |= 4;
+                else
+                    pointer_btn &= (uint8_t)~4u;
+            }
+        }
+
+        avail -= (int)sizeof(event);
+    }
+}
+
 int main(void)
 {
     if (zen_fbinfo(&fb) < 0)
@@ -1248,6 +1348,9 @@ int main(void)
     SCR_H = (uint32_t)fb.height;
     if (SCR_W == 0 || SCR_H == 0)
         return 1;
+    pointer_x = SCR_W / 2;
+    pointer_y = SCR_H / 2;
+    pointer_btn = 0;
 
     dtx_count = ((int)SCR_W + DTILE - 1) / DTILE;
     if (dtx_count > MAX_DTX)
@@ -1284,6 +1387,14 @@ int main(void)
         return 1;
     }
 
+    kbd_fd = open("/dev/input/event0", O_RDONLY);
+    mouse_fd = open("/dev/input/event1", O_RDONLY);
+    if (kbd_fd < 0 || mouse_fd < 0)
+    {
+        free(backbuf);
+        return 1;
+    }
+
     full_redraw();
 
     uint32_t prev_btn = 0;
@@ -1292,13 +1403,15 @@ int main(void)
     while (1)
     {
         poll_events();
-        uint32_t mx = zen_mouse_x(), my = zen_mouse_y();
-        uint8_t btn = zen_mouse_btn();
+        pump_keyboard_events();
+        pump_mouse_events();
+        uint32_t mx = pointer_x, my = pointer_y;
+        uint8_t btn = pointer_btn;
         int moved = ((int)mx != prev_mx || (int)my != prev_my);
 
-        int key = zen_getkey();
-        if (key == '	')
+        if (tab_pressed)
         {
+            tab_pressed = 0;
             int start = -1;
             for (int i = 0; i < zcount; i++)
                 if (zstack[i] == focused_win)

@@ -36,7 +36,6 @@ static void hpet_handler(registers_t *r)
     (void)r;
     hpet_write(HPET_ISR, 1);
     hpet_ticks++;
-    LocalApicSendEOI();
     kbd_switcher_tick();
 }
 

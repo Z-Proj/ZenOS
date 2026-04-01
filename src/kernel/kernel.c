@@ -16,6 +16,7 @@
 #include "../drv/rtc.h"
 #include "../drv/hpet.h"
 #include "../drv/vga.h"
+#include "../drv/input.h"
 #include "../drv/mouse.h"
 #include "../drv/local_apic.h"
 #include "../drv/ioapic.h"
@@ -54,6 +55,7 @@ void _start(void)
     IoApicSetIrqMapped(0, 0x22);
     hpet_init(200);
     LocalApicTimerInit(200);
+    input_init();
     IoApicSetIrqMapped(1, 0x21);
     init_keyboard();
     ata_init();
@@ -98,6 +100,7 @@ void _start(void)
     log(fat_debug_buf, 1, 1);
 #endif
     vfs_init();
+    input_register_devfs();
     if (!(framebuffer_bpp == 32))
         log("\nZenOS only supports 32bpp displays right now.\n", 2, 1);
     char *init_argv[] = {"kernel"};

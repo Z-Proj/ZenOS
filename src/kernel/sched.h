@@ -78,6 +78,7 @@ int sched_kill(uint64_t pid);
 int sched_wait_pid(int64_t pid, int *status, int options);
 pid_t sched_fork(uint64_t syscall_frame_ptr);
 int sched_signal(uint64_t pid, int sig);
+void sched_set_active_pml4(page_table_t *pml4);
 extern void task_switch(registers_t *old_regs, registers_t *new_regs);
 
 #endif

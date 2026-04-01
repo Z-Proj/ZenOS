@@ -1,5 +1,6 @@
 #include "fd.h"
 #include "mem.h"
+#include "../../drv/disk/fat.h"
 #include "../../libk/string.h"
 
 fd_table_t *fd_table_alloc(void)
@@ -30,9 +31,13 @@ static void fd_close_entry(fd_entry_t *e)
     if (!e->used) return;
 
     if (e->type == FD_FILE) {
+        fat_lock();
         f_close(&e->file.fil);
+        fat_unlock();
     } else if (e->type == FD_DIR) {
+        fat_lock();
         f_closedir(&e->dir.dir);
+        fat_unlock();
     } else if (e->type == FD_PIPE_READ) {
         e->pipe->readers--;
         if (e->pipe->readers <= 0) e->pipe->read_closed = 1;
@@ -78,12 +83,14 @@ fd_table_t *fd_table_clone(fd_table_t *src)
         de->cloexec = se->cloexec;
 
         if (se->type == FD_FILE) {
+            fat_lock();
             FRESULT fr = f_open(&de->file.fil, NULL, 0);
             (void)fr;
             de->file = se->file;
             FSIZE_t pos = f_tell(&se->file.fil);
             f_rewind(&de->file.fil);
             f_lseek(&de->file.fil, pos);
+            fat_unlock();
         } else if (se->type == FD_PIPE_READ || se->type == FD_PIPE_WRITE) {
             de->pipe = se->pipe;
             de->pipe->refcount++;

@@ -81,7 +81,7 @@ static void cmd_write(int argc, char* argv[]) {
     text[pos] = '\0';
     
     int success = write(file, text, strlen(text));
-    if (!success) {
+    if (success) {
         fputs(COLOR_GREEN "Write successful.\n" COLOR_RESET, stdout);
     } else {
         fputs(COLOR_RED "Write failed\n" COLOR_RESET, stdout);
@@ -244,12 +244,7 @@ static void cmd_socket_delete(int argc, char* argv[]) {
 }
 
 
-static void cmd_exec(int argc, char* argv[]) {
-    if (argc < 2) {
-        fputs(COLOR_RED "Usage: exec <filename> [args...]\n" COLOR_RESET, stdout);
-        return;
-    }
-
+static void run_foreground(const char *path, char *argv[]) {
     pid_t pid = fork();
     if (pid < 0) {
         fputs(COLOR_RED "Fork failed\n" COLOR_RESET, stdout);
@@ -257,14 +252,29 @@ static void cmd_exec(int argc, char* argv[]) {
     }
 
     if (pid == 0) {
-        execv(argv[1], &argv[1]);
-        fputs(COLOR_RED "Failed to execute\n" COLOR_RESET, stdout);
+        execv(path, argv);
+        fputs(COLOR_RED "Failed to execute: " COLOR_RESET, stdout);
+        fputs(path, stdout);
+        fputs("\n", stdout);
+        _exit(127);
+    }
+
+    zen_set_focus(pid);
+
+    int status = 0;
+    if (waitpid(pid, &status, 0) < 0)
+        fputs(COLOR_RED "waitpid failed\n" COLOR_RESET, stdout);
+
+    zen_set_focus(getpid());
+}
+
+static void cmd_exec(int argc, char* argv[]) {
+    if (argc < 2) {
+        fputs(COLOR_RED "Usage: exec <filename> [args...]\n" COLOR_RESET, stdout);
         return;
     }
 
-    fputs(COLOR_YELLOW "Executing: " COLOR_RESET, stdout);
-    fputs(argv[1], stdout);
-    fputs("\n", stdout);
+    run_foreground(argv[1], &argv[1]);
 }
 
 static void cmd_execwait(int argc, char* argv[]) {
@@ -273,36 +283,12 @@ static void cmd_execwait(int argc, char* argv[]) {
         return;
     }
 
-    pid_t pid = fork();
-    if (pid < 0) {
-        fputs(COLOR_RED "Fork failed\n" COLOR_RESET, stdout);
-        return;
-    }
-
-    if (pid == 0) {
-        execv(argv[1], &argv[1]);
-        fputs(COLOR_RED "Failed to execute\n" COLOR_RESET, stdout);
-        return;
-    }
-
-    int status;
-    waitpid(pid, &status, 0);
-    fputs(COLOR_GREEN "Process exited\n" COLOR_RESET, stdout);
+    run_foreground(argv[1], &argv[1]);
 }
 
 static void run_file(const char *path, int argc, char *argv[]) {
-    pid_t pid = fork();
-    if (pid < 0) {
-        fputs(COLOR_RED "Fork failed\n" COLOR_RESET, stdout);
-        return;
-    }
-    if (pid == 0) {
-        execv(path, argv);
-        fputs(COLOR_RED "Failed to execute: " COLOR_RESET, stdout);
-        fputs(path, stdout);
-        fputs("\n", stdout);
-        return;
-    }
+    (void)argc;
+    run_foreground(path, argv);
 }
 
 
@@ -517,7 +503,6 @@ static int execute_command(void) {
     int argc = parse_command(cmd_copy, argv, MAX_ARGS);
     
     if (argc == 0 || !argv[0]) return 1;
-
     if (strcmp(argv[0], "z") != 0) {
         strcpy(lastcmd, command_buffer);
     }
@@ -618,6 +603,7 @@ int main(int argc, char *argv[]) {
     show_banner();
     
     while (1) {
+        zen_set_focus(getpid());
         show_prompt();
         read_command();
         

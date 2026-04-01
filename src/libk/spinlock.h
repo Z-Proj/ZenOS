@@ -13,6 +13,8 @@ void spinlock_init(spinlock_t *lock);
 void spinlock_acquire(spinlock_t *lock);
 void spinlock_release(spinlock_t *lock);
 void spinlock_release_noirq(spinlock_t *lock);
+void spinlock_acquire_raw(spinlock_t *lock);
+void spinlock_release_raw(spinlock_t *lock);
 
 uint64_t spinlock_acquire_irqsave(spinlock_t *lock);
 

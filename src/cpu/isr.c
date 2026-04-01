@@ -110,10 +110,15 @@ void isr_handler(registers_t* regs)
 
 void irq_handler(registers_t* regs)
 {
+    if (regs->int_no == IRQ3)
+        LocalApicSendEOI();
+
     if(interrupt_handlers[regs->int_no]) {
         interrupt_handlers[regs->int_no](regs);
     } else {
         log("Unhandled IRQ: %d", 3, 1, regs->int_no);
     }
-    LocalApicSendEOI();
+
+    if (regs->int_no != IRQ3)
+        LocalApicSendEOI();
 }

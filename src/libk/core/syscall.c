@@ -191,13 +191,23 @@ static int pty_push_s2m_nowait(pty_buf_t *pty, uint8_t ch)
 
 static int pty_push_s2m_wait(pty_buf_t *pty, uint8_t ch)
 {
-    while (pty->s2m_count >= PTY_BUF_SIZE)
+    while (1)
     {
+        uint64_t rflags = spinlock_acquire_irqsave(&pty->lock);
+        if (pty->s2m_count < PTY_BUF_SIZE)
+        {
+            int ok = pty_push_s2m_nowait(pty, ch);
+            spinlock_release_irqrestore(&pty->lock, rflags);
+            return ok;
+        }
         if (!pty->master_open)
+        {
+            spinlock_release_irqrestore(&pty->lock, rflags);
             return 0;
+        }
+        spinlock_release_irqrestore(&pty->lock, rflags);
         sched_yield();
     }
-    return pty_push_s2m_nowait(pty, ch);
 }
 
 static void pty_write_echo(pty_buf_t *pty, uint8_t ch)
@@ -207,6 +217,7 @@ static void pty_write_echo(pty_buf_t *pty, uint8_t ch)
 
 static void pty_defaults(pty_buf_t *pty)
 {
+    spinlock_init(&pty->lock);
     pty->iflag = ZEN_ICRNL | ZEN_IXON;
     pty->oflag = ZEN_OPOST | ZEN_ONLCR;
     pty->cflag = ZEN_CREAD | ZEN_CS8;
@@ -230,6 +241,7 @@ static void pty_export_termios(pty_buf_t *pty, zen_termios_t *t)
 {
     if (!pty || !t)
         return;
+    uint64_t rflags = spinlock_acquire_irqsave(&pty->lock);
     memset(t, 0, sizeof(*t));
     t->c_iflag = pty->iflag;
     t->c_oflag = pty->oflag;
@@ -238,12 +250,14 @@ static void pty_export_termios(pty_buf_t *pty, zen_termios_t *t)
     memcpy(t->c_cc, pty->cc, sizeof(pty->cc));
     t->c_ispeed = pty->ispeed;
     t->c_ospeed = pty->ospeed;
+    spinlock_release_irqrestore(&pty->lock, rflags);
 }
 
 static void pty_import_termios(pty_buf_t *pty, const zen_termios_t *t, int flush_input)
 {
     if (!pty || !t)
         return;
+    uint64_t rflags = spinlock_acquire_irqsave(&pty->lock);
     uint32_t old_lflag = pty->lflag;
     pty->iflag = t->c_iflag;
     pty->oflag = t->c_oflag;
@@ -270,6 +284,7 @@ static void pty_import_termios(pty_buf_t *pty, const zen_termios_t *t, int flush
             pty->esc_state = 0;
         }
     }
+    spinlock_release_irqrestore(&pty->lock, rflags);
 }
 
 static int64_t pty_slave_read(pty_buf_t *pty, uint8_t *dst, uint32_t size)
@@ -278,24 +293,45 @@ static int64_t pty_slave_read(pty_buf_t *pty, uint8_t *dst, uint32_t size)
     if (size == 0)
         return 0;
 
-    if (pty->lflag & ZEN_ICANON)
+    uint64_t rflags = spinlock_acquire_irqsave(&pty->lock);
+    int canonical = (pty->lflag & ZEN_ICANON) != 0;
+    uint8_t vmin = pty->cc[ZEN_VMIN];
+    spinlock_release_irqrestore(&pty->lock, rflags);
+
+    if (canonical)
     {
         while (n < size)
         {
-            while (pty->m2s_ready == 0)
+            while (1)
             {
+                rflags = spinlock_acquire_irqsave(&pty->lock);
+                if (pty->m2s_ready > 0)
+                {
+                    spinlock_release_irqrestore(&pty->lock, rflags);
+                    break;
+                }
                 if (pty->eof_pending)
                 {
                     pty->eof_pending = 0;
+                    spinlock_release_irqrestore(&pty->lock, rflags);
                     return (int64_t)n;
                 }
                 if (!pty->master_open)
+                {
+                    spinlock_release_irqrestore(&pty->lock, rflags);
                     return (int64_t)n;
+                }
+                spinlock_release_irqrestore(&pty->lock, rflags);
                 sched_yield();
             }
             uint8_t ch = 0;
+            rflags = spinlock_acquire_irqsave(&pty->lock);
             if (!pty_pop_m2s(pty, &ch))
+            {
+                spinlock_release_irqrestore(&pty->lock, rflags);
                 continue;
+            }
+            spinlock_release_irqrestore(&pty->lock, rflags);
             dst[n++] = ch;
             if (ch == '\n')
                 break;
@@ -303,35 +339,53 @@ static int64_t pty_slave_read(pty_buf_t *pty, uint8_t *dst, uint32_t size)
         return (int64_t)n;
     }
 
-    uint8_t vmin = pty->cc[ZEN_VMIN];
     if (vmin == 0)
     {
         while (n < size)
         {
             uint8_t ch = 0;
+            rflags = spinlock_acquire_irqsave(&pty->lock);
             if (!pty_pop_m2s(pty, &ch))
+            {
+                spinlock_release_irqrestore(&pty->lock, rflags);
                 break;
+            }
+            spinlock_release_irqrestore(&pty->lock, rflags);
             dst[n++] = ch;
         }
         return (int64_t)n;
     }
 
-    while (pty->m2s_count < vmin)
+    while (1)
     {
+        rflags = spinlock_acquire_irqsave(&pty->lock);
+        if (pty->m2s_count >= vmin)
+        {
+            spinlock_release_irqrestore(&pty->lock, rflags);
+            break;
+        }
         if (!pty->master_open)
         {
-            if (pty->m2s_count == 0)
+            int empty = (pty->m2s_count == 0);
+            spinlock_release_irqrestore(&pty->lock, rflags);
+            if (empty)
                 return 0;
             break;
         }
+        spinlock_release_irqrestore(&pty->lock, rflags);
         sched_yield();
     }
 
     while (n < size)
     {
         uint8_t ch = 0;
+        rflags = spinlock_acquire_irqsave(&pty->lock);
         if (!pty_pop_m2s(pty, &ch))
+        {
+            spinlock_release_irqrestore(&pty->lock, rflags);
             break;
+        }
+        spinlock_release_irqrestore(&pty->lock, rflags);
         dst[n++] = ch;
     }
     return (int64_t)n;
@@ -340,11 +394,18 @@ static int64_t pty_slave_read(pty_buf_t *pty, uint8_t *dst, uint32_t size)
 static int64_t pty_master_read(pty_buf_t *pty, uint8_t *dst, uint32_t size)
 {
     uint32_t n = 0;
-    while (n < size && pty->s2m_count > 0)
+    while (n < size)
     {
+        uint64_t rflags = spinlock_acquire_irqsave(&pty->lock);
+        if (pty->s2m_count == 0)
+        {
+            spinlock_release_irqrestore(&pty->lock, rflags);
+            break;
+        }
         dst[n++] = pty->s2m_data[pty->s2m_read];
         pty->s2m_read = (pty->s2m_read + 1) % PTY_BUF_SIZE;
         pty->s2m_count--;
+        spinlock_release_irqrestore(&pty->lock, rflags);
     }
     return (int64_t)n;
 }
@@ -352,17 +413,22 @@ static int64_t pty_master_read(pty_buf_t *pty, uint8_t *dst, uint32_t size)
 static int64_t pty_master_write(pty_buf_t *pty, const uint8_t *src, uint32_t size)
 {
     uint32_t written = 0;
-    if (!pty->slave_open)
-        return -1;
 
     for (uint32_t i = 0; i < size; i++)
     {
         uint8_t ch = src[i];
+        uint64_t rflags = spinlock_acquire_irqsave(&pty->lock);
+        if (!pty->slave_open)
+        {
+            spinlock_release_irqrestore(&pty->lock, rflags);
+            return written ? (int64_t)written : -1;
+        }
 
         if (pty->iflag & ZEN_IGNCR)
         {
             if (ch == '\r')
             {
+                spinlock_release_irqrestore(&pty->lock, rflags);
                 written++;
                 continue;
             }
@@ -388,6 +454,7 @@ static int64_t pty_master_write(pty_buf_t *pty, const uint8_t *src, uint32_t siz
                     pty->esc_state = 2;
                 else
                     pty->esc_state = 0;
+                spinlock_release_irqrestore(&pty->lock, rflags);
                 written++;
                 continue;
             }
@@ -395,12 +462,14 @@ static int64_t pty_master_write(pty_buf_t *pty, const uint8_t *src, uint32_t siz
             {
                 if (ch >= 0x40 && ch <= 0x7E)
                     pty->esc_state = 0;
+                spinlock_release_irqrestore(&pty->lock, rflags);
                 written++;
                 continue;
             }
             if (ch == 0x1B)
             {
                 pty->esc_state = 1;
+                spinlock_release_irqrestore(&pty->lock, rflags);
                 written++;
                 continue;
             }
@@ -423,6 +492,7 @@ static int64_t pty_master_write(pty_buf_t *pty, const uint8_t *src, uint32_t siz
                         pty_write_echo(pty, ch);
                     }
                 }
+                spinlock_release_irqrestore(&pty->lock, rflags);
                 written++;
                 continue;
             }
@@ -432,6 +502,7 @@ static int64_t pty_master_write(pty_buf_t *pty, const uint8_t *src, uint32_t siz
                 while (pty_pop_m2s_tail_unready(pty)) {}
                 if ((pty->lflag & ZEN_ECHO) && (pty->lflag & ZEN_ECHOK))
                     pty_write_echo(pty, '\n');
+                spinlock_release_irqrestore(&pty->lock, rflags);
                 written++;
                 continue;
             }
@@ -442,6 +513,7 @@ static int64_t pty_master_write(pty_buf_t *pty, const uint8_t *src, uint32_t siz
                     pty->eof_pending = 1;
                 else
                     pty->m2s_ready = pty->m2s_count;
+                spinlock_release_irqrestore(&pty->lock, rflags);
                 written++;
                 continue;
             }
@@ -450,8 +522,13 @@ static int64_t pty_master_write(pty_buf_t *pty, const uint8_t *src, uint32_t siz
         while (!pty_push_m2s(pty, ch))
         {
             if (!pty->slave_open)
+            {
+                spinlock_release_irqrestore(&pty->lock, rflags);
                 return written ? (int64_t)written : -1;
+            }
+            spinlock_release_irqrestore(&pty->lock, rflags);
             sched_yield();
+            rflags = spinlock_acquire_irqsave(&pty->lock);
         }
 
         if ((pty->lflag & ZEN_ICANON) && ch == '\n')
@@ -476,6 +553,7 @@ static int64_t pty_master_write(pty_buf_t *pty, const uint8_t *src, uint32_t siz
             }
         }
 
+        spinlock_release_irqrestore(&pty->lock, rflags);
         written++;
     }
 
@@ -485,13 +563,17 @@ static int64_t pty_master_write(pty_buf_t *pty, const uint8_t *src, uint32_t siz
 static int64_t pty_slave_write(pty_buf_t *pty, const uint8_t *src, uint32_t size)
 {
     uint32_t written = 0;
-    if (!pty->master_open)
-        return -1;
 
     for (uint32_t i = 0; i < size; i++)
     {
         uint8_t ch = src[i];
-        if ((pty->oflag & ZEN_OPOST) && (pty->oflag & ZEN_ONLCR) && ch == '\n')
+        uint64_t rflags = spinlock_acquire_irqsave(&pty->lock);
+        int master_open = pty->master_open;
+        uint32_t oflag = pty->oflag;
+        spinlock_release_irqrestore(&pty->lock, rflags);
+        if (!master_open)
+            return written ? (int64_t)written : -1;
+        if ((oflag & ZEN_OPOST) && (oflag & ZEN_ONLCR) && ch == '\n')
         {
             if (!pty_push_s2m_wait(pty, '\r'))
                 break;
@@ -660,9 +742,12 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             uint32_t n = 0;
             while (n < size)
             {
+                uint64_t rflags = spinlock_acquire_irqsave(&e->pipe->lock);
                 if (e->pipe->count == 0)
                 {
-                    if (e->pipe->write_closed)
+                    int write_closed = e->pipe->write_closed;
+                    spinlock_release_irqrestore(&e->pipe->lock, rflags);
+                    if (write_closed)
                         break;
                     sched_yield();
                     continue;
@@ -670,6 +755,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                 cbuf[n++] = e->pipe->data[e->pipe->read_pos];
                 e->pipe->read_pos = (e->pipe->read_pos + 1) % 4096;
                 e->pipe->count--;
+                spinlock_release_irqrestore(&e->pipe->lock, rflags);
             }
             return (int64_t)n;
         }
@@ -768,11 +854,20 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             const uint8_t *cbuf = (const uint8_t *)buffer;
             for (uint32_t i = 0; i < size; i++)
             {
-                while (e->pipe->count >= 4096)
+                while (1)
+                {
+                    uint64_t rflags = spinlock_acquire_irqsave(&e->pipe->lock);
+                    if (e->pipe->count < 4096)
+                    {
+                        e->pipe->data[e->pipe->write_pos] = cbuf[i];
+                        e->pipe->write_pos = (e->pipe->write_pos + 1) % 4096;
+                        e->pipe->count++;
+                        spinlock_release_irqrestore(&e->pipe->lock, rflags);
+                        break;
+                    }
+                    spinlock_release_irqrestore(&e->pipe->lock, rflags);
                     sched_yield();
-                e->pipe->data[e->pipe->write_pos] = cbuf[i];
-                e->pipe->write_pos = (e->pipe->write_pos + 1) % 4096;
-                e->pipe->count++;
+                }
             }
             return (int64_t)size;
         }
@@ -1385,6 +1480,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return -1;
         }
         memset(pb, 0, sizeof(pipe_buf_t));
+        spinlock_init(&pb->lock);
         pb->readers = 1;
         pb->writers = 1;
         pb->refcount = 2;
@@ -1602,7 +1698,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_HALT:
     {
-        asm volatile("sti; hlt");
+        sched_yield();
         return 0;
     }
 
@@ -1787,6 +1883,13 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             if (req == ZEN_TIOCSPTYGID)
                 return 0;
             return 0;
+        }
+        if (e->type == FD_DEV)
+        {
+            struct dev_entry *d = e->dev_ops;
+            if (!d || !d->ioctl)
+                return (uint64_t)(int64_t)-1;
+            return (uint64_t)(int64_t)d->ioctl(req, argp);
         }
         return 0;
     }

@@ -3,6 +3,7 @@
 #include "../../libk/string.h"
 #include "../../libk/debug/log.h"
 #include "../../libk/core/mem.h"
+#include "../../libk/spinlock.h"
 #include "../../drv/rtc.h"
 
 DWORD get_fattime(void) {
@@ -22,6 +23,7 @@ static FATFS   fs_table[FAT_MAX_VOLS];
 static uint8_t vol_mounted[FAT_MAX_VOLS];
 static uint8_t initialized = 0;
 static uint8_t fat_drive   = 0;
+static spinlock_t fat_fs_lock = {0};
 
 typedef struct {
     FIL      fil;
@@ -47,12 +49,17 @@ void make_fatpath_vol(const char *path, int vol, char *out, size_t outsz) {
 
 uint8_t fat_get_drive(void)    { return fat_drive; }
 uint8_t fat_is_initialized(void) { return initialized; }
+void fat_lock(void) { spinlock_acquire_raw(&fat_fs_lock); }
+void fat_unlock(void) { spinlock_release_raw(&fat_fs_lock); }
 
 fat_error_t fat_init(uint8_t drive) {
+    spinlock_init(&fat_fs_lock);
     fat_drive = drive;
     char volpath[4];
     snprintf(volpath, sizeof(volpath), "%d:", 0);
+    fat_lock();
     FRESULT fr = f_mount(&fs_table[0], volpath, 1);
+    fat_unlock();
     if (fr != FR_OK) {
         log("f_mount failed (%d).", 3, 0, fr);
         return FAT_ERR_IO;
@@ -68,7 +75,9 @@ fat_error_t fat_mount_vol(int slot) {
     if (vol_mounted[slot]) return FAT_OK;
     char volpath[4];
     snprintf(volpath, sizeof(volpath), "%d:", slot);
+    fat_lock();
     FRESULT fr = f_mount(&fs_table[slot], volpath, 1);
+    fat_unlock();
     if (fr != FR_OK) {
         log("f_mount vol %d failed (%d).", 3, 0, slot, fr);
         return FAT_ERR_IO;
@@ -79,15 +88,20 @@ fat_error_t fat_mount_vol(int slot) {
 }
 
 fat_error_t fat_format(uint8_t drive) {
+    spinlock_init(&fat_fs_lock);
     fat_drive = drive;
     log("Formatting drive %d ...", 1, 0, drive);
     uint8_t *work = (uint8_t *)kmalloc(FF_MAX_SS);
     if (!work) return FAT_ERR_IO;
     MKFS_PARM opt = { .fmt = FM_FAT32, .n_fat = 2, .align = 0, .n_root = 0, .au_size = 4096 };
+    fat_lock();
     FRESULT fr = f_mkfs("0:", &opt, work, FF_MAX_SS);
+    fat_unlock();
     kfree(work);
     if (fr != FR_OK) { log("f_mkfs failed (%d).", 3, 0, fr); return FAT_ERR_IO; }
+    fat_lock();
     fr = f_mount(&fs_table[0], "0:", 1);
+    fat_unlock();
     if (fr != FR_OK) { log("f_mount after format failed (%d).", 3, 0, fr); return FAT_ERR_IO; }
     vol_mounted[0] = 1;
     initialized = 1;
@@ -97,8 +111,9 @@ fat_error_t fat_format(uint8_t drive) {
 
 int fat_open_vol(const char *path, int write, int vol) {
     if (!initialized || !path) return -1;
+    fat_lock();
     int fd = alloc_fd();
-    if (fd < 0) { log("No free FDs.", 3, 0); return -1; }
+    if (fd < 0) { fat_unlock(); log("No free FDs.", 3, 0); return -1; }
     char fpath[FAT_MAX_PATH];
     make_fatpath_vol(path, vol, fpath, sizeof(fpath));
     BYTE mode;
@@ -110,10 +125,12 @@ int fat_open_vol(const char *path, int write, int vol) {
         if (fr != FR_NO_FILE && fr != FR_NO_PATH)
             log("Opening '%s' vol %d failed (%d).", 2, 0, path, vol, fr);
         fd_table[fd].used = 0;
+        fat_unlock();
         return -1;
     }
     fd_table[fd].used = 1;
     fd_table[fd].writable = write;
+    fat_unlock();
     return fd;
 }
 
@@ -122,7 +139,9 @@ int fat_open(const char *path, int write) { return fat_open_vol(path, write, 0);
 int fat_read(int fd, void *buf, uint32_t size, uint32_t *bytes_read) {
     if (!initialized || fd < 0 || fd >= FAT_MAX_FDS || !fd_table[fd].used) return -1;
     UINT br = 0;
+    fat_lock();
     FRESULT fr = f_read(&fd_table[fd].fil, buf, size, &br);
+    fat_unlock();
     if (bytes_read) *bytes_read = br;
     return (fr == FR_OK) ? 0 : -1;
 }
@@ -131,7 +150,9 @@ int fat_write(int fd, const void *buf, uint32_t size) {
     if (!initialized || fd < 0 || fd >= FAT_MAX_FDS || !fd_table[fd].used) return -1;
     if (!fd_table[fd].writable) return -1;
     UINT bw = 0;
+    fat_lock();
     FRESULT fr = f_write(&fd_table[fd].fil, buf, size, &bw);
+    fat_unlock();
     if (fr != FR_OK || bw != size) { log("Write fd=%d failed.", 2, 0, fd); return -1; }
     fd_table[fd].total_written += bw;
     return 0;
@@ -139,7 +160,9 @@ int fat_write(int fd, const void *buf, uint32_t size) {
 
 int fat_close(int fd) {
     if (fd < 0 || fd >= FAT_MAX_FDS || !fd_table[fd].used) return -1;
+    fat_lock();
     f_close(&fd_table[fd].fil);
+    fat_unlock();
     fd_table[fd].used = 0;
     fd_table[fd].total_written = 0;
     return 0;
@@ -147,22 +170,30 @@ int fat_close(int fd) {
 
 int fat_seek(int fd, uint32_t pos) {
     if (!initialized || fd < 0 || fd >= FAT_MAX_FDS || !fd_table[fd].used) return -1;
-    return (f_lseek(&fd_table[fd].fil, pos) == FR_OK) ? 0 : -1;
+    fat_lock();
+    FRESULT fr = f_lseek(&fd_table[fd].fil, pos);
+    fat_unlock();
+    return (fr == FR_OK) ? 0 : -1;
 }
 
 int fat_lseek(int fd, int32_t offset, int whence) {
     if (!initialized || fd < 0 || fd >= FAT_MAX_FDS || !fd_table[fd].used) return -1;
     uint32_t newpos;
+    fat_lock();
     if (whence == 0)      newpos = (uint32_t)offset;
     else if (whence == 1) newpos = (uint32_t)((int32_t)f_tell(&fd_table[fd].fil) + offset);
     else                  newpos = (uint32_t)((int32_t)f_size(&fd_table[fd].fil) + offset);
     FRESULT fr = f_lseek(&fd_table[fd].fil, newpos);
+    fat_unlock();
     return (fr == FR_OK) ? (int)newpos : -1;
 }
 
 uint32_t fat_size(int fd) {
     if (fd < 0 || fd >= FAT_MAX_FDS || !fd_table[fd].used) return 0;
-    return (uint32_t)f_size(&fd_table[fd].fil);
+    fat_lock();
+    uint32_t size = (uint32_t)f_size(&fd_table[fd].fil);
+    fat_unlock();
+    return size;
 }
 
 int fat_create_vol(const char *path, int vol) {
@@ -170,9 +201,14 @@ int fat_create_vol(const char *path, int vol) {
     char fpath[FAT_MAX_PATH];
     make_fatpath_vol(path, vol, fpath, sizeof(fpath));
     FIL fil;
+    fat_lock();
     FRESULT fr = f_open(&fil, fpath, FA_CREATE_ALWAYS | FA_WRITE);
-    if (fr != FR_OK) return -1;
+    if (fr != FR_OK) {
+        fat_unlock();
+        return -1;
+    }
     f_close(&fil);
+    fat_unlock();
     return 0;
 }
 
@@ -182,7 +218,10 @@ int fat_delete_vol(const char *path, int vol) {
     if (!initialized) return -1;
     char fpath[FAT_MAX_PATH];
     make_fatpath_vol(path, vol, fpath, sizeof(fpath));
-    return (f_unlink(fpath) == FR_OK) ? 0 : -1;
+    fat_lock();
+    FRESULT fr = f_unlink(fpath);
+    fat_unlock();
+    return (fr == FR_OK) ? 0 : -1;
 }
 
 int fat_delete(const char *path) { return fat_delete_vol(path, 0); }
@@ -191,7 +230,9 @@ int fat_mkdir_vol(const char *path, int vol) {
     if (!initialized) return -1;
     char fpath[FAT_MAX_PATH];
     make_fatpath_vol(path, vol, fpath, sizeof(fpath));
+    fat_lock();
     FRESULT fr = f_mkdir(fpath);
+    fat_unlock();
     return (fr == FR_OK || fr == FR_EXIST) ? 0 : -1;
 }
 
@@ -201,7 +242,10 @@ int fat_rmdir_vol(const char *path, int vol) {
     if (!initialized) return -1;
     char fpath[FAT_MAX_PATH];
     make_fatpath_vol(path, vol, fpath, sizeof(fpath));
-    return (f_unlink(fpath) == FR_OK) ? 0 : -1;
+    fat_lock();
+    FRESULT fr = f_unlink(fpath);
+    fat_unlock();
+    return (fr == FR_OK) ? 0 : -1;
 }
 
 int fat_rmdir(const char *path) { return fat_rmdir_vol(path, 0); }
@@ -210,7 +254,10 @@ int fat_chdir_vol(const char *path, int vol) {
     if (!initialized) return -1;
     char fpath[FAT_MAX_PATH];
     make_fatpath_vol(path, vol, fpath, sizeof(fpath));
-    return (f_chdir(fpath) == FR_OK) ? 0 : -1;
+    fat_lock();
+    FRESULT fr = f_chdir(fpath);
+    fat_unlock();
+    return (fr == FR_OK) ? 0 : -1;
 }
 
 int fat_chdir(const char *path) { return fat_chdir_vol(path, 0); }
@@ -220,8 +267,10 @@ void fat_getcwd_vol(char *buf, size_t size, int vol) {
     char tmp[FAT_MAX_PATH];
     char volpath[4];
     snprintf(volpath, sizeof(volpath), "%d:", vol);
-    if (f_chdrive(volpath) != FR_OK) { buf[0] = '/'; buf[1] = '\0'; return; }
+    fat_lock();
+    if (f_chdrive(volpath) != FR_OK) { fat_unlock(); buf[0] = '/'; buf[1] = '\0'; return; }
     FRESULT fr = f_getcwd(tmp, sizeof(tmp));
+    fat_unlock();
     if (fr != FR_OK) { buf[0] = '/'; buf[1] = '\0'; return; }
     char *start = tmp;
     if (tmp[1] == ':') start = tmp + 2;
@@ -237,7 +286,11 @@ int fat_list_vol(char *buf, size_t buf_size, int vol) {
     char tmp[FAT_MAX_PATH];
     char volpath[4];
     snprintf(volpath, sizeof(volpath), "%d:", vol);
-    if (f_chdrive(volpath) != FR_OK) return -1;
+    fat_lock();
+    if (f_chdrive(volpath) != FR_OK) {
+        fat_unlock();
+        return -1;
+    }
     f_getcwd(tmp, sizeof(tmp));
 
     size_t pos = 0;
@@ -252,7 +305,7 @@ int fat_list_vol(char *buf, size_t buf_size, int vol) {
 
     DIR dir;
     FRESULT fr = f_opendir(&dir, tmp);
-    if (fr != FR_OK) { buf[pos] = '\0'; return -1; }
+    if (fr != FR_OK) { fat_unlock(); buf[pos] = '\0'; return -1; }
 
     int count = 0;
     FILINFO fno;
@@ -278,6 +331,7 @@ int fat_list_vol(char *buf, size_t buf_size, int vol) {
         count++;
     }
     f_closedir(&dir);
+    fat_unlock();
     if (count == 0 && pos + 8 < buf_size) {
         const char *empty = "(empty)\n";
         for (int i = 0; empty[i] && pos + 1 < buf_size; i++) buf[pos++] = empty[i];
@@ -292,7 +346,9 @@ void fat_print_stats(char *buf, size_t buf_size) {
     if (!buf || buf_size == 0) return;
     if (!initialized) { strncpy(buf, "FAT: Not initialized.\n", buf_size - 1); buf[buf_size-1] = '\0'; return; }
     DWORD free_clust; FATFS *fsp;
+    fat_lock();
     FRESULT fr = f_getfree("0:", &free_clust, &fsp);
+    fat_unlock();
     if (fr != FR_OK) { strncpy(buf, "FAT: Stat error.\n", buf_size - 1); buf[buf_size-1] = '\0'; return; }
     DWORD total = (fsp->n_fatent - 2) * fsp->csize / 2;
     DWORD free_kb = free_clust * fsp->csize / 2;
@@ -308,14 +364,19 @@ int fat_open_entry_vol(const char *path, int write, fd_entry_t *out, int vol) {
     if (write == 2)      mode = FA_CREATE_ALWAYS | FA_WRITE | FA_READ;
     else if (write == 1) mode = FA_OPEN_ALWAYS   | FA_WRITE | FA_READ;
     else                 mode = FA_OPEN_EXISTING | FA_READ;
+    fat_lock();
     FRESULT fr = f_open(&out->file.fil, fpath, mode);
-    if (fr != FR_OK) return -1;
+    if (fr != FR_OK) {
+        fat_unlock();
+        return -1;
+    }
     out->type = FD_FILE; out->used = 1;
     out->file.writable = write; out->file.total_written = 0;
    
     FILINFO fno;
     out->file.fdate = (f_stat(fpath, &fno) == FR_OK) ? fno.fdate : 0;
     out->file.ftime = (f_stat(fpath, &fno) == FR_OK) ? fno.ftime : 0;
+    fat_unlock();
     return 0;
 }
 
@@ -324,7 +385,9 @@ int fat_open_entry(const char *path, int write, fd_entry_t *out) { return fat_op
 int fat_read_entry(fd_entry_t *e, void *buf, uint32_t size, uint32_t *bytes_read) {
     if (!e || !e->used || e->type != FD_FILE) return -1;
     UINT br = 0;
+    fat_lock();
     FRESULT fr = f_read(&e->file.fil, buf, size, &br);
+    fat_unlock();
     if (bytes_read) *bytes_read = br;
     return (fr == FR_OK) ? 0 : -1;
 }
@@ -333,7 +396,9 @@ int fat_write_entry(fd_entry_t *e, const void *buf, uint32_t size) {
     if (!e || !e->used || e->type != FD_FILE) return -1;
     if (!e->file.writable) return -1;
     UINT bw = 0;
+    fat_lock();
     FRESULT fr = f_write(&e->file.fil, buf, size, &bw);
+    fat_unlock();
     if (fr != FR_OK || bw != size) return -1;
     e->file.total_written += bw;
     return 0;
@@ -341,22 +406,31 @@ int fat_write_entry(fd_entry_t *e, const void *buf, uint32_t size) {
 
 int fat_close_entry(fd_entry_t *e) {
     if (!e || !e->used || e->type != FD_FILE) return -1;
-    f_close(&e->file.fil); e->used = 0; return 0;
+    fat_lock();
+    f_close(&e->file.fil);
+    fat_unlock();
+    e->used = 0;
+    return 0;
 }
 
 int fat_lseek_entry(fd_entry_t *e, int32_t offset, int whence) {
     if (!e || !e->used || e->type != FD_FILE) return -1;
     uint32_t newpos;
+    fat_lock();
     if (whence == 0)      newpos = (uint32_t)offset;
     else if (whence == 1) newpos = (uint32_t)((int32_t)f_tell(&e->file.fil) + offset);
     else                  newpos = (uint32_t)((int32_t)f_size(&e->file.fil) + offset);
     FRESULT fr = f_lseek(&e->file.fil, newpos);
+    fat_unlock();
     return (fr == FR_OK) ? (int)newpos : -1;
 }
 
 uint32_t fat_size_entry(fd_entry_t *e) {
     if (!e || !e->used || e->type != FD_FILE) return 0;
-    return (uint32_t)f_size(&e->file.fil);
+    fat_lock();
+    uint32_t size = (uint32_t)f_size(&e->file.fil);
+    fat_unlock();
+    return size;
 }
 
 int64_t fat_mtime_entry(fd_entry_t *e) {
@@ -385,7 +459,9 @@ int fat_opendir_entry_vol(const char *path, fd_entry_t *out, int vol) {
     if (!initialized || !path || !out) return -1;
     char fpath[FAT_MAX_PATH];
     make_fatpath_vol(path, vol, fpath, sizeof(fpath));
+    fat_lock();
     FRESULT fr = f_opendir(&out->dir.dir, fpath);
+    fat_unlock();
     if (fr != FR_OK) return -1;
     out->type = FD_DIR; out->used = 1; out->dir.first_read = 1;
     return 0;
@@ -395,7 +471,9 @@ int fat_opendir_entry(const char *path, fd_entry_t *out) { return fat_opendir_en
 
 int fat_readdir_entry(fd_entry_t *e, char *name_out, int *is_dir_out) {
     if (!e || !e->used || e->type != FD_DIR) return -1;
+    fat_lock();
     FRESULT fr = f_readdir(&e->dir.dir, &e->dir.fno);
+    fat_unlock();
     if (fr != FR_OK) return -1;
     if (e->dir.fno.fname[0] == '\0') return 0;
     if (name_out) { int i = 0; while (e->dir.fno.fname[i] && i < 255) { name_out[i] = e->dir.fno.fname[i]; i++; } name_out[i] = '\0'; }
@@ -405,5 +483,9 @@ int fat_readdir_entry(fd_entry_t *e, char *name_out, int *is_dir_out) {
 
 int fat_closedir_entry(fd_entry_t *e) {
     if (!e || !e->used || e->type != FD_DIR) return -1;
-    f_closedir(&e->dir.dir); e->used = 0; return 0;
+    fat_lock();
+    f_closedir(&e->dir.dir);
+    fat_unlock();
+    e->used = 0;
+    return 0;
 }

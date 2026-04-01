@@ -24,6 +24,8 @@ typedef enum {
 fat_error_t fat_init(uint8_t drive);
 uint8_t     fat_get_drive(void);
 uint8_t     fat_is_initialized(void);
+void        fat_lock(void);
+void        fat_unlock(void);
 fat_error_t fat_format(uint8_t drive);
 int         fat_open(const char *path, int write);
 int         fat_read(int fd, void *buf, uint32_t size, uint32_t *bytes_read);

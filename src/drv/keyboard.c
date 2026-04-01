@@ -1,6 +1,7 @@
 #include "keyboard.h"
 #include "vga.h"
 #include "mouse.h"
+#include "input.h"
 #include "../cpu/isr.h"
 #include "../libk/ports.h"
 #include "../libk/spinlock.h"
@@ -169,6 +170,8 @@ static task_t *switcher_tasks[SWITCHER_MAX_TASKS];
 static int switcher_task_count = 0;
 static int switcher_selected = 0;
 
+static void buffer_clear(void);
+
 static void switcher_collect_tasks(void)
 {
     switcher_task_count = 0;
@@ -291,9 +294,7 @@ static void switcher_show(int direction)
     switcher_hide_ticks = SWITCHER_HIDE_TICKS;
 
     kbd_focused_pid = switcher_tasks[switcher_selected]->pid;
-    key_buffer.head = 0;
-    key_buffer.tail = 0;
-    key_buffer.count = 0;
+    buffer_clear();
 
     switcher_draw();
 }
@@ -361,29 +362,55 @@ static bool kbd_send_command(uint8_t cmd)
 
 static void buffer_put_char(char c)
 {
+    uint64_t rflags = spinlock_acquire_irqsave(&kbdlock);
     if (key_buffer.count < 255) {
         key_buffer.buffer[key_buffer.head] = c;
         key_buffer.head = (key_buffer.head + 1) % 256;
         key_buffer.count++;
     }
+    spinlock_release_irqrestore(&kbdlock, rflags);
 }
 
 static char buffer_get_char(void)
 {
-    if (key_buffer.count == 0) return 0;
+    uint64_t rflags = spinlock_acquire_irqsave(&kbdlock);
+    if (key_buffer.count == 0) {
+        spinlock_release_irqrestore(&kbdlock, rflags);
+        return 0;
+    }
     char c = key_buffer.buffer[key_buffer.tail];
     key_buffer.tail = (key_buffer.tail + 1) % 256;
     key_buffer.count--;
+    spinlock_release_irqrestore(&kbdlock, rflags);
     return c;
 }
 
 static bool buffer_has_data(void)
 {
-    return key_buffer.count > 0;
+    uint64_t rflags = spinlock_acquire_irqsave(&kbdlock);
+    bool has_data = key_buffer.count > 0;
+    spinlock_release_irqrestore(&kbdlock, rflags);
+    return has_data;
 }
 
-static void update_modifier_state(uint8_t scancode, bool pressed)
+static void buffer_clear(void)
 {
+    uint64_t rflags = spinlock_acquire_irqsave(&kbdlock);
+    key_buffer.head = 0;
+    key_buffer.tail = 0;
+    key_buffer.count = 0;
+    spinlock_release_irqrestore(&kbdlock, rflags);
+}
+
+static void update_modifier_state(uint8_t scancode, bool pressed, bool extended)
+{
+    if (extended) {
+        switch (scancode) {
+            case 0x14: modifiers.right_ctrl = pressed; break;
+            case 0x11: modifiers.right_alt = pressed; break;
+        }
+        return;
+    }
     switch (scancode) {
         case 0x12: modifiers.left_shift  = pressed; break;
         case 0x59: modifiers.right_shift = pressed; break;
@@ -416,9 +443,7 @@ static void switcher_move(int direction)
     if (!switcher_visible || switcher_task_count == 0) return;
     switcher_selected = (switcher_selected + direction + switcher_task_count) % switcher_task_count;
     kbd_focused_pid = switcher_tasks[switcher_selected]->pid;
-    key_buffer.head = 0;
-    key_buffer.tail = 0;
-    key_buffer.count = 0;
+    buffer_clear();
     switcher_hide_ticks = SWITCHER_HIDE_TICKS;
 
     uint32_t bx = switcher_box_x;
@@ -460,11 +485,14 @@ static void kbd_handle_scancode(uint8_t scancode)
     if (released) {
         if (!extended)
             key_states[scancode] = false;
-        update_modifier_state(scancode, false);
+        update_modifier_state(scancode, false, extended);
+        input_enqueue_key(input_keycode_from_scancode(scancode, extended), 0);
         return;
     }
 
     if (extended) {
+        update_modifier_state(scancode, true, true);
+        input_enqueue_key(input_keycode_from_scancode(scancode, 1), 1);
         if (switcher_visible) {
             if (scancode == EXT_SCANCODE_UP || scancode == EXT_SCANCODE_LEFT)
                 switcher_move(-1);
@@ -481,7 +509,8 @@ static void kbd_handle_scancode(uint8_t scancode)
 
     if (!key_states[scancode]) {
         key_states[scancode] = true;
-        update_modifier_state(scancode, true);
+        update_modifier_state(scancode, true, false);
+        input_enqueue_key(input_keycode_from_scancode(scancode, 0), 1);
 
         bool shift = modifiers.left_shift || modifiers.right_shift;
 

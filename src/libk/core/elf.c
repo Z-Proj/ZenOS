@@ -6,6 +6,7 @@
 #include "../../drv/disk/vfs.h"
 #include "mem.h"
 #include "syscall.h"
+#include "../spinlock.h"
 
 #define EXEC_MAX_ARGS    128
 #define EXEC_MAX_ENVP    128
@@ -19,6 +20,8 @@ typedef struct {
     uint64_t map_end;
     uint64_t entry;
 } elf_load_result_t;
+
+static spinlock_t exec_lock = {0};
 
 static void free_string_vector(char **vec, int count)
 {
@@ -340,14 +343,19 @@ static int load_elf_into_pml4(page_table_t *pml4, uint8_t *elf_data, uint32_t fi
 
 int elf_exec(const char *filename, int argc, char **argv)
 {
+    spinlock_acquire_raw(&exec_lock);
     uint8_t *elf_data = NULL;
     uint32_t filesize = 0;
     if (load_elf_file(filename, &elf_data, &filesize) < 0)
+    {
+        spinlock_release_raw(&exec_lock);
         return -1;
+    }
 
     page_table_t *pml4 = clone_page_directory(get_kernel_pml4());
     if (!pml4) {
         kfree(elf_data);
+        spinlock_release_raw(&exec_lock);
         return -1;
     }
 
@@ -355,6 +363,7 @@ int elf_exec(const char *filename, int argc, char **argv)
     if (load_elf_into_pml4(pml4, elf_data, filesize, &loaded) < 0) {
         free_page_directory(pml4);
         kfree(elf_data);
+        spinlock_release_raw(&exec_lock);
         return -1;
     }
 
@@ -364,29 +373,40 @@ int elf_exec(const char *filename, int argc, char **argv)
     if (!task) {
         free_user_range(pml4, loaded.map_start, loaded.map_end);
         free_page_directory(pml4);
+        spinlock_release_raw(&exec_lock);
         return -1;
     }
 
+    spinlock_release_raw(&exec_lock);
     return 0;
 }
 
 int elf_execve_replace(const char *filename, int argc, char **argv, char **envp)
 {
-    if (!filename) return -1;
+    spinlock_acquire_raw(&exec_lock);
+    if (!filename) {
+        spinlock_release_raw(&exec_lock);
+        return -1;
+    }
 
     task_t *task = sched_current_task();
-    if (!task || task->is_kernel_task) return -1;
+    if (!task || task->is_kernel_task) {
+        spinlock_release_raw(&exec_lock);
+        return -1;
+    }
 
     char **kargv = NULL;
     char **kenvp = NULL;
     int envc = 0;
 
     if (copy_user_argv(argc, argv, &kargv) < 0) {
+        spinlock_release_raw(&exec_lock);
         return -1;
     }
 
     if (copy_user_envp(envp, &kenvp, &envc) < 0) {
         free_string_vector(kargv, argc);
+        spinlock_release_raw(&exec_lock);
         return -1;
     }
 
@@ -395,35 +415,35 @@ int elf_execve_replace(const char *filename, int argc, char **argv, char **envp)
     if (load_elf_file(filename, &elf_data, &filesize) < 0) {
         free_string_vector(kargv, argc);
         free_string_vector(kenvp, envc);
+        spinlock_release_raw(&exec_lock);
         return -1;
     }
-
     page_table_t *new_pml4 = clone_page_directory(get_kernel_pml4());
     if (!new_pml4) {
         kfree(elf_data);
         free_string_vector(kargv, argc);
         free_string_vector(kenvp, envc);
+        spinlock_release_raw(&exec_lock);
         return -1;
     }
-
     elf_load_result_t loaded;
     if (load_elf_into_pml4(new_pml4, elf_data, filesize, &loaded) < 0) {
         free_page_directory(new_pml4);
         kfree(elf_data);
         free_string_vector(kargv, argc);
         free_string_vector(kenvp, envc);
+        spinlock_release_raw(&exec_lock);
         return -1;
     }
-
     if (map_user_stack(new_pml4) < 0) {
         free_user_range(new_pml4, loaded.map_start, loaded.map_end);
         free_page_directory(new_pml4);
         kfree(elf_data);
         free_string_vector(kargv, argc);
         free_string_vector(kenvp, envc);
+        spinlock_release_raw(&exec_lock);
         return -1;
     }
-
     uint64_t user_rsp = 0;
     if (build_user_stack(new_pml4, argc, kargv, envc, kenvp, &user_rsp) < 0) {
         free_user_range(new_pml4, USER_STACK_BASE, USER_STACK_BASE + TASK_STACK_SIZE);
@@ -432,9 +452,9 @@ int elf_execve_replace(const char *filename, int argc, char **argv, char **envp)
         kfree(elf_data);
         free_string_vector(kargv, argc);
         free_string_vector(kenvp, envc);
+        spinlock_release_raw(&exec_lock);
         return -1;
     }
-
     kfree(elf_data);
     free_string_vector(kargv, argc);
     free_string_vector(kenvp, envc);
@@ -471,10 +491,11 @@ int elf_execve_replace(const char *filename, int argc, char **argv, char **envp)
     task->regs.ds = 0x1B;
 
     switch_page_directory(new_pml4);
+    sched_set_active_pml4(new_pml4);
     syscall_prepare_user_return(0);
-
     if (old_pml4 && old_pml4 != get_kernel_pml4() && old_pml4 != new_pml4)
         free_page_directory(old_pml4);
 
+    spinlock_release_raw(&exec_lock);
     exec_enter_user(loaded.entry, user_rsp);
 }
