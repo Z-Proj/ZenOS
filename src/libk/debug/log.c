@@ -120,7 +120,7 @@ __attribute__((noreturn)) void shutdown(void)
 
     __asm__ __volatile__("cli" ::: "memory");
     log("Shutting down...", 4, 1);
-
+    ft_run(false);
     log("4...", 2, 0);
     task_t *tlist = sched_get_task_list();
     if (tlist)

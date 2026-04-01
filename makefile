@@ -132,7 +132,7 @@ qemu:
 	-drive file=ZenOS.vhd,if=ide,index=0 \
 	-drive file=Storage.vhd,if=ide,index=1 \
 	-boot d \
-	-smp 5 \
+	-smp 2 \
 	-serial stdio \
 	-netdev user,id=net0 \
 	-device e1000,netdev=net0 \
