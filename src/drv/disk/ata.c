@@ -130,17 +130,19 @@ static void ata_setup_lba28(uint16_t base_io, uint32_t lba, uint8_t count, uint8
 static void irq14_handler(registers_t *r)
 {
     (void)r;
+    __asm__ volatile("mfence" ::: "memory");
     irq_fired[0] = 1;
+    __asm__ volatile("mfence" ::: "memory");
     outportb(bmide_base + BMIDE_REG_STATUS, inportb(bmide_base + BMIDE_REG_STATUS));
-    LocalApicSendEOI();
 }
 
 static void irq15_handler(registers_t *r)
 {
     (void)r;
+    __asm__ volatile("mfence" ::: "memory");
     irq_fired[1] = 1;
+    __asm__ volatile("mfence" ::: "memory");
     outportb(bmide_base + BMIDE_REG_STATUS + 8, inportb(bmide_base + BMIDE_REG_STATUS + 8));
-    LocalApicSendEOI();
 }
 
 static void ata_get_drive_name(uint8_t drive, char *name_buffer)
@@ -318,7 +320,11 @@ static ata_error_t ata_dma_transfer(uint8_t drive, uint32_t lba, uint8_t count, 
     outportb(bm_base + BMIDE_REG_STATUS, BMIDE_STATUS_ERR | BMIDE_STATUS_IRQ);
     outportl(bm_base + BMIDE_REG_PRDT, (uint32_t)prdt_phys);
 
+    __asm__ volatile("mfence" ::: "memory");
     irq_fired[chan] = 0;
+    __asm__ volatile("mfence" ::: "memory");
+
+    outportb(bm_base + BMIDE_REG_CMD, write ? 0 : BMIDE_CMD_WRITE);
 
     ata_setup_lba28(base_io, lba, count, drives[drive].drive_select);
     outportb(base_io + ATA_REG_COMMAND, write ? ATA_CMD_WRITE_DMA : ATA_CMD_READ_DMA);
@@ -326,18 +332,22 @@ static ata_error_t ata_dma_transfer(uint8_t drive, uint32_t lba, uint8_t count, 
     outportb(bm_base + BMIDE_REG_CMD, (write ? 0 : BMIDE_CMD_WRITE) | BMIDE_CMD_START);
 
     timeout_counter = 0;
+    __asm__ volatile("sti" ::: "memory");
     while (!irq_fired[chan])
     {
+        __asm__ volatile("mfence" ::: "memory");
         uint8_t bm_status = inportb(bm_base + BMIDE_REG_STATUS);
         if (!(bm_status & BMIDE_STATUS_ACTIVE))
             break;
-        if (++timeout_counter >= ATA_TIMEOUT_MS * 100000)
+        if (++timeout_counter >= ATA_TIMEOUT_MS * 100)
         {
             outportb(bm_base + BMIDE_REG_CMD, 0);
+            __asm__ volatile("cli" ::: "memory");
             return ATA_ERR_TIMEOUT;
         }
         asm volatile("pause" ::: "memory");
     }
+    __asm__ volatile("cli" ::: "memory");
 
     outportb(bm_base + BMIDE_REG_CMD, 0);
 
