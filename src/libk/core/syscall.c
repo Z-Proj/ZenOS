@@ -149,6 +149,18 @@ static int write_user_u64(task_t *task, uint64_t uaddr, uint64_t value)
     return 0;
 }
 
+static int map_user_page_checked(page_table_t *pml4, uint64_t virt, uint64_t phys, uint64_t flags)
+{
+    if (!pml4 || !phys)
+        return -1;
+
+    map_page(pml4, virt, phys, flags);
+    if (virt_to_phys(pml4, virt) != phys)
+        return -1;
+
+    return 0;
+}
+
 void init_syscalls(void)
 {
     uint64_t star = ((uint64_t)0x08 << 32) | ((uint64_t)0x13 << 48);
@@ -1244,14 +1256,31 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         {
             uint64_t start = (current->heap_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
             uint64_t end = (new_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+            uint64_t rollback_end = start;
 
             for (uint64_t virt = start; virt < end; virt += PAGE_SIZE)
             {
                 uint64_t phys = alloc_page();
                 if (!phys)
+                {
+                    user_unmap_range(current, start, (size_t)((rollback_end - start) / PAGE_SIZE));
                     return -1;
-                map_page(current->pml4, virt, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+                }
+                if (map_user_page_checked(current->pml4, virt, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER) < 0)
+                {
+                    free_page(phys);
+                    user_unmap_range(current, start, (size_t)((rollback_end - start) / PAGE_SIZE));
+                    return -1;
+                }
+                rollback_end = virt + PAGE_SIZE;
             }
+        }
+        else if (new_brk < current->heap_brk)
+        {
+            uint64_t start = (new_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+            uint64_t end = (current->heap_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+            if (end > start)
+                user_unmap_range(current, start, (size_t)((end - start) / PAGE_SIZE));
         }
 
         current->heap_brk = new_brk;
@@ -1275,14 +1304,31 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         {
             uint64_t start = (current->heap_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
             uint64_t end = (new_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+            uint64_t rollback_end = start;
 
             for (uint64_t virt = start; virt < end; virt += PAGE_SIZE)
             {
                 uint64_t phys = alloc_page();
                 if (!phys)
+                {
+                    user_unmap_range(current, start, (size_t)((rollback_end - start) / PAGE_SIZE));
                     return -1;
-                map_page(current->pml4, virt, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+                }
+                if (map_user_page_checked(current->pml4, virt, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER) < 0)
+                {
+                    free_page(phys);
+                    user_unmap_range(current, start, (size_t)((rollback_end - start) / PAGE_SIZE));
+                    return -1;
+                }
+                rollback_end = virt + PAGE_SIZE;
             }
+        }
+        else if (increment < 0)
+        {
+            uint64_t start = (new_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+            uint64_t end = (current->heap_brk + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+            if (end > start)
+                user_unmap_range(current, start, (size_t)((end - start) / PAGE_SIZE));
         }
 
         current->heap_brk = new_brk;
@@ -1331,7 +1377,12 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                 return -1;
             }
             memset((void *)(phys + KERNEL_VIRT_OFFSET), 0, PAGE_SIZE);
-            map_page(current->pml4, virt, phys, page_flags);
+            if (map_user_page_checked(current->pml4, virt, phys, page_flags) < 0)
+            {
+                free_page(phys);
+                user_unmap_range(current, virt_start, mapped_pages);
+                return -1;
+            }
             mapped_pages++;
         }
 
@@ -2148,12 +2199,19 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return -1;
 
         task_t *current = sched_current_task();
-        if (!current || !current->pml4) { free_page(phys); return -1; }
+        if (!current || !current->pml4) { free_pages(phys, pages); return -1; }
 
         uint64_t virt = SHM_VIRT_BASE + (uint64_t)slot * 0x10000000ULL;
         for (size_t i = 0; i < pages; i++)
-            map_page(current->pml4, virt + i * PAGE_SIZE, phys + i * PAGE_SIZE,
-                     PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+        {
+            if (map_user_page_checked(current->pml4, virt + i * PAGE_SIZE, phys + i * PAGE_SIZE,
+                                      PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER) < 0)
+            {
+                user_unmap_range(current, virt, i);
+                free_pages(phys, pages);
+                return -1;
+            }
+        }
 
         strncpy(shm_table[slot].name, name, SHM_NAME_MAX - 1);
         shm_table[slot].name[SHM_NAME_MAX - 1] = '\0';

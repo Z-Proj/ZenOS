@@ -35,6 +35,7 @@ typedef struct task
     uint64_t time_slice_remaining;
     int is_kernel_task;
     int is_idle_task;
+    uint8_t owns_user_pages;
     page_table_t *pml4;
     uint64_t heap_brk;
     uint64_t mmap_base;

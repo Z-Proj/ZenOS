@@ -103,6 +103,7 @@ static task_t *create_kernel_task_locked(void (*entry)(void), const char *name, 
     task->stack_size = TASK_STACK_SIZE;
     task->is_kernel_task = 1;
     task->is_idle_task = is_idle_task;
+    task->owns_user_pages = 0;
     task->pml4 = get_kernel_pml4();
     task->parent_pid = TASK_NO_PARENT;
     task->wait_status = 0;
@@ -304,6 +305,7 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
     task->time_slice_remaining = TIME_SLICE;
     task->stack_size = TASK_STACK_SIZE;
     task->is_kernel_task = 0;
+    task->owns_user_pages = 1;
     task->pml4 = pml4;
     task->heap_brk = USER_HEAP_START;
     task->mmap_base = 0x0000200000000000ULL;
@@ -431,7 +433,11 @@ static void reap_dead_tasks(void)
                 kfree((void *)iter->kernel_stack);
             }
 
-            if (iter->user_stack && !iter->is_kernel_task)
+            if (!iter->is_kernel_task && iter->owns_user_pages)
+            {
+                free_user_pages(iter->pml4);
+            }
+            else if (iter->user_stack && !iter->is_kernel_task)
             {
                 size_t stack_pages = (TASK_STACK_SIZE + PAGE_SIZE - 1) / PAGE_SIZE;
                 for (size_t i = 0; i < stack_pages; i++)
@@ -1020,6 +1026,7 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
     child->time_slice_remaining = TIME_SLICE;
     child->stack_size = parent->stack_size;
     child->is_kernel_task = 0;
+    child->owns_user_pages = 0;
     child->heap_brk = parent->heap_brk;
     child->mmap_base = parent->mmap_base;
     child->argc = parent->argc;
@@ -1145,6 +1152,7 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
         return -1;
     }
 
+    parent->owns_user_pages = 0;
     child->pid = next_pid++;
     insert_task_locked(child);
     task_count++;

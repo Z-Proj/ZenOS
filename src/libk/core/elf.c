@@ -13,7 +13,6 @@
 #define EXEC_MAX_STRLEN  4096
 #define USER_PIE_BASE    0x0000000000400000ULL
 #define USER_INTERP_BASE 0x0000100000000000ULL
-
 extern void exec_enter_user(uint64_t entry, uint64_t user_rsp) __attribute__((noreturn));
 
 typedef struct {
@@ -199,6 +198,11 @@ static int map_user_stack(page_table_t *pml4)
             return -1;
         }
         map_page(pml4, virt, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+        if (virt_to_phys(pml4, virt) != phys) {
+            free_page(phys);
+            free_user_range(pml4, USER_STACK_BASE, USER_STACK_BASE + (i * PAGE_SIZE));
+            return -1;
+        }
         memset((void *)(phys + KERNEL_VIRT_OFFSET), 0, PAGE_SIZE);
     }
 
@@ -416,7 +420,6 @@ static int load_elf_into_pml4(page_table_t *pml4, uint8_t *elf_data, uint32_t fi
     }
 
     if (min_addr == UINT64_MAX || max_addr <= min_addr) return -1;
-
     uint64_t map_start = min_addr & ~(uint64_t)(PAGE_SIZE - 1);
     uint64_t map_end = (max_addr + PAGE_SIZE - 1) & ~(uint64_t)(PAGE_SIZE - 1);
     uint64_t load_bias = 0;
@@ -440,6 +443,11 @@ static int load_elf_into_pml4(page_table_t *pml4, uint8_t *elf_data, uint32_t fi
         }
 
         map_page(pml4, v, phys, PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE);
+        if (virt_to_phys(pml4, v) != phys) {
+            free_page(phys);
+            free_user_range(pml4, map_start, v);
+            return -1;
+        }
         memset((void *)(phys + KERNEL_VIRT_OFFSET), 0, PAGE_SIZE);
     }
 
@@ -631,8 +639,11 @@ int elf_execve_replace(const char *filename, int argc, char **argv, char **envp)
     free_string_vector(kenvp, envc);
 
     page_table_t *old_pml4 = task->pml4;
+    uint8_t old_owns_user_pages = task->owns_user_pages;
+    uint64_t old_user_stack = task->user_stack;
 
     task->pml4 = new_pml4;
+    task->owns_user_pages = 1;
     task->heap_brk = USER_HEAP_START;
     task->mmap_base = 0x0000200000000000ULL;
     task->argc = argc;
@@ -667,8 +678,14 @@ int elf_execve_replace(const char *filename, int argc, char **argv, char **envp)
     switch_page_directory(new_pml4);
     sched_set_active_pml4(new_pml4);
     syscall_prepare_user_return(task->user_gs_base);
-    if (old_pml4 && old_pml4 != get_kernel_pml4() && old_pml4 != new_pml4)
+    if (old_pml4 && old_pml4 != get_kernel_pml4() && old_pml4 != new_pml4) {
+        if (old_owns_user_pages) {
+            free_user_pages(old_pml4);
+        } else if (old_user_stack) {
+            free_user_range(old_pml4, old_user_stack, old_user_stack + TASK_STACK_SIZE);
+        }
         free_page_directory(old_pml4);
+    }
 
     spinlock_release_raw(&exec_lock);
     exec_enter_user(task->regs.rip, user_rsp);

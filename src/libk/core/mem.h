@@ -48,6 +48,7 @@ page_table_t* clone_page_directory(page_table_t* src);
 page_table_t* get_kernel_pml4(void);
 
 void free_page_directory(page_table_t* pml4);
+void free_user_pages(page_table_t* pml4);
 void free_task_address_space(page_table_t* pml4, uint64_t user_start, uint64_t user_end);
 
 #endif

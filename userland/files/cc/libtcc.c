@@ -1008,6 +1008,11 @@ LIBTCCAPI int tcc_set_output_type(TCCState *s, int output_type)
     if (!s->nostdlib_paths)
         tcc_add_library_path(s, CONFIG_TCC_LIBPATHS);
 
+#ifdef CONFIG_TCC_RPATH
+    if (!s->static_link && !s->rpath)
+        tcc_set_str(&s->rpath, CONFIG_TCC_RPATH);
+#endif
+
 #ifdef TCC_TARGET_PE
 # ifdef TCC_IS_NATIVE
     /* allow linking with system dll's directly */

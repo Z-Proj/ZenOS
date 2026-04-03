@@ -20,6 +20,7 @@ static uint64_t memory_top = 0;
 #define HEAP_MIN_BLOCK      (HEAP_ALIGN * 2)
 #define NUM_SIZE_CLASSES    12
 #define HEAP_MAGIC          0xDEADBEEFCAFEBABEULL
+#define USER_SHM_PML4_INDEX ((0x0000500000000000ULL >> 39) & 0x1FF)
 
 #define BLK_OVERHEAD        (sizeof(blk_hdr_t) + sizeof(size_t))
 
@@ -716,6 +717,50 @@ static void free_page_table_struct(page_table_t *table)
     if (!table) return;
     uint64_t phys = (uint64_t)table - KERNEL_VIRT_OFFSET;
     free_page(phys);
+}
+
+void free_user_pages(page_table_t *pml4)
+{
+    if (!pml4) return;
+
+    for (int pml4_idx = 0; pml4_idx < 256; pml4_idx++)
+    {
+        if (pml4_idx == USER_SHM_PML4_INDEX)
+            continue;
+
+        if (!(pml4->entries[pml4_idx] & PAGE_PRESENT))
+            continue;
+
+        page_table_t *pdpt = (page_table_t *)((pml4->entries[pml4_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
+
+        for (int pdpt_idx = 0; pdpt_idx < 512; pdpt_idx++)
+        {
+            uint64_t pdpte = pdpt->entries[pdpt_idx];
+            if (!(pdpte & PAGE_PRESENT) || !(pdpte & PAGE_USER) || (pdpte & (1ULL << 7)))
+                continue;
+
+            page_table_t *pd = (page_table_t *)((pdpte & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
+
+            for (int pd_idx = 0; pd_idx < 512; pd_idx++)
+            {
+                uint64_t pde = pd->entries[pd_idx];
+                if (!(pde & PAGE_PRESENT) || !(pde & PAGE_USER) || (pde & (1ULL << 7)))
+                    continue;
+
+                page_table_t *pt = (page_table_t *)((pde & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
+
+                for (int pt_idx = 0; pt_idx < 512; pt_idx++)
+                {
+                    uint64_t pte = pt->entries[pt_idx];
+                    if (!(pte & PAGE_PRESENT) || !(pte & PAGE_USER))
+                        continue;
+
+                    free_page(pte & 0xFFFFFFFFFFFFF000);
+                    pt->entries[pt_idx] = 0;
+                }
+            }
+        }
+    }
 }
 
 void free_page_directory(page_table_t *pml4)
