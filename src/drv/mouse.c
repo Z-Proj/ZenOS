@@ -112,6 +112,7 @@ static bool mouse_send_command(uint8_t cmd)
 
 void mouse_process_byte(uint8_t data)
 {
+    uint64_t rflags = spinlock_acquire_irqsave(&mouse_lock);
     switch (mouse.cycle)
     {
     case 0:
@@ -120,35 +121,31 @@ void mouse_process_byte(uint8_t data)
             mouse.packet[0] = data;
             mouse.cycle++;
         }
+        spinlock_release_irqrestore(&mouse_lock, rflags);
         break;
     case 1:
         mouse.packet[1] = data;
         mouse.cycle++;
+        spinlock_release_irqrestore(&mouse_lock, rflags);
         break;
     case 2:
         mouse.packet[2] = data;
         if (mouse.packet[0] & 0xC0)
         {
             mouse.cycle = 0;
+            spinlock_release_irqrestore(&mouse_lock, rflags);
             break;
         }
         uint8_t new_buttons = mouse.packet[0] & 0x07;
         int32_t dx = (int8_t)mouse.packet[1];
         int32_t dy = -(int8_t)mouse.packet[2];
-        uint64_t rflags = spinlock_acquire_irqsave(&mouse_lock);
         uint8_t prev_buttons = mouse.buttons;
         int32_t next_x = (int32_t)mouse.x + dx;
         int32_t next_y = (int32_t)mouse.y + dy;
-
-        if (next_x < 0)
-            next_x = 0;
-        if (next_y < 0)
-            next_y = 0;
-        if (next_x >= (int32_t)framebuffer_width)
-            next_x = (int32_t)framebuffer_width - 1;
-        if (next_y >= (int32_t)framebuffer_height)
-            next_y = (int32_t)framebuffer_height - 1;
-
+        if (next_x < 0) next_x = 0;
+        if (next_y < 0) next_y = 0;
+        if (next_x >= (int32_t)framebuffer_width) next_x = (int32_t)framebuffer_width - 1;
+        if (next_y >= (int32_t)framebuffer_height) next_y = (int32_t)framebuffer_height - 1;
         mouse.buttons = new_buttons;
         mouse.x = (uint32_t)next_x;
         mouse.y = (uint32_t)next_y;
@@ -243,7 +240,6 @@ void mouse_init(void)
 
 uint32_t mouse_x(void)
 {
-    mouse_poll();
     uint64_t rflags = spinlock_acquire_irqsave(&mouse_lock);
     uint32_t x = mouse.x;
     spinlock_release_irqrestore(&mouse_lock, rflags);
@@ -252,7 +248,6 @@ uint32_t mouse_x(void)
 
 uint32_t mouse_y(void)
 {
-    mouse_poll();
     uint64_t rflags = spinlock_acquire_irqsave(&mouse_lock);
     uint32_t y = mouse.y;
     spinlock_release_irqrestore(&mouse_lock, rflags);
@@ -261,22 +256,17 @@ uint32_t mouse_y(void)
 
 uint8_t mouse_button(void)
 {
-    mouse_poll();
     uint64_t rflags = spinlock_acquire_irqsave(&mouse_lock);
     uint8_t buttons = mouse.buttons;
     spinlock_release_irqrestore(&mouse_lock, rflags);
-    if (buttons & 0x01)
-        return 1;
-    if (buttons & 0x04)
-        return 2;
-    if (buttons & 0x02)
-        return 3;
+    if (buttons & 0x01) return 1;
+    if (buttons & 0x04) return 2;
+    if (buttons & 0x02) return 3;
     return 0;
 }
 
 bool mouse_moved(void)
 {
-    mouse_poll();
     uint64_t rflags = spinlock_acquire_irqsave(&mouse_lock);
     if (mouse.ready)
     {

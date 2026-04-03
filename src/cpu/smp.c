@@ -18,7 +18,7 @@ static volatile struct limine_smp_request smp_request = {
 };
 
 volatile uint32_t g_activeCpuCount = 1;
-static uint8_t ap_stacks[MAX_CPUS][STACK_SIZE] __attribute__((aligned(16)));
+// static uint8_t ap_stacks[MAX_CPUS][STACK_SIZE] __attribute__((aligned(16)));
 static cpu_info_t g_cpu_info[MAX_CPUS];
 static uint32_t g_cpu_count = 1;
 static uint32_t g_bsp_cpu_index = 0;

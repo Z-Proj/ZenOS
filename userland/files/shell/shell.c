@@ -426,31 +426,35 @@ static void show_prompt(void) {
     fflush(stdout);
 }
 
+static int prompt_len = 0;
+
 static void read_command(void) {
     buffer_pos = 0;
+    int len = 0;
     memset(command_buffer, 0, MAX_COMMAND_LENGTH);
 
-    if (!fgets(command_buffer, sizeof(command_buffer), stdin)) {
-        command_buffer[0] = '\0';
-        return;
-    }
-
-    while (command_buffer[buffer_pos] &&
-           command_buffer[buffer_pos] != '\n' &&
-           command_buffer[buffer_pos] != '\r') {
-
-        putchar(command_buffer[buffer_pos]);
-        buffer_pos++;
-    }
-
-    if (command_buffer[buffer_pos] == '\n' || command_buffer[buffer_pos] == '\r') {
-        command_buffer[buffer_pos] = '\0';
-    } else {
-        int c = 0;
-        while ((c = getchar()) != '\n' && c != EOF) {
+    int c;
+    while ((c = getchar()) != EOF) {
+        if (c == '\n' || c == '\r') {
+            putchar('\n');
+            fflush(stdout);
+            break;
+        } else if (c == '\b' || c == 127) {
+            if (len > 0) {
+                len--;
+                command_buffer[len] = '\0';
+                fputs("\b \b", stdout);
+                fflush(stdout);
+            }
+        } else if (len < MAX_COMMAND_LENGTH - 1) {
+            command_buffer[len++] = (char)c;
+            command_buffer[len] = '\0';
             putchar(c);
+            fflush(stdout);
         }
     }
+    buffer_pos = len;
+    (void)prompt_len;
 }
 
 static int is_builtin(const char *name) {
@@ -601,6 +605,8 @@ int main(int argc, char *argv[]) {
     while (1) {
         show_prompt();
         read_command();
+        fputs("\n", stdout);
+        fflush(stdout);
         if (!execute_command()) {
             break;
         }

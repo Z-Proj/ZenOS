@@ -1298,15 +1298,15 @@ static void pump_mouse_events(void)
             if (event.code == REL_X)
             {
                 int32_t next_x = (int32_t)pointer_x + event.value;
-                if (next_x < 0)
-                    next_x = 0;
+                if (next_x < 0) next_x = 0;
+                if (next_x >= (int32_t)SCR_W) next_x = (int32_t)SCR_W - 1;
                 pointer_x = (uint32_t)next_x;
             }
             else if (event.code == REL_Y)
             {
                 int32_t next_y = (int32_t)pointer_y + event.value;
-                if (next_y < 0)
-                    next_y = 0;
+                if (next_y < 0) next_y = 0;
+                if (next_y >= (int32_t)SCR_H) next_y = (int32_t)SCR_H - 1;
                 pointer_y = (uint32_t)next_y;
             }
             clamp_pointer();
@@ -1542,7 +1542,7 @@ int main(void)
             full_redraw();
         }
 
-        if (!dragging && ++clock_tick >= 800)
+        if (!dragging && ++clock_tick >= 200)
         {
             clock_tick = 0;
             draw_dash();

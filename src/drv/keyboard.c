@@ -37,8 +37,6 @@
 #define SCANCODE_RELEASE_PREFIX  0xF0
 #define SCANCODE_EXTENDED_PREFIX 0xE0
 
-#define SWITCHER_HIDE_TICKS 300
-
 typedef struct {
     char normal;
     char shifted;
@@ -143,169 +141,7 @@ static bool waiting_for_release_code = false;
 static bool waiting_for_extended_code = false;
 static spinlock_t kbdlock;
 
-#define SWITCHER_MAX_TASKS 32
-#define SWITCHER_PAD_X     16
-#define SWITCHER_PAD_Y     8
-#define SWITCHER_ITEM_H    18
-#define SWITCHER_ITEM_W    180
-
-#define COL_BG        0x1a1a2e
-#define COL_BORDER    0x4a9eff
-#define COL_SEL_BG    0x4a9eff
-#define COL_SEL_TEXT  0x000000
-#define COL_TEXT      0xe0e0e0
-
-static uint32_t *switcher_saved_pixels = NULL;
-static uint32_t switcher_box_x = 0;
-static uint32_t switcher_box_y = 0;
-static uint32_t switcher_box_w = 0;
-static uint32_t switcher_box_h = 0;
-static bool switcher_visible = false;
-static int switcher_hide_ticks = 0;
-
-static uint64_t kbd_focused_pid = 0;
-static bool focus_initialized = false;
-
-static task_t *switcher_tasks[SWITCHER_MAX_TASKS];
-static int switcher_task_count = 0;
-static int switcher_selected = 0;
-
 static void buffer_clear(void);
-
-static void switcher_collect_tasks(void)
-{
-    switcher_task_count = 0;
-    task_t *head = sched_get_task_list();
-    if (!head) return;
-    task_t *t = head;
-    do {
-        if (strcmp(t->name, "Idle") != 0 && t->state != TASK_DEAD) {
-            if (switcher_task_count < SWITCHER_MAX_TASKS)
-                switcher_tasks[switcher_task_count++] = t;
-        }
-        t = t->next;
-    } while (t != head);
-}
-
-static void draw_rect_filled(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color)
-{
-    for (uint32_t row = y; row < y + h; row++)
-        for (uint32_t col = x; col < x + w; col++)
-            put_pixel(col, row, color);
-}
-
-static void draw_rect_border(uint32_t x, uint32_t y, uint32_t w, uint32_t h, uint32_t color, uint32_t thickness)
-{
-    for (uint32_t t = 0; t < thickness; t++) {
-        for (uint32_t col = x + t; col < x + w - t; col++) {
-            put_pixel(col, y + t, color);
-            put_pixel(col, y + h - 1 - t, color);
-        }
-        for (uint32_t row = y + t; row < y + h - t; row++) {
-            put_pixel(x + t, row, color);
-            put_pixel(x + w - 1 - t, row, color);
-        }
-    }
-}
-
-static void switcher_save_pixels(uint32_t x, uint32_t y, uint32_t w, uint32_t h)
-{
-    if (switcher_saved_pixels) {
-        kfree(switcher_saved_pixels);
-        switcher_saved_pixels = NULL;
-    }
-    switcher_saved_pixels = (uint32_t *)kmalloc(w * h * sizeof(uint32_t));
-    if (!switcher_saved_pixels) return;
-    for (uint32_t row = 0; row < h; row++)
-        for (uint32_t col = 0; col < w; col++)
-            switcher_saved_pixels[row * w + col] = get_pixel_at(x + col, y + row);
-}
-
-static void switcher_restore_pixels(void)
-{
-    if (!switcher_saved_pixels) return;
-    uint32_t w = switcher_box_w;
-    uint32_t h = switcher_box_h;
-    uint32_t x = switcher_box_x;
-    uint32_t y = switcher_box_y;
-    for (uint32_t row = 0; row < h; row++)
-        for (uint32_t col = 0; col < w; col++)
-            put_pixel(x + col, y + row, switcher_saved_pixels[row * w + col]);
-    kfree(switcher_saved_pixels);
-    switcher_saved_pixels = NULL;
-}
-
-static void switcher_draw(void)
-{
-    if (!framebuffer_addr) return;
-
-    switcher_collect_tasks();
-    if (switcher_task_count == 0) return;
-
-    uint32_t inner_w = SWITCHER_ITEM_W + SWITCHER_PAD_X;
-    uint32_t inner_h = (uint32_t)switcher_task_count * SWITCHER_ITEM_H + SWITCHER_PAD_Y;
-
-    uint32_t bx = 8;
-    uint32_t by = (uint32_t)(framebuffer_height - inner_h - 8);
-
-    switcher_box_x = bx;
-    switcher_box_y = by;
-    switcher_box_w = inner_w;
-    switcher_box_h = inner_h;
-
-    switcher_save_pixels(bx, by, inner_w, inner_h);
-
-    draw_rect_filled(bx, by, inner_w, inner_h, COL_BG);
-    draw_rect_border(bx, by, inner_w, inner_h, COL_BORDER, 2);
-
-    for (int i = 0; i < switcher_task_count; i++) {
-        uint32_t item_x = bx + SWITCHER_PAD_X / 2;
-        uint32_t item_y = by + SWITCHER_PAD_Y / 2 + (uint32_t)i * SWITCHER_ITEM_H;
-
-        if (i == switcher_selected) {
-            draw_rect_filled(item_x - 4, item_y + 1, SWITCHER_ITEM_W, SWITCHER_ITEM_H - 2, COL_SEL_BG);
-            draw_text_at(switcher_tasks[i]->name, item_x, item_y + 2, COL_SEL_TEXT);
-        } else {
-            draw_text_at(switcher_tasks[i]->name, item_x, item_y + 2, COL_TEXT);
-        }
-    }
-}
-
-static void switcher_show(int direction)
-{
-    switcher_collect_tasks();
-    if (switcher_task_count == 0) return;
-
-    if (!switcher_visible) {
-        switcher_selected = 0;
-        for (int i = 0; i < switcher_task_count; i++) {
-            if (switcher_tasks[i]->pid == kbd_focused_pid) {
-                switcher_selected = i;
-                break;
-            }
-        }
-    } else {
-        if (switcher_visible)
-            switcher_restore_pixels();
-    }
-
-    switcher_selected = (switcher_selected + direction + switcher_task_count) % switcher_task_count;
-    switcher_visible = true;
-    switcher_hide_ticks = SWITCHER_HIDE_TICKS;
-
-    kbd_focused_pid = switcher_tasks[switcher_selected]->pid;
-    buffer_clear();
-
-    switcher_draw();
-}
-
-static void switcher_hide(void)
-{
-    if (!switcher_visible) return;
-    switcher_restore_pixels();
-    switcher_visible = false;
-    switcher_hide_ticks = 0;
-}
 
 static void ps2_wait_input(void)
 {
@@ -393,15 +229,6 @@ static bool buffer_has_data(void)
     return has_data;
 }
 
-static void buffer_clear(void)
-{
-    uint64_t rflags = spinlock_acquire_irqsave(&kbdlock);
-    key_buffer.head = 0;
-    key_buffer.tail = 0;
-    key_buffer.count = 0;
-    spinlock_release_irqrestore(&kbdlock, rflags);
-}
-
 static void update_modifier_state(uint8_t scancode, bool pressed, bool extended)
 {
     if (extended) {
@@ -438,30 +265,6 @@ static char process_key(uint8_t scancode)
     return result;
 }
 
-static void switcher_move(int direction)
-{
-    if (!switcher_visible || switcher_task_count == 0) return;
-    switcher_selected = (switcher_selected + direction + switcher_task_count) % switcher_task_count;
-    kbd_focused_pid = switcher_tasks[switcher_selected]->pid;
-    buffer_clear();
-    switcher_hide_ticks = SWITCHER_HIDE_TICKS;
-
-    uint32_t bx = switcher_box_x;
-    uint32_t by = switcher_box_y;
-
-    draw_rect_filled(bx + 2, by + 2, switcher_box_w - 4, switcher_box_h - 4, COL_BG);
-
-    for (int i = 0; i < switcher_task_count; i++) {
-        uint32_t item_x = bx + SWITCHER_PAD_X / 2;
-        uint32_t item_y = by + SWITCHER_PAD_Y / 2 + (uint32_t)i * SWITCHER_ITEM_H;
-        if (i == switcher_selected) {
-            draw_rect_filled(item_x - 4, item_y + 1, SWITCHER_ITEM_W, SWITCHER_ITEM_H - 2, COL_SEL_BG);
-            draw_text_at(switcher_tasks[i]->name, item_x, item_y + 2, COL_SEL_TEXT);
-        } else {
-            draw_text_at(switcher_tasks[i]->name, item_x, item_y + 2, COL_TEXT);
-        }
-    }
-}
 
 int font_id = 3;
 
@@ -493,17 +296,10 @@ static void kbd_handle_scancode(uint8_t scancode)
     if (extended) {
         update_modifier_state(scancode, true, true);
         input_enqueue_key(input_keycode_from_scancode(scancode, 1), 1);
-        if (switcher_visible) {
-            if (scancode == EXT_SCANCODE_UP || scancode == EXT_SCANCODE_LEFT)
-                switcher_move(-1);
-            else if (scancode == EXT_SCANCODE_DOWN || scancode == EXT_SCANCODE_RIGHT)
-                switcher_move(1);
-        } else {
-            if (scancode == EXT_SCANCODE_UP)    buffer_put_char(KEY_ARROW_UP);
-            if (scancode == EXT_SCANCODE_DOWN)  buffer_put_char(KEY_ARROW_DOWN);
-            if (scancode == EXT_SCANCODE_LEFT)  buffer_put_char(KEY_ARROW_LEFT);
-            if (scancode == EXT_SCANCODE_RIGHT) buffer_put_char(KEY_ARROW_RIGHT);
-        }
+        if (scancode == EXT_SCANCODE_UP)    buffer_put_char(KEY_ARROW_UP);
+        if (scancode == EXT_SCANCODE_DOWN)  buffer_put_char(KEY_ARROW_DOWN);
+        if (scancode == EXT_SCANCODE_LEFT)  buffer_put_char(KEY_ARROW_LEFT);
+        if (scancode == EXT_SCANCODE_RIGHT) buffer_put_char(KEY_ARROW_RIGHT);
         return;
     }
 
@@ -518,15 +314,6 @@ static void kbd_handle_scancode(uint8_t scancode)
             return;
         }
 
-        if (switcher_visible) {
-            if (scancode == 0x5A) {
-                kbd_focused_pid = switcher_tasks[switcher_selected]->pid;
-                switcher_hide();
-            } else if (scancode == 0x76) {
-                switcher_hide();
-            }
-            return;
-        }
 
         char c = process_key(scancode);
         if (c != 0)
@@ -544,12 +331,6 @@ static void kbd_interrupt_handler(registers_t *regs)
     kbd_handle_scancode(scancode);
 }
 
-void kbd_switcher_tick(void)
-{
-    if (!switcher_visible) return;
-    if (switcher_hide_ticks > 0) switcher_hide_ticks--;
-    if (switcher_hide_ticks == 0) switcher_hide();
-}
 
 void init_keyboard(void)
 {
@@ -580,28 +361,6 @@ void init_keyboard(void)
     log("Keyboard Initialized.", 1, 0);
 }
 
-void kbd_init_focus(void)
-{
-    focus_initialized = false;
-    kbd_focused_pid = 0;
-}
-
-uint64_t kbd_get_focused_pid(void)
-{
-    return 0;
-}
-
-int kbd_set_focused_pid(uint64_t pid)
-{
-    (void)pid;
-    return 0;
-}
-
-void kbd_transfer_focus(uint64_t dead_pid)
-{
-    if (kbd_focused_pid != dead_pid) return;
-    kbd_focused_pid = 0;
-}
 
 char get_key(void)
 {

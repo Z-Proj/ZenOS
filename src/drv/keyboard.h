@@ -28,11 +28,6 @@
 #define KBD_SCANCODE2_F10   0x09
 
 void init_keyboard(void);
-void kbd_init_focus(void);
-void kbd_switcher_tick(void);
-uint64_t kbd_get_focused_pid(void);
-int kbd_set_focused_pid(uint64_t pid);
-void kbd_transfer_focus(uint64_t dead_pid);
 
 char get_key(void);
 char wait_for_key(void);

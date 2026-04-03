@@ -421,7 +421,6 @@ static void reap_dead_tasks(void)
                 iter->wait_collected = 1;
             }
 
-            kbd_transfer_focus(iter->pid);
             if (iter->fd_table)
             {
                 fd_table_free(iter->fd_table);

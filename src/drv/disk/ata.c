@@ -30,7 +30,6 @@ typedef struct {
 } __attribute__((packed)) prdt_entry_t;
 
 ata_drive_t drives[4];
-static uint32_t timeout_counter;
 static int8_t current_selected_drive = -1;
 
 static uint16_t bmide_base = 0;
@@ -45,8 +44,49 @@ static uint64_t prdt_phys = 0;
 
 static spinlock_t ata_lock[2] = {{0}, {0}};
 
-static uint64_t total_dma_bytes = 0;
-#define DMA_LOG_INTERVAL (512 * 1024)
+
+
+#define DISK_CACHE_SLOTS 128
+
+typedef struct {
+    uint32_t lba;
+    uint8_t  drive;
+    uint8_t  valid;
+    uint8_t  data[512];
+} disk_cache_entry_t;
+
+static disk_cache_entry_t disk_cache[DISK_CACHE_SLOTS];
+static spinlock_t cache_lock = {0};
+
+static int cache_lookup(uint8_t drive, uint32_t lba, uint8_t *buf)
+{
+    uint32_t slot = (lba * 2654435761u + drive) % DISK_CACHE_SLOTS;
+    disk_cache_entry_t *e = &disk_cache[slot];
+    if (e->valid && e->drive == drive && e->lba == lba)
+    {
+        memcpy(buf, e->data, 512);
+        return 1;
+    }
+    return 0;
+}
+
+static void cache_insert(uint8_t drive, uint32_t lba, const uint8_t *buf)
+{
+    uint32_t slot = (lba * 2654435761u + drive) % DISK_CACHE_SLOTS;
+    disk_cache_entry_t *e = &disk_cache[slot];
+    e->drive = drive;
+    e->lba   = lba;
+    e->valid = 1;
+    memcpy(e->data, buf, 512);
+}
+
+static void cache_invalidate(uint8_t drive, uint32_t lba)
+{
+    uint32_t slot = (lba * 2654435761u + drive) % DISK_CACHE_SLOTS;
+    disk_cache_entry_t *e = &disk_cache[slot];
+    if (e->valid && e->drive == drive && e->lba == lba)
+        e->valid = 0;
+}
 
 static void ata_delay(uint16_t base_io)
 {
@@ -64,12 +104,12 @@ static void ata_soft_reset(uint16_t ctrl_io)
 static ata_error_t ata_wait_ready(uint16_t base_io)
 {
     uint16_t ctrl = (base_io == ATA_PRIMARY_IO) ? ATA_PRIMARY_DEVCTL : ATA_SECONDARY_DEVCTL;
-    timeout_counter = 0;
+    uint32_t timeout = 0;
     inportb(ctrl);
     inportb(ctrl);
     inportb(ctrl);
     inportb(ctrl);
-    while (timeout_counter < ATA_TIMEOUT_MS)
+    while (timeout < ATA_TIMEOUT_MS)
     {
         uint8_t status = inportb(ctrl);
         if (!(status & ATA_SR_BSY))
@@ -80,16 +120,16 @@ static ata_error_t ata_wait_ready(uint16_t base_io)
                 return ATA_ERR_DRIVE_FAULT;
             return ATA_SUCCESS;
         }
-        timeout_counter++;
+        timeout++;
     }
     return ATA_ERR_TIMEOUT;
 }
 
 static ata_error_t ata_wait_drq(uint16_t base_io)
 {
-    timeout_counter = 0;
+    uint32_t timeout = 0;
     asm volatile("sti");
-    while (timeout_counter < ATA_TIMEOUT_MS)
+    while (timeout < ATA_TIMEOUT_MS)
     {
         uint8_t status = inportb(base_io + ATA_REG_STATUS);
         if (!(status & ATA_SR_BSY))
@@ -106,7 +146,7 @@ static ata_error_t ata_wait_drq(uint16_t base_io)
             asm volatile("cli");
             return ATA_ERR_NO_DRQ;
         }
-        timeout_counter++;
+        timeout++;
     }
     asm volatile("cli");
     return ATA_ERR_TIMEOUT;
@@ -318,9 +358,20 @@ static ata_error_t ata_dma_transfer(uint8_t drive, uint32_t lba, uint8_t count, 
             memcpy(bounce_buf, buffer, total_bytes);
     }
 
-    prdt[0].phys_addr  = (uint32_t)buf_phys;
-    prdt[0].byte_count = (uint16_t)(total_bytes & 0xFFFF);
-    prdt[0].flags      = (uint16_t)(PRDT_EOT >> 16);
+    uint32_t remaining = total_bytes;
+    uint32_t poffset = 0;
+    int prdt_idx = 0;
+    while (remaining > 0)
+    {
+        uint32_t chunk = remaining > 0x8000 ? 0x8000 : remaining;
+        prdt[prdt_idx].phys_addr  = (uint32_t)(buf_phys + poffset);
+        prdt[prdt_idx].byte_count = (uint16_t)chunk;
+        prdt[prdt_idx].flags      = 0;
+        poffset   += chunk;
+        remaining -= chunk;
+        prdt_idx++;
+    }
+    prdt[prdt_idx - 1].flags = (uint16_t)(PRDT_EOT >> 16);
 
 
     
@@ -354,12 +405,12 @@ static ata_error_t ata_dma_transfer(uint8_t drive, uint32_t lba, uint8_t count, 
     dmactl = inportb(bm_base + BMIDE_REG_CMD);
     outportb(bm_base + BMIDE_REG_CMD, dmactl | BMIDE_CMD_START);
 
-    timeout_counter = 0;
+    uint32_t timeout = 0;
     __asm__ volatile("sti" ::: "memory");
     while (!irq_fired[chan])
     {
         __asm__ volatile("mfence" ::: "memory");
-        if (++timeout_counter >= ATA_TIMEOUT_MS * 100)
+        if (++timeout >= ATA_TIMEOUT_MS * 100)
         {
             log("DMA[%d]: TIMEOUT lba=%u", 3, 0, chan, lba);
             outportb(bm_base + BMIDE_REG_CMD, 0);
@@ -380,23 +431,9 @@ static ata_error_t ata_dma_transfer(uint8_t drive, uint32_t lba, uint8_t count, 
         return ATA_ERR_GENERAL;
     }
 
-    current_selected_drive = -1;
-    ata_error_t bsy = ata_wait_ready(base_io);
-    if (bsy != ATA_SUCCESS)
-    {
-        log("DMA[%d]: wait_ready failed: %d lba=%u", 3, 0, chan, bsy, lba);
-        return bsy;
-    }
-
     if (!write && using_bounce)
         memcpy(buffer, bounce_buf, total_bytes);
 
-
-    total_dma_bytes += total_bytes;
-    if ((total_dma_bytes % DMA_LOG_INTERVAL) < total_bytes)
-    {
-        log("DMA: %u MB transferred", 4, 0, total_dma_bytes / (1024 * 1024));
-    }
 
     return ATA_SUCCESS;
 }
@@ -405,6 +442,21 @@ ata_error_t ata_read_sectors(uint8_t drive, uint32_t lba, uint8_t count, void *b
 {
     if (drive >= 4 || !drives[drive].exists || !buffer || count == 0 || count > ATA_MAX_SECTORS)
         return ATA_ERR_INVALID_PARAM;
+
+    uint8_t *buf8 = (uint8_t *)buffer;
+    uint8_t hits = 0;
+
+    spinlock_acquire_raw(&cache_lock);
+    for (uint8_t i = 0; i < count; i++)
+    {
+        if (cache_lookup(drive, lba + i, buf8 + (uint32_t)i * 512))
+            hits++;
+    }
+    spinlock_release_raw(&cache_lock);
+
+    if (hits == count)
+        return ATA_SUCCESS;
+
     uint8_t chan = (drive < 2) ? 0 : 1;
     spinlock_acquire_raw(&ata_lock[chan]);
     uint16_t base_io = drives[drive].base_io;
@@ -419,6 +471,13 @@ ata_error_t ata_read_sectors(uint8_t drive, uint32_t lba, uint8_t count, void *b
     if (dma_available) {
         err = ata_dma_transfer(drive, lba, count, buffer, 0);
         spinlock_release_raw(&ata_lock[chan]);
+        if (err == ATA_SUCCESS)
+        {
+            spinlock_acquire_raw(&cache_lock);
+            for (uint8_t i = 0; i < count; i++)
+                cache_insert(drive, lba + i, buf8 + (uint32_t)i * 512);
+            spinlock_release_raw(&cache_lock);
+        }
         return err;
     }
 
@@ -437,6 +496,10 @@ ata_error_t ata_read_sectors(uint8_t drive, uint32_t lba, uint8_t count, void *b
             buf[sector * 256 + word] = inportw(base_io + ATA_REG_DATA);
     }
     spinlock_release_raw(&ata_lock[chan]);
+    spinlock_acquire_raw(&cache_lock);
+    for (uint8_t i = 0; i < count; i++)
+        cache_insert(drive, lba + i, buf8 + (uint32_t)i * 512);
+    spinlock_release_raw(&cache_lock);
     return ATA_SUCCESS;
 }
 
@@ -460,6 +523,13 @@ ata_error_t ata_write_sectors(uint8_t drive, uint32_t lba, uint8_t count, const 
     {
         err = ata_dma_transfer(drive, lba, count, (void *)buffer, 1);
         spinlock_release_raw(&ata_lock[chan]);
+        if (err == ATA_SUCCESS)
+        {
+            spinlock_acquire_raw(&cache_lock);
+            for (uint8_t i = 0; i < count; i++)
+                cache_invalidate(drive, lba + i);
+            spinlock_release_raw(&cache_lock);
+        }
         return err;
     }
 

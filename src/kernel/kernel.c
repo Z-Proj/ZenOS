@@ -106,7 +106,6 @@ void _start(void)
     char *init_argv[] = {"kernel"};
     if (elf_exec("/mnt/drv0/bin/init", 1, init_argv) < 0)
         log("No init program found.", 0, 1);
-    kbd_init_focus();
     sched_start();
     for (;;)
         ;

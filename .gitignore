@@ -6,4 +6,5 @@ build/
 fat_man
 *.elf
 funcs.txt
-userland/sysroot/
+
+# I am temporarily not adding userland/sysroot.

@@ -19,17 +19,16 @@ The project focuses on clean design, correctness, and real hardware interaction.
 
 - 64-bit x86_64 monolithic kernel
 - Symmetric Multiprocessing (SMP)
-- Preemptive round-robin scheduler
+- Preemptive round-robin SMP scheduler
 - ELF64 userspace execution
+- Dynamic loader
 - Unix-style process model
-- CPU feature detection via CPUID
-- SSE and FPU initialization
 - High-resolution timing via HPET
 - ACPI-based hardware discovery and power management
 
 ### Syscalls
 
-70+ POSIX-compatible and custom syscalls covering process management, file I/O, memory, signals, pipes, directories, sockets, PTY, time, and networking.
+75+ POSIX-compatible / custom syscalls covering major app and C library needs.
 
 ### Hardware & Drivers
 
@@ -48,7 +47,7 @@ The project focuses on clean design, correctness, and real hardware interaction.
 - TCP/IP stack
 - DNS resolution
 - **zen** — a package manager that fetches and installs packages over HTTP
-- **wget** — downloads files over HTTP from the command line
+- **wget** — downloads files over HTTP/1.0
 
 ### Filesystem
 
@@ -58,9 +57,9 @@ The project focuses on clean design, correctness, and real hardware interaction.
 
 ### Userspace & Libc
 
-- [mlibc](https://github.com/managarm/mlibc) C library, integrated for the ZenOS target.
+- [mlibc](https://github.com/managarm/mlibc) C library.
 - ELF64 userspace programs.
-- Shared-library userspace with `/usr/lib/ld.so` and `libc.so`.
+- Dynamic ELF loader : `ld.so`.
 
 ### Applications
 
@@ -116,7 +115,7 @@ All good contributions are welcome. Check [ISSUES.md](https://github.com/Z-Proj/
   - [ ] Lightweight everyday utilities
   - [ ] Dual-boot support
 
-ZenOS is a learning-oriented project. Understanding the machine comes first.
+ZenOS is a learning-oriented project. Understanding the machine comes first for me.
 
 ---
 
@@ -138,7 +137,7 @@ socat
 
 - [Limine](https://codeberg.org/Limine/Limine) — bootloader
 - [Flanterm](https://codeberg.org/mintsuki/flanterm) — early kernel terminal renderer
-- [SSFN 2.0](https://gitlab.com/bztsrc/scalable-font2/) — scalable screen fonts
+- [SSFN 2](https://gitlab.com/bztsrc/scalable-font2/) — scalable screen fonts
 - [FatFs](https://elm-chan.org/fsw/ff/) — FAT32 library by CHAN
 - [mlibc](https://github.com/managarm/mlibc) — C standard library
 - [Lua](https://www.lua.org/) — lightweight scripting language

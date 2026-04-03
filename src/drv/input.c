@@ -371,15 +371,15 @@ void input_enqueue_mouse(int32_t dx, int32_t dy, uint8_t buttons, uint8_t prev_b
 
     if (dx || dy || changed)
     {
+        int32_t raw_dy = -dy;
         uint8_t packet0 = 0x08;
         if (buttons & 0x01) packet0 |= 0x01;
         if (buttons & 0x02) packet0 |= 0x02;
         if (buttons & 0x04) packet0 |= 0x04;
         if (dx < 0) packet0 |= 0x10;
-        if (dy < 0) packet0 |= 0x20;
-
+        if (raw_dy < 0) packet0 |= 0x20;
         input_byte_queue_push(&mice_queue, packet0);
         input_byte_queue_push(&mice_queue, (uint8_t)dx);
-        input_byte_queue_push(&mice_queue, (uint8_t)dy);
+        input_byte_queue_push(&mice_queue, (uint8_t)raw_dy);
     }
 }

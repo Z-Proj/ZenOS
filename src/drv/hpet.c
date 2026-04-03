@@ -1,7 +1,6 @@
 #include <stdint.h>
 #include "../cpu/isr.h"
 #include "../drv/local_apic.h"
-#include "../drv/keyboard.h"
 #include "../libk/debug/log.h"
 
 #define HPET_IRQ_VECTOR 0x22
@@ -36,7 +35,6 @@ static void hpet_handler(registers_t *r)
     (void)r;
     hpet_write(HPET_ISR, 1);
     hpet_ticks++;
-    kbd_switcher_tick();
 }
 
 void SetHpetAddress(uint64_t addr)

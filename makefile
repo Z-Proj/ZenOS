@@ -65,7 +65,7 @@ help:
 	@echo "  make clean     : Clean all build files (Doesn't affect $(ISO_IMAGE) / ZenOS.vhd)."
 	@echo "  make funcs     : Generate a text file with all the functions defined in ZenOS"
 	@echo "  make deps      : Check whether you have tools required to build ZenOS"
-	@echo "  make fat       : Build the FAT32 Linux Manager for ZenOS.vhd."
+	@echo "  make mlibc     : Rebuild mlibc and reinstall into sysroot + VHD."
 
 funcs:
 	@ctags -R --languages=C --c-kinds=f src && \
@@ -128,7 +128,7 @@ qemu:
 	-cdrom ZenOS.iso \
 	-audiodev pa,id=snd0 \
 	-machine pcspk-audiodev=snd0 \
-	-m 128M \
+	-m 512M \
 	-drive file=ZenOS.vhd,if=ide,index=0 \
 	-drive file=Storage.vhd,if=ide,index=1 \
 	-boot d \
@@ -149,4 +149,13 @@ out:
 gdb:
 	gdb build/kernel.bin
 
-.PHONY: all clean run qemu out stop gdb fat funcs
+mlibc:
+	@echo "Building mlibc (shared)..."
+	ninja -C mlibc-build-zenos-shared
+	@echo "Building mlibc (static)..."
+	ninja -C mlibc-build-zenos-static
+	@echo "Installing mlibc into sysroot and VHD..."
+	$(USER_DIR)/install_mlibc.sh
+	@echo "mlibc build complete."
+
+.PHONY: all clean run qemu out stop gdb fat funcs mlibc

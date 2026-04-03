@@ -1386,9 +1386,15 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (!tv)
             return -1;
 
-        rtc_time_t time = rtc_get_time();
-        tv->tv_sec = time.seconds + time.minutes * 60 + time.hours * 3600;
-        tv->tv_usec = time.milliseconds * 1000;
+        static const uint16_t days_before_month[12] = {0,31,59,90,120,151,181,212,243,273,304,334};
+        rtc_time_t t = rtc_get_time();
+        uint32_t year = 2000 + t.year;
+        uint32_t yday = days_before_month[t.month - 1] + t.day - 1;
+        if (t.month > 2 && (year % 4 == 0))
+            yday++;
+        uint32_t days = (year - 1970) * 365 + (year - 1969) / 4 + yday;
+        tv->tv_sec  = (uint64_t)days * 86400ULL + t.hours * 3600ULL + t.minutes * 60ULL + t.seconds;
+        tv->tv_usec = (uint64_t)t.milliseconds * 1000ULL;
         return 0;
     }
 
@@ -1396,12 +1402,27 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     {
         int clk_id = (int)arg1;
         timespec_t *tp = (timespec_t *)arg2;
-        (void)clk_id;
         if (!tp)
             return -1;
-        uint64_t ns = hpet_monotonic_ns();
-        tp->tv_sec = ns / 1000000000ULL;
-        tp->tv_nsec = ns % 1000000000ULL;
+
+        if (clk_id == 0 || clk_id == 5 || clk_id == 11)
+        {
+            static const uint16_t days_before_month[12] = {0,31,59,90,120,151,181,212,243,273,304,334};
+            rtc_time_t t = rtc_get_time();
+            uint32_t year = 2000 + t.year;
+            uint32_t yday = days_before_month[t.month - 1] + t.day - 1;
+            if (t.month > 2 && (year % 4 == 0))
+                yday++;
+            uint32_t days = (year - 1970) * 365 + (year - 1969) / 4 + yday;
+            tp->tv_sec  = (uint64_t)days * 86400ULL + t.hours * 3600ULL + t.minutes * 60ULL + t.seconds;
+            tp->tv_nsec = (uint64_t)t.milliseconds * 1000000ULL;
+        }
+        else
+        {
+            uint64_t ns = hpet_monotonic_ns();
+            tp->tv_sec  = ns / 1000000000ULL;
+            tp->tv_nsec = ns % 1000000000ULL;
+        }
         return 0;
     }
 
