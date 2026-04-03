@@ -22,6 +22,7 @@
 #define ATA_CMD_WRITE_DMA   0xCA
 
 #define PRDT_EOT            0x80000000
+#define ATA_DMA_BOUNCE_PAGES ((ATA_MAX_SECTORS * ATA_SECTOR_SIZE + PAGE_SIZE - 1) / PAGE_SIZE)
 
 typedef struct {
     uint32_t phys_addr;
@@ -176,8 +177,6 @@ static void irq14_handler(registers_t *r)
     (void)r;
     __asm__ volatile("mfence" ::: "memory");
     irq_fired[0] = 1;
-    __asm__ volatile("mfence" ::: "memory");
-    outportb(bmide_base + BMIDE_REG_STATUS, inportb(bmide_base + BMIDE_REG_STATUS));
 }
 
 static void irq15_handler(registers_t *r)
@@ -185,8 +184,6 @@ static void irq15_handler(registers_t *r)
     (void)r;
     __asm__ volatile("mfence" ::: "memory");
     irq_fired[1] = 1;
-    __asm__ volatile("mfence" ::: "memory");
-    outportb(bmide_base + BMIDE_REG_STATUS + 8, inportb(bmide_base + BMIDE_REG_STATUS + 8));
 }
 
 static void ata_get_drive_name(uint8_t drive, char *name_buffer)
@@ -254,7 +251,7 @@ ata_error_t ata_init(void)
             bmide_base = (uint16_t)(bar4 & 0xFFFC);
 
             uint64_t prdt_page = alloc_page();
-            uint64_t buf_page  = alloc_page();
+            uint64_t buf_page  = alloc_pages(ATA_DMA_BOUNCE_PAGES);
 
             if (prdt_page && buf_page)
             {
@@ -262,6 +259,8 @@ ata_error_t ata_init(void)
                 bounce_buf_phys = buf_page;
                 prdt            = (prdt_entry_t *)(prdt_page + KERNEL_VIRT_OFFSET);
                 bounce_buf      = (uint8_t *)(buf_page + KERNEL_VIRT_OFFSET);
+                memset(prdt, 0, PAGE_SIZE);
+                memset(bounce_buf, 0, ATA_DMA_BOUNCE_PAGES * PAGE_SIZE);
                 dma_available   = 1;
 
                 register_interrupt_handler(46, irq14_handler, "ATA Primary DMA");
@@ -305,6 +304,38 @@ ata_error_t ata_init(void)
     return ATA_SUCCESS;
 }
 
+static int ata_build_prdt(uint64_t phys, uint32_t total_bytes)
+{
+    uint32_t remaining = total_bytes;
+    int prdt_idx = 0;
+
+    memset(prdt, 0, PAGE_SIZE);
+
+    while (remaining > 0)
+    {
+        uint32_t chunk = remaining;
+        uint32_t boundary = 0x10000U - ((uint32_t)phys & 0xFFFFU);
+
+        if (chunk > 0x8000U)
+            chunk = 0x8000U;
+        if (chunk > boundary)
+            chunk = boundary;
+        if (!chunk || (size_t)(prdt_idx + 1) * sizeof(prdt_entry_t) > PAGE_SIZE)
+            return -1;
+
+        prdt[prdt_idx].phys_addr = (uint32_t)phys;
+        prdt[prdt_idx].byte_count = (uint16_t)chunk;
+        prdt[prdt_idx].flags = 0;
+
+        phys += chunk;
+        remaining -= chunk;
+        prdt_idx++;
+    }
+
+    prdt[prdt_idx - 1].flags = (uint16_t)(PRDT_EOT >> 16);
+    return 0;
+}
+
 ata_error_t ata_identify_drive(uint8_t drive, uint16_t *buffer)
 {
     if (drive >= 4 || !drives[drive].exists || !buffer)
@@ -333,45 +364,21 @@ ata_error_t ata_identify_drive(uint8_t drive, uint16_t *buffer)
 static ata_error_t ata_dma_transfer(uint8_t drive, uint32_t lba, uint8_t count, void *buffer, int write)
 {
     uint16_t base_io     = drives[drive].base_io;
+    uint16_t ctrl_io     = drives[drive].ctrl_io;
     uint8_t  chan        = (drive < 2) ? 0 : 1;
     uint16_t bm_base     = bmide_base + (chan ? 8 : 0);
     uint32_t total_bytes = (uint32_t)count * 512;
+    uint64_t buf_phys = bounce_buf_phys;
+    int using_bounce = 1;
 
-    uint64_t buf_virt = (uint64_t)buffer;
-    uint64_t buf_phys;
-    int using_bounce = 0;
+    if (total_bytes > ATA_DMA_BOUNCE_PAGES * PAGE_SIZE)
+        return ATA_ERR_INVALID_PARAM;
 
-    if (buf_virt >= KERNEL_VIRT_OFFSET)
-    {
-        buf_phys = buf_virt - KERNEL_VIRT_OFFSET;
-    }
-    else
-    {
-        buf_phys = virt_to_phys(get_kernel_pml4(), buf_virt);
-    }
+    if (write)
+        memcpy(bounce_buf, buffer, total_bytes);
 
-    if (!buf_phys || buf_phys + total_bytes > 0xFFFFFFFF)
-    {
-        using_bounce = 1;
-        buf_phys = bounce_buf_phys;
-        if (write)
-            memcpy(bounce_buf, buffer, total_bytes);
-    }
-
-    uint32_t remaining = total_bytes;
-    uint32_t poffset = 0;
-    int prdt_idx = 0;
-    while (remaining > 0)
-    {
-        uint32_t chunk = remaining > 0x8000 ? 0x8000 : remaining;
-        prdt[prdt_idx].phys_addr  = (uint32_t)(buf_phys + poffset);
-        prdt[prdt_idx].byte_count = (uint16_t)chunk;
-        prdt[prdt_idx].flags      = 0;
-        poffset   += chunk;
-        remaining -= chunk;
-        prdt_idx++;
-    }
-    prdt[prdt_idx - 1].flags = (uint16_t)(PRDT_EOT >> 16);
+    if (ata_build_prdt(buf_phys, total_bytes) < 0)
+        return ATA_ERR_GENERAL;
 
 
     
@@ -407,13 +414,24 @@ static ata_error_t ata_dma_transfer(uint8_t drive, uint32_t lba, uint8_t count, 
 
     uint32_t timeout = 0;
     __asm__ volatile("sti" ::: "memory");
-    while (!irq_fired[chan])
+    while (1)
     {
         __asm__ volatile("mfence" ::: "memory");
+        uint8_t bm_status = inportb(bm_base + BMIDE_REG_STATUS);
+        uint8_t alt_status = inportb(ctrl_io);
+
+        if ((bm_status & BMIDE_STATUS_ERR) && !(alt_status & ATA_SR_BSY))
+            break;
+
+        if (!(bm_status & BMIDE_STATUS_ACTIVE) && !(alt_status & ATA_SR_BSY) &&
+            (irq_fired[chan] || (bm_status & BMIDE_STATUS_IRQ) || timeout > 0))
+            break;
+
         if (++timeout >= ATA_TIMEOUT_MS * 100)
         {
             log("DMA[%d]: TIMEOUT lba=%u", 3, 0, chan, lba);
             outportb(bm_base + BMIDE_REG_CMD, 0);
+            outportb(bm_base + BMIDE_REG_STATUS, BMIDE_STATUS_ERR | BMIDE_STATUS_IRQ);
             __asm__ volatile("cli" ::: "memory");
             return ATA_ERR_TIMEOUT;
         }
@@ -424,8 +442,10 @@ static ata_error_t ata_dma_transfer(uint8_t drive, uint32_t lba, uint8_t count, 
     outportb(bm_base + BMIDE_REG_CMD, 0);
 
     uint8_t final_status = inportb(bm_base + BMIDE_REG_STATUS);
+    uint8_t ata_status = inportb(base_io + ATA_REG_STATUS);
+    outportb(bm_base + BMIDE_REG_STATUS, BMIDE_STATUS_ERR | BMIDE_STATUS_IRQ);
 
-    if (final_status & BMIDE_STATUS_ERR)
+    if ((final_status & BMIDE_STATUS_ERR) || (ata_status & (ATA_SR_ERR | ATA_SR_DF)))
     {
         log("DMA[%d]: ERROR status=0x%02x lba=%u", 3, 0, chan, final_status, lba);
         return ATA_ERR_GENERAL;
