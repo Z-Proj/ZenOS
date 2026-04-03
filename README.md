@@ -144,6 +144,7 @@ socat
 - [TinyCC](https://github.com/TinyCC/tinycc) — Tiny C Compiler, ported to ZenOS
 - [SmallerC](https://github.com/alexfru/SmallerC) — C to assembly compiler
 - [FIGlet](https://github.com/cmatsuoka/figlet) — Large ASCII text renderer
+- [Blend2D](https://blend2d.com/) — 2D Vector Graphics
 
 ---
 

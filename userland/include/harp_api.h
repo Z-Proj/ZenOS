@@ -6,12 +6,24 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <linux/input.h>
 #include "../userlib.h"
 
 #define WM_SOCK "wm:events"
 #define WM_MSG_REGISTER 1
 #define WM_MSG_DIRTY 2
 #define WM_MSG_UNREGISTER 3
+
+#define HARP_EVENT_FOCUS 1
+#define HARP_EVENT_BLUR 2
+#define HARP_EVENT_MOUSE_MOVE 3
+#define HARP_EVENT_MOUSE_BUTTON 4
+#define HARP_EVENT_KEY 5
+
+#define HARP_MOD_SHIFT 0x01
+#define HARP_MOD_CTRL 0x02
+#define HARP_MOD_ALT 0x04
+#define HARP_MOD_CAPS 0x08
 
 typedef struct {
     uint8_t type;
@@ -24,6 +36,16 @@ typedef struct {
 } wm_msg_t;
 
 typedef struct {
+    uint16_t type;
+    uint16_t code;
+    int32_t value;
+    int32_t x;
+    int32_t y;
+    uint32_t modifiers;
+    int32_t key;
+} harp_event_t;
+
+typedef struct {
     int32_t x;
     int32_t y;
     int32_t w;
@@ -31,12 +53,25 @@ typedef struct {
     uint32_t *buf;
     uint32_t pid;
     char shmname[32];
+    char evname[32];
     socket_file_t *sock;
+    socket_file_t *event_sock;
+    int focused;
 } harp_window_t;
 
 static inline harp_window_t *harp_open(const char *title, int x, int y, int w, int h)
 {
-    if (!socket_exists(WM_SOCK))
+    int wm_ready = 0;
+    for (int retry = 0; retry < 3000; retry++)
+    {
+        if (socket_exists(WM_SOCK))
+        {
+            wm_ready = 1;
+            break;
+        }
+        zen_sleep_ms(10);
+    }
+    if (!wm_ready)
         return NULL;
 
     harp_window_t *gw = NULL;
@@ -57,6 +92,7 @@ static inline harp_window_t *harp_open(const char *title, int x, int y, int w, i
     gw->pid = (uint32_t)getpid();
 
     snprintf(gw->shmname, sizeof(gw->shmname), "wm:shm_%u", gw->pid);
+    snprintf(gw->evname, sizeof(gw->evname), "wm:ev_%u", gw->pid);
 
     shm_info_t si;
     if (zen_shm_create(gw->shmname, (size_t)(w * h * 4), &si) < 0)
@@ -68,7 +104,35 @@ static inline harp_window_t *harp_open(const char *title, int x, int y, int w, i
     gw->buf = (uint32_t *)si.addr;
     memset(gw->buf, 0, (size_t)(w * h * 4));
 
-    socket_open(WM_SOCK, &gw->sock);
+    socket_delete(gw->evname);
+    if (socket_create(gw->evname) < 0)
+    {
+        zen_shm_close(gw->shmname);
+        free(gw);
+        return NULL;
+    }
+    if (socket_open(gw->evname, &gw->event_sock) < 0 || !gw->event_sock)
+    {
+        socket_delete(gw->evname);
+        zen_shm_close(gw->shmname);
+        free(gw);
+        return NULL;
+    }
+    gw->sock = NULL;
+    for (int retry = 0; retry < 3000; retry++)
+    {
+        if (socket_open(WM_SOCK, &gw->sock) == 0 && gw->sock)
+            break;
+        zen_sleep_ms(10);
+    }
+    if (!gw->sock)
+    {
+        socket_close(gw->event_sock);
+        socket_delete(gw->evname);
+        zen_shm_close(gw->shmname);
+        free(gw);
+        return NULL;
+    }
 
     wm_msg_t msg;
     memset(&msg, 0, sizeof(msg));
@@ -82,6 +146,22 @@ static inline harp_window_t *harp_open(const char *title, int x, int y, int w, i
     socket_write(gw->sock, &msg, sizeof(msg));
 
     return gw;
+}
+
+static inline int harp_poll_event(harp_window_t *gw, harp_event_t *event)
+{
+    if (!gw || !gw->event_sock || !event)
+        return 0;
+    if (socket_available(gw->event_sock) < sizeof(*event))
+        return 0;
+    uint32_t got = 0;
+    if (socket_read(gw->event_sock, event, sizeof(*event), &got) < 0 || got < sizeof(*event))
+        return 0;
+    if (event->type == HARP_EVENT_FOCUS)
+        gw->focused = 1;
+    else if (event->type == HARP_EVENT_BLUR)
+        gw->focused = 0;
+    return 1;
 }
 
 static inline void harp_flush(harp_window_t *gw)
@@ -110,7 +190,10 @@ static inline void harp_close(harp_window_t *gw)
         socket_write(gw->sock, &msg, sizeof(msg));
         socket_close(gw->sock);
     }
+    if (gw->event_sock)
+        socket_close(gw->event_sock);
 
+    socket_delete(gw->evname);
     zen_shm_close(gw->shmname);
     free(gw);
 }

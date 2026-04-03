@@ -307,6 +307,19 @@ static void send_key(int k)
     write(master_fd, &c, 1);
 }
 
+static int pump_window_events(void)
+{
+    int handled = 0;
+    harp_event_t event;
+    while (harp_poll_event(win, &event))
+    {
+        handled = 1;
+        if (event.type == HARP_EVENT_KEY && event.value != 0 && event.key != 0)
+            send_key(event.key);
+    }
+    return handled;
+}
+
 int main(void)
 {
     win = harp_open("Terminal", 60, 60, WIN_W, WIN_H);
@@ -407,18 +420,15 @@ int main(void)
 
         int avail = 0;
         zen_ioctl(master_fd, ZEN_FIONREAD, &avail);
+        int did_work = 0;
         if (avail > 0) {
             drain_master();
-        } else if (zen_is_focused()) {
-            int k = zen_getkey();
-            if (k != 0) {
-                send_key(k);
-            } else {
-                zen_halt();
-            }
-        } else {
-            zen_halt();
+            did_work = 1;
         }
+        if (pump_window_events())
+            did_work = 1;
+        if (!did_work)
+            zen_halt();
     }
 
     return 0;

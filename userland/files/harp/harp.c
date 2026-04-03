@@ -16,6 +16,7 @@
 #include <sys/time.h>
 #include <linux/input.h>
 #include "../../userlib.h"
+#include "../../include/harp_api.h"
 
 extern char _binary_FreeSansB_sfn_start;
 
@@ -51,11 +52,6 @@ extern char _binary_FreeSansB_sfn_start;
 #define C_CLOCK 0xFFAAAAAA
 #define C_DRAG 0xFF3A3A3A
 #define C_WHITE 0xFFFFFFFF
-
-#define WM_SOCK "wm:events"
-#define WM_MSG_REGISTER 1
-#define WM_MSG_DIRTY 2
-#define WM_MSG_UNREGISTER 3
 
 #define BLUR_R 2
 #define DARKEN_PCT 80
@@ -503,19 +499,12 @@ static void bb_rrect_alpha(int x, int y, int w, int h, int r, uint32_t c, uint32
 
 typedef struct
 {
-    uint8_t type;
-    uint32_t pid;
-    int32_t x, y, w, h;
-    char title[64];
-} wm_msg_t;
-
-typedef struct
-{
     int active, minimized;
     uint32_t pid;
     int32_t x, y, w, h;
-    char title[64], shmname[32];
+    char title[64], shmname[32], evname[32];
     uint8_t *shmbuf;
+    socket_file_t *evsock;
 } window_t;
 
 static window_t windows[MAX_WINDOWS];
@@ -538,6 +527,7 @@ static uint32_t pointer_x = 0;
 static uint32_t pointer_y = 0;
 static uint8_t pointer_btn = 0;
 static int tab_pressed = 0;
+static uint32_t key_modifiers = 0;
 
 #define DTILE 32
 #define MAX_DTX 80
@@ -1163,6 +1153,199 @@ static void clamp_window(window_t *w)
 
 static int pending_redraw = 0;
 
+static void send_window_event(window_t *w, const harp_event_t *event)
+{
+    if (!w || !w->active || !w->evsock || !event)
+        return;
+    socket_write(w->evsock, event, sizeof(*event));
+}
+
+static void set_focused_window(int idx)
+{
+    if (idx >= 0 && (!windows[idx].active || windows[idx].minimized))
+        idx = -1;
+    if (focused_win == idx)
+        return;
+
+    int prev = focused_win;
+    focused_win = idx;
+
+    if (prev >= 0 && windows[prev].active && windows[prev].evsock)
+    {
+        harp_event_t event;
+        memset(&event, 0, sizeof(event));
+        event.type = HARP_EVENT_BLUR;
+        send_window_event(&windows[prev], &event);
+    }
+
+    if (idx >= 0 && windows[idx].active && windows[idx].evsock)
+    {
+        harp_event_t event;
+        memset(&event, 0, sizeof(event));
+        event.type = HARP_EVENT_FOCUS;
+        send_window_event(&windows[idx], &event);
+    }
+}
+
+static int client_window_at(int x, int y)
+{
+    for (int i = zcount - 1; i >= 0; i--)
+    {
+        int idx = zstack[i];
+        window_t *w = &windows[idx];
+        if (!w->active || w->minimized)
+            continue;
+        if (x < w->x || x >= w->x + w->w)
+            continue;
+        if (y < w->y + TITLEBAR_H || y >= w->y + TITLEBAR_H + w->h)
+            continue;
+        return idx;
+    }
+    return -1;
+}
+
+static uint32_t current_key_modifiers(void)
+{
+    return key_modifiers;
+}
+
+static void update_key_modifiers(uint16_t code, int32_t value)
+{
+    switch (code)
+    {
+    case KEY_LEFTSHIFT:
+    case KEY_RIGHTSHIFT:
+        if (value)
+            key_modifiers |= HARP_MOD_SHIFT;
+        else
+            key_modifiers &= ~HARP_MOD_SHIFT;
+        break;
+    case KEY_LEFTCTRL:
+    case KEY_RIGHTCTRL:
+        if (value)
+            key_modifiers |= HARP_MOD_CTRL;
+        else
+            key_modifiers &= ~HARP_MOD_CTRL;
+        break;
+    case KEY_LEFTALT:
+    case KEY_RIGHTALT:
+        if (value)
+            key_modifiers |= HARP_MOD_ALT;
+        else
+            key_modifiers &= ~HARP_MOD_ALT;
+        break;
+    case KEY_CAPSLOCK:
+        if (value == 1)
+            key_modifiers ^= HARP_MOD_CAPS;
+        break;
+    }
+}
+
+static int translate_key(uint16_t code, uint32_t modifiers, int32_t value)
+{
+    if (value == 0)
+        return 0;
+
+    int shift = (modifiers & HARP_MOD_SHIFT) != 0;
+    int caps = (modifiers & HARP_MOD_CAPS) != 0;
+
+    switch (code)
+    {
+    case KEY_UP: return KEY_ARROW_UP;
+    case KEY_DOWN: return KEY_ARROW_DOWN;
+    case KEY_LEFT: return KEY_ARROW_LEFT;
+    case KEY_RIGHT: return KEY_ARROW_RIGHT;
+    case KEY_ENTER: return '\n';
+    case KEY_BACKSPACE: return '\b';
+    case KEY_ESC: return 27;
+    case KEY_TAB: return '\t';
+    case KEY_SPACE: return ' ';
+    case KEY_A: return (shift != caps) ? 'A' : 'a';
+    case KEY_B: return (shift != caps) ? 'B' : 'b';
+    case KEY_C: return (shift != caps) ? 'C' : 'c';
+    case KEY_D: return (shift != caps) ? 'D' : 'd';
+    case KEY_E: return (shift != caps) ? 'E' : 'e';
+    case KEY_F: return (shift != caps) ? 'F' : 'f';
+    case KEY_G: return (shift != caps) ? 'G' : 'g';
+    case KEY_H: return (shift != caps) ? 'H' : 'h';
+    case KEY_I: return (shift != caps) ? 'I' : 'i';
+    case KEY_J: return (shift != caps) ? 'J' : 'j';
+    case KEY_K: return (shift != caps) ? 'K' : 'k';
+    case KEY_L: return (shift != caps) ? 'L' : 'l';
+    case KEY_M: return (shift != caps) ? 'M' : 'm';
+    case KEY_N: return (shift != caps) ? 'N' : 'n';
+    case KEY_O: return (shift != caps) ? 'O' : 'o';
+    case KEY_P: return (shift != caps) ? 'P' : 'p';
+    case KEY_Q: return (shift != caps) ? 'Q' : 'q';
+    case KEY_R: return (shift != caps) ? 'R' : 'r';
+    case KEY_S: return (shift != caps) ? 'S' : 's';
+    case KEY_T: return (shift != caps) ? 'T' : 't';
+    case KEY_U: return (shift != caps) ? 'U' : 'u';
+    case KEY_V: return (shift != caps) ? 'V' : 'v';
+    case KEY_W: return (shift != caps) ? 'W' : 'w';
+    case KEY_X: return (shift != caps) ? 'X' : 'x';
+    case KEY_Y: return (shift != caps) ? 'Y' : 'y';
+    case KEY_Z: return (shift != caps) ? 'Z' : 'z';
+    case KEY_1: return shift ? '!' : '1';
+    case KEY_2: return shift ? '@' : '2';
+    case KEY_3: return shift ? '#' : '3';
+    case KEY_4: return shift ? '$' : '4';
+    case KEY_5: return shift ? '%' : '5';
+    case KEY_6: return shift ? '^' : '6';
+    case KEY_7: return shift ? '&' : '7';
+    case KEY_8: return shift ? '*' : '8';
+    case KEY_9: return shift ? '(' : '9';
+    case KEY_0: return shift ? ')' : '0';
+    case KEY_MINUS: return shift ? '_' : '-';
+    case KEY_EQUAL: return shift ? '+' : '=';
+    case KEY_LEFTBRACE: return shift ? '{' : '[';
+    case KEY_RIGHTBRACE: return shift ? '}' : ']';
+    case KEY_BACKSLASH: return shift ? '|' : '\\';
+    case KEY_SEMICOLON: return shift ? ':' : ';';
+    case KEY_APOSTROPHE: return shift ? '"' : '\'';
+    case KEY_GRAVE: return shift ? '~' : '`';
+    case KEY_COMMA: return shift ? '<' : ',';
+    case KEY_DOT: return shift ? '>' : '.';
+    case KEY_SLASH: return shift ? '?' : '/';
+    default: return 0;
+    }
+}
+
+static void send_mouse_event(int idx, uint16_t type, uint16_t code, int32_t value, int x, int y)
+{
+    if (idx < 0 || idx >= MAX_WINDOWS)
+        return;
+    window_t *w = &windows[idx];
+    if (!w->active || w->minimized)
+        return;
+    harp_event_t event;
+    memset(&event, 0, sizeof(event));
+    event.type = type;
+    event.code = code;
+    event.value = value;
+    event.x = x - w->x;
+    event.y = y - (w->y + TITLEBAR_H);
+    event.modifiers = current_key_modifiers();
+    send_window_event(w, &event);
+}
+
+static void send_key_event(int idx, uint16_t code, int32_t value)
+{
+    if (idx < 0 || idx >= MAX_WINDOWS)
+        return;
+    window_t *w = &windows[idx];
+    if (!w->active || w->minimized)
+        return;
+    harp_event_t event;
+    memset(&event, 0, sizeof(event));
+    event.type = HARP_EVENT_KEY;
+    event.code = code;
+    event.value = value;
+    event.modifiers = current_key_modifiers();
+    event.key = translate_key(code, event.modifiers, value);
+    send_window_event(w, &event);
+}
+
 static void dirty_blit_window(int idx)
 {
     window_t *w = &windows[idx];
@@ -1208,11 +1391,14 @@ static void poll_events(void)
             strncpy(w->title, msg.title, 63);
             w->title[63] = 0;
             snprintf(w->shmname, sizeof(w->shmname), "wm:shm_%u", msg.pid);
+            snprintf(w->evname, sizeof(w->evname), "wm:ev_%u", msg.pid);
             shm_info_t si;
             if (zen_shm_open(w->shmname, &si) == 0 && si.addr && si.size >= (uint64_t)(msg.w * msg.h * 4))
                 w->shmbuf = (uint8_t *)si.addr;
+            socket_open(w->evname, &w->evsock);
             clamp_window(w);
             z_raise(slot);
+            set_focused_window(slot);
             full_redraw();
         }
         else if (msg.type == WM_MSG_DIRTY)
@@ -1232,6 +1418,10 @@ static void poll_events(void)
             {
                 if (!windows[i].active || windows[i].pid != msg.pid)
                     continue;
+                if (windows[i].evsock)
+                    socket_close(windows[i].evsock);
+                windows[i].evsock = NULL;
+                socket_delete(windows[i].evname);
                 zen_shm_close(windows[i].shmname);
                 windows[i].active = 0;
                 windows[i].shmbuf = NULL;
@@ -1240,7 +1430,10 @@ static void poll_events(void)
                     drag_win = -1;
                     dragging = 0;
                 }
+                if (focused_win == i)
+                    focused_win = -1;
                 z_remove(i);
+                set_focused_window(z_top());
                 full_redraw();
                 break;
             }
@@ -1271,8 +1464,15 @@ static void pump_keyboard_events(void)
         int n = read(kbd_fd, &event, sizeof(event));
         if (n != (int)sizeof(event))
             break;
-        if (event.type == EV_KEY && event.code == KEY_TAB && event.value == 1)
-            tab_pressed = 1;
+        if (event.type == EV_KEY)
+        {
+            update_key_modifiers((uint16_t)event.code, event.value);
+            if (event.code == KEY_TAB && event.value == 1 &&
+                (current_key_modifiers() & HARP_MOD_ALT))
+                tab_pressed = 1;
+            else if (focused_win >= 0)
+                send_key_event(focused_win, (uint16_t)event.code, event.value);
+        }
         avail -= (int)sizeof(event);
     }
 }
@@ -1363,19 +1563,10 @@ int main(void)
     if (!backbuf)
         return 1;
 
-    bake_bgbuf();
-    bake_dash_backdrop();
-
-    memset(&ssfn_ctx, 0, sizeof(ssfn_ctx));
-    if (ssfn_load(&ssfn_ctx, &_binary_FreeSansB_sfn_start) != SSFN_OK)
-    {
-        free(backbuf);
-        return 1;
-    }
-
     memset(windows, 0, sizeof(windows));
     zcount = 0;
 
+    socket_delete(WM_SOCK);
     if (socket_create(WM_SOCK) < 0)
     {
         free(backbuf);
@@ -1383,6 +1574,19 @@ int main(void)
     }
     if (socket_open(WM_SOCK, &ev_sock) < 0 || !ev_sock)
     {
+        socket_delete(WM_SOCK);
+        free(backbuf);
+        return 1;
+    }
+
+    bake_bgbuf();
+    bake_dash_backdrop();
+
+    memset(&ssfn_ctx, 0, sizeof(ssfn_ctx));
+    if (ssfn_load(&ssfn_ctx, &_binary_FreeSansB_sfn_start) != SSFN_OK)
+    {
+        socket_close(ev_sock);
+        socket_delete(WM_SOCK);
         free(backbuf);
         return 1;
     }
@@ -1391,6 +1595,8 @@ int main(void)
     mouse_fd = open("/dev/input/event1", O_RDONLY);
     if (kbd_fd < 0 || mouse_fd < 0)
     {
+        socket_close(ev_sock);
+        socket_delete(WM_SOCK);
         free(backbuf);
         return 1;
     }
@@ -1425,8 +1631,8 @@ int main(void)
                 int idx = zstack[i];
                 if (windows[idx].active && !windows[idx].minimized)
                 {
-                    focused_win = idx;
                     z_raise(idx);
+                    set_focused_window(idx);
                     full_redraw();
                     break;
                 }
@@ -1467,29 +1673,38 @@ int main(void)
             if (db >= 0)
             {
                 if (db == focused_win)
+                {
                     windows[db].minimized ^= 1;
+                    if (windows[db].minimized)
+                        set_focused_window(z_top());
+                }
                 else
                 {
                     windows[db].minimized = 0;
-                    focused_win = db;
                     z_raise(db);
+                    set_focused_window(db);
                 }
                 full_redraw();
             }
             else if (clicked_win >= 0)
             {
                 int already_focused = (clicked_win == focused_win);
-                focused_win = clicked_win;
                 z_raise(clicked_win);
+                set_focused_window(clicked_win);
                 window_t *wp = &windows[clicked_win];
                 if (click_on_close && already_focused)
                 {
                     zen_kill((int)wp->pid, 9);
+                    if (wp->evsock)
+                        socket_close(wp->evsock);
+                    wp->evsock = NULL;
+                    socket_delete(wp->evname);
                     zen_shm_close(wp->shmname);
                     wp->active = 0;
                     wp->shmbuf = NULL;
-                    focused_win = z_top();
+                    focused_win = -1;
                     z_remove(clicked_win);
+                    set_focused_window(z_top());
                 }
                 else if (click_on_titlebar && already_focused)
                 {
@@ -1534,6 +1749,20 @@ int main(void)
             }
             drag_win = -1;
             dragging = 0;
+        }
+
+        int client_win = client_window_at((int)mx, (int)my);
+        if (!dragging && moved && client_win >= 0)
+            send_mouse_event(client_win, HARP_EVENT_MOUSE_MOVE, 0, 0, (int)mx, (int)my);
+        if (!dragging && client_win >= 0)
+        {
+            uint8_t changed = btn ^ prev_btn;
+            if (changed & 1)
+                send_mouse_event(client_win, HARP_EVENT_MOUSE_BUTTON, BTN_LEFT, (btn & 1) ? 1 : 0, (int)mx, (int)my);
+            if (changed & 2)
+                send_mouse_event(client_win, HARP_EVENT_MOUSE_BUTTON, BTN_MIDDLE, (btn & 2) ? 1 : 0, (int)mx, (int)my);
+            if (changed & 4)
+                send_mouse_event(client_win, HARP_EVENT_MOUSE_BUTTON, BTN_RIGHT, (btn & 4) ? 1 : 0, (int)mx, (int)my);
         }
 
         if (pending_redraw && !dragging)
