@@ -29,9 +29,11 @@ jobs:
         path: ZenOS.iso
         if-no-files-found: error
 
-    - name: Upload full folder, all built
+    - name: Zip full directory
+      run: zip -r ZenOS.zip .
+
+    - name: Upload full folder with build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ZenOS.zip
-        path: ./
-        if-no-files-found: warn
+        name: ZenOS
+        path: ZenOS.zip
