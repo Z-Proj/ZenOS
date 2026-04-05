@@ -452,12 +452,11 @@ static inline int in_rounded_rect(int col, int row, int w, int h, int r,
     return 1;
 }
 
-static inline uint32_t alpha_blend(uint32_t dst, uint32_t src, uint32_t a)
-{
+static inline uint32_t alpha_blend(uint32_t dst, uint32_t src, uint32_t a) {
     uint32_t ia = 255 - a;
-    uint32_t r = (((src >> 16) & 0xFF) * a + ((dst >> 16) & 0xFF) * ia) / 255;
-    uint32_t g = (((src >> 8) & 0xFF) * a + ((dst >> 8) & 0xFF) * ia) / 255;
-    uint32_t b = ((src & 0xFF) * a + (dst & 0xFF) * ia) / 255;
+    uint32_t r = ((((src >> 16) & 0xFF) * a + ((dst >> 16) & 0xFF) * ia) + 128) >> 8;
+    uint32_t g = ((((src >>  8) & 0xFF) * a + ((dst >>  8) & 0xFF) * ia) + 128) >> 8;
+    uint32_t b = (((src & 0xFF) * a + (dst & 0xFF) * ia) + 128) >> 8;
     return 0xFF000000 | (r << 16) | (g << 8) | b;
 }
 
