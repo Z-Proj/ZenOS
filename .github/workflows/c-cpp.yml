@@ -16,8 +16,11 @@ jobs:
     - name: Install dependencies for building...
       run: sudo apt update && sudo apt install -y lld clang nasm xorriso meson ninja-build
 
-    - name: Building with make...
-      run: make fat ZenOS.iso mlibc init user -j$(nproc) 2>&1
+    - name: Building mlibc...
+      run: make fat mlibc -j$(nproc) 2>&1
+
+    - name: Building rest with make...
+      run: make ZenOS.iso init user -j$(nproc) 2>&1
 
     - name: Upload ISO
       uses: actions/upload-artifact@v4
