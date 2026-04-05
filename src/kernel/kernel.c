@@ -2,6 +2,7 @@
 #include "../libk/debug/log.h"
 #include "../libk/core/mem.h"
 #include "../libk/core/socket.h"
+#include "../libk/core/unix_sock.h"
 #include "../libk/core/syscall.h"
 #include "../libk/string.h"
 #include "../libk/ports.h"
@@ -91,6 +92,7 @@ void _start(void)
     e1000_init();
     net_init();
     socket_init();
+    unix_sock_init();
 #if debug
     log("Running In Debug Mode.", 2, 1);
     detect_cpu_info(0);

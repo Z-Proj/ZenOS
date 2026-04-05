@@ -29,7 +29,7 @@ VNCSERVER_PTHREADED      = N
 LIBVNC                   = -lvncserver
 INCVNC                   =
 
-LINK_APP_INTO_SERVER     = Y
+LINK_APP_INTO_SERVER     = N
 NANOWM                   = Y
 
 HAVE_SHAREDMEM_SUPPORT   = N

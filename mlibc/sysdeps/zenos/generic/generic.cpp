@@ -525,4 +525,103 @@ int sys_clone(void *tcb, pid_t *pid_out, void *stack) {
 	__builtin_unreachable();
 }
 
+int sys_socket(int domain, int type, int protocol, int *fd) {
+	(void)protocol;
+	long ret = zenos_do_syscall2(ZENOS_SYSCALL_UNIX_SOCKET, domain, type);
+	return finish_fd(ret, fd);
+}
+
+int sys_bind(int fd, const struct sockaddr *addr, socklen_t addrlen) {
+	(void)addrlen;
+	long ret = zenos_do_syscall2(ZENOS_SYSCALL_UNIX_BIND,
+			fd, reinterpret_cast<long>(addr));
+	return sc_error(ret);
+}
+
+int sys_listen(int fd, int backlog) {
+	long ret = zenos_do_syscall2(ZENOS_SYSCALL_UNIX_LISTEN, fd, backlog);
+	return sc_error(ret);
+}
+
+int sys_accept(int fd, struct sockaddr *addr, socklen_t *addrlen, int *newfd) {
+	(void)addr;
+	(void)addrlen;
+	long ret = zenos_do_syscall2(ZENOS_SYSCALL_UNIX_ACCEPT, fd, 0);
+	return finish_fd(ret, newfd);
+}
+
+int sys_connect(int fd, const struct sockaddr *addr, socklen_t addrlen) {
+	(void)addrlen;
+	long ret = zenos_do_syscall2(ZENOS_SYSCALL_UNIX_CONNECT,
+			fd, reinterpret_cast<long>(addr));
+	return sc_error(ret);
+}
+
+int sys_sendmsg(int fd, const struct msghdr *msg, int flags, ssize_t *bytes_written) {
+	(void)flags;
+	if (!msg || !msg->msg_iov || msg->msg_iovlen == 0)
+		return EINVAL;
+	ssize_t total = 0;
+	for (size_t i = 0; i < msg->msg_iovlen; i++) {
+		long ret = zenos_do_syscall3(ZENOS_SYSCALL_UNIX_SEND,
+				fd,
+				reinterpret_cast<long>(msg->msg_iov[i].iov_base),
+				msg->msg_iov[i].iov_len);
+		int e = sc_error(ret);
+		if (e) return e;
+		total += ret;
+	}
+	*bytes_written = total;
+	return 0;
+}
+
+int sys_recvmsg(int fd, struct msghdr *msg, int flags, ssize_t *bytes_read) {
+	(void)flags;
+	if (!msg || !msg->msg_iov || msg->msg_iovlen == 0)
+		return EINVAL;
+	ssize_t total = 0;
+	for (size_t i = 0; i < msg->msg_iovlen; i++) {
+		long ret = zenos_do_syscall3(ZENOS_SYSCALL_UNIX_RECV,
+				fd,
+				reinterpret_cast<long>(msg->msg_iov[i].iov_base),
+				msg->msg_iov[i].iov_len);
+		int e = sc_error(ret);
+		if (e) return e;
+		total += ret;
+		if ((size_t)ret < msg->msg_iov[i].iov_len)
+			break;
+	}
+	*bytes_read = total;
+	return 0;
+}
+
+int sys_getsockname(int fd, struct sockaddr *addr, socklen_t *addrlen) {
+	long ret = zenos_do_syscall2(ZENOS_SYSCALL_GETSOCKNAME,
+			fd, reinterpret_cast<long>(addr));
+	int e = sc_error(ret);
+	if (!e && addrlen)
+		*addrlen = 110;
+	return e;
+}
+
+int sys_getsockopt(int fd, int layer, int number, void *buffer, socklen_t *size) {
+	(void)fd; (void)layer; (void)number; (void)buffer; (void)size;
+	return ENOSYS;
+}
+
+int sys_setsockopt(int fd, int layer, int number, const void *buffer, socklen_t size) {
+	(void)fd; (void)layer; (void)number; (void)buffer; (void)size;
+	return 0;
+}
+
+int sys_shutdown(int fd, int how) {
+	(void)how;
+	long ret = zenos_do_syscall1(ZENOS_SYSCALL_UNIX_SHUTDOWN, fd);
+	return sc_error(ret);
+}
+
+int sys_peername(int fd, struct sockaddr *addr, socklen_t *addrlen) {
+	return sys_getsockname(fd, addr, addrlen);
+}
+
 } // namespace mlibc

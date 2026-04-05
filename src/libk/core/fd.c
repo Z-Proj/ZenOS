@@ -62,6 +62,9 @@ static void fd_close_entry(fd_entry_t *e)
         e->pty->refcount--;
         if (e->pty->refcount <= 0)
             kfree(e->pty);
+    } else if (e->type == FD_UNIX_SOCK) {
+        unix_sock_shutdown(e->usock);
+        unix_sock_free(e->usock);
     }
 
     memset(e, 0, sizeof(fd_entry_t));
@@ -97,7 +100,9 @@ fd_table_t *fd_table_clone(fd_table_t *src)
             if (se->type == FD_PIPE_READ) de->pipe->readers++;
             if (se->type == FD_PIPE_WRITE) de->pipe->writers++;
         } else if (se->type == FD_PTY_MASTER) {
-            /* master fd should not be inherited across fork — skip */
+            de->used = 0;
+            continue;
+        } else if (se->type == FD_UNIX_SOCK) {
             de->used = 0;
             continue;
         } else if (se->type == FD_PTY_SLAVE) {

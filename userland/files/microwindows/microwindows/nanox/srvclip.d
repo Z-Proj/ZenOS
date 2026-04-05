@@ -6,5 +6,4 @@
  /home/rishies2010/OSDev/ZenOS/userland/files/microwindows/microwindows/include/mwconfig.h \
  /home/rishies2010/OSDev/ZenOS/userland/files/microwindows/microwindows/include/sys_time.h \
  /home/rishies2010/OSDev/ZenOS/userland/files/microwindows/microwindows/nanox/srvclip2.c \
- /home/rishies2010/OSDev/ZenOS/userland/files/microwindows/microwindows/nanox/serv.h \
- /home/rishies2010/OSDev/ZenOS/userland/files/microwindows/microwindows/include/lock.h
+ /home/rishies2010/OSDev/ZenOS/userland/files/microwindows/microwindows/nanox/serv.h

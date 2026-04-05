@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include "../../drv/disk/fatfs/ff.h"
 #include "../spinlock.h"
+#include "unix_sock.h"
 
 #define TASK_MAX_FDS 32
 #define PTY_NCCS 19
@@ -19,6 +20,7 @@ typedef enum
     FD_DEV,
     FD_PTY_MASTER,
     FD_PTY_SLAVE,
+    FD_UNIX_SOCK,
 } fd_type_t;
 
 #define PTY_BUF_SIZE 8192
@@ -105,6 +107,7 @@ typedef struct
         fd_dir_t dir;
         struct dev_entry *dev_ops;
         pty_buf_t *pty;
+        unix_sock_t *usock;
     };
 } fd_entry_t;
 

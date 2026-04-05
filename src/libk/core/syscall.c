@@ -20,6 +20,7 @@
 #include "../string.h"
 #include "mem.h"
 #include "socket.h"
+#include "unix_sock.h"
 
 extern void syscall_entry(void);
 
@@ -909,6 +910,11 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         {
             return pty_master_read(e->pty, (uint8_t *)buffer, size);
         }
+        if (e->type == FD_UNIX_SOCK)
+        {
+            int r = unix_sock_read(e->usock, buffer, size);
+            return r < 0 ? -11 : r;
+        }
         if (e->type == FD_PIPE_READ)
         {
             uint8_t *cbuf = (uint8_t *)buffer;
@@ -1021,6 +1027,11 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (e->type == FD_PTY_MASTER)
         {
             return pty_master_write(e->pty, (const uint8_t *)buffer, size);
+        }
+        if (e->type == FD_UNIX_SOCK)
+        {
+            int r = unix_sock_write(e->usock, buffer, size);
+            return r < 0 ? -32 : r;
         }
         if (e->type == FD_PIPE_WRITE)
         {
@@ -2301,6 +2312,141 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         default:
             return -22;
         }
+    }
+
+    case SYSCALL_UNIX_SOCKET:
+    {
+        task_t *cur = sched_current_task();
+        if (!cur || !cur->fd_table) return -1;
+        int domain = (int)arg1;
+        int type   = (int)arg2;
+        if (domain != 1) return -97;
+        if ((type & 0xF) != 1) return -93;
+        unix_sock_t *s = unix_sock_alloc();
+        if (!s) return -12;
+        int fd = fd_alloc(cur->fd_table);
+        if (fd < 0) { unix_sock_free(s); return -24; }
+        fd_entry_t *e = &cur->fd_table->entries[fd];
+        e->used  = 1;
+        e->type  = FD_UNIX_SOCK;
+        e->usock = s;
+        return fd;
+    }
+
+    case SYSCALL_UNIX_BIND:
+    {
+        task_t *cur = sched_current_task();
+        if (!cur || !cur->fd_table) return -1;
+        int fd = (int)arg1;
+        typedef struct { uint16_t family; char path[108]; } sa_un_t;
+        const sa_un_t *addr = (const sa_un_t *)arg2;
+        if (!addr) return -22;
+        if (fd < 0 || fd >= TASK_MAX_FDS) return -9;
+        fd_entry_t *e = &cur->fd_table->entries[fd];
+        if (!e->used || e->type != FD_UNIX_SOCK) return -88;
+        return unix_sock_bind(e->usock, addr->path) < 0 ? -22 : 0;
+    }
+
+    case SYSCALL_UNIX_LISTEN:
+    {
+        task_t *cur = sched_current_task();
+        if (!cur || !cur->fd_table) return -1;
+        int fd      = (int)arg1;
+        int backlog = (int)arg2;
+        if (fd < 0 || fd >= TASK_MAX_FDS) return -9;
+        fd_entry_t *e = &cur->fd_table->entries[fd];
+        if (!e->used || e->type != FD_UNIX_SOCK) return -88;
+        return unix_sock_listen(e->usock, backlog) < 0 ? -22 : 0;
+    }
+
+    case SYSCALL_UNIX_ACCEPT:
+    {
+        task_t *cur = sched_current_task();
+        if (!cur || !cur->fd_table) return -1;
+        int fd = (int)arg1;
+        if (fd < 0 || fd >= TASK_MAX_FDS) return -9;
+        fd_entry_t *e = &cur->fd_table->entries[fd];
+        if (!e->used || e->type != FD_UNIX_SOCK) return -88;
+        unix_sock_t *conn = unix_sock_accept(e->usock);
+        if (!conn) return -11;
+        int newfd = fd_alloc(cur->fd_table);
+        if (newfd < 0) { unix_sock_free(conn); return -24; }
+        fd_entry_t *ne = &cur->fd_table->entries[newfd];
+        ne->used  = 1;
+        ne->type  = FD_UNIX_SOCK;
+        ne->usock = conn;
+        return newfd;
+    }
+
+    case SYSCALL_UNIX_CONNECT:
+    {
+        task_t *cur = sched_current_task();
+        if (!cur || !cur->fd_table) return -1;
+        int fd = (int)arg1;
+        typedef struct { uint16_t family; char path[108]; } sa_un_t;
+        const sa_un_t *addr = (const sa_un_t *)arg2;
+        if (!addr) return -22;
+        if (fd < 0 || fd >= TASK_MAX_FDS) return -9;
+        fd_entry_t *e = &cur->fd_table->entries[fd];
+        if (!e->used || e->type != FD_UNIX_SOCK) return -88;
+        return unix_sock_connect(e->usock, addr->path) < 0 ? -111 : 0;
+    }
+
+    case SYSCALL_UNIX_SEND:
+    {
+        task_t *cur = sched_current_task();
+        if (!cur || !cur->fd_table) return -1;
+        int fd          = (int)arg1;
+        const void *buf = (const void *)arg2;
+        uint32_t len    = (uint32_t)arg3;
+        if (fd < 0 || fd >= TASK_MAX_FDS) return -9;
+        fd_entry_t *e = &cur->fd_table->entries[fd];
+        if (!e->used || e->type != FD_UNIX_SOCK) return -88;
+        int r = unix_sock_write(e->usock, buf, len);
+        return r < 0 ? -32 : r;
+    }
+
+    case SYSCALL_UNIX_RECV:
+    {
+        task_t *cur = sched_current_task();
+        if (!cur || !cur->fd_table) return -1;
+        int fd       = (int)arg1;
+        void *buf    = (void *)arg2;
+        uint32_t len = (uint32_t)arg3;
+        if (fd < 0 || fd >= TASK_MAX_FDS) return -9;
+        fd_entry_t *e = &cur->fd_table->entries[fd];
+        if (!e->used || e->type != FD_UNIX_SOCK) return -88;
+        int r = unix_sock_read(e->usock, buf, len);
+        return r < 0 ? -11 : r;
+    }
+
+    case SYSCALL_UNIX_SHUTDOWN:
+    {
+        task_t *cur = sched_current_task();
+        if (!cur || !cur->fd_table) return -1;
+        int fd = (int)arg1;
+        if (fd < 0 || fd >= TASK_MAX_FDS) return -9;
+        fd_entry_t *e = &cur->fd_table->entries[fd];
+        if (!e->used || e->type != FD_UNIX_SOCK) return -88;
+        unix_sock_shutdown(e->usock);
+        return 0;
+    }
+
+    case SYSCALL_GETSOCKNAME:
+    {
+        task_t *cur = sched_current_task();
+        if (!cur || !cur->fd_table) return -1;
+        int fd = (int)arg1;
+        typedef struct { uint16_t family; char path[108]; } sa_un_t;
+        sa_un_t *addr = (sa_un_t *)arg2;
+        if (!addr) return -22;
+        if (fd < 0 || fd >= TASK_MAX_FDS) return -9;
+        fd_entry_t *e = &cur->fd_table->entries[fd];
+        if (!e->used || e->type != FD_UNIX_SOCK) return -88;
+        addr->family = 1;
+        strncpy(addr->path, e->usock->path, 107);
+        addr->path[107] = '\0';
+        return 0;
     }
 
     default:
