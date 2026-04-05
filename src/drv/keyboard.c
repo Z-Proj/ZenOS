@@ -141,8 +141,6 @@ static bool waiting_for_release_code = false;
 static bool waiting_for_extended_code = false;
 static spinlock_t kbdlock;
 
-static void buffer_clear(void);
-
 static void ps2_wait_input(void)
 {
     uint32_t timeout = 100000;
