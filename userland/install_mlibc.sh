@@ -15,7 +15,9 @@ done
 rm -rf "$SYSROOT"
 mkdir -p "$SYSROOT"
 
+echo "Building shared mlibc library..."
 meson install -C "$SHARED_BUILD" --no-rebuild --destdir "$SYSROOT"
+echo "Building static mlibc library..."
 meson install -C "$STATIC_BUILD" --no-rebuild --destdir "$SYSROOT"
 
 if [ -d "$SYSROOT/usr/local" ]; then

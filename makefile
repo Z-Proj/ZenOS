@@ -149,11 +149,33 @@ gdb:
 
 mlibc:
 	@echo "Building mlibc (shared)..."
+	@if [ ! -d mlibc-build-zenos-shared ]; then \
+		meson setup mlibc-build-zenos-shared mlibc \
+			--cross-file mlibc/cross-zenos-x86_64.ini \
+			-Ddefault_library=shared \
+			-Dno_headers=false \
+			-Dlinux_kernel_headers=true \
+			-Dlinux_option=disabled \
+			-Dposix_option=enabled \
+			-Dglibc_option=disabled \
+			-Dbsd_option=disabled \
+			"-Ddefault_library_paths=['/mnt/drv0/lib','/mnt/drv0/usr/lib']"; \
+	fi
 	ninja -C mlibc-build-zenos-shared
 	@echo "Building mlibc (static)..."
+	@if [ ! -d mlibc-build-zenos-static ]; then \
+		meson setup mlibc-build-zenos-static mlibc \
+			--cross-file mlibc/cross-zenos-x86_64.ini \
+			-Ddefault_library=static \
+			-Dno_headers=false \
+			-Dlinux_kernel_headers=true \
+			-Dlinux_option=disabled \
+			-Dposix_option=enabled \
+			-Dglibc_option=disabled \
+			-Dbsd_option=disabled \
+			"-Ddefault_library_paths=['/mnt/drv0/lib','/mnt/drv0/usr/lib']"; \
+	fi
 	ninja -C mlibc-build-zenos-static
-	@echo "Installing mlibc into sysroot and VHD..."
 	$(USER_DIR)/install_mlibc.sh
-	@echo "mlibc build complete."
 
 .PHONY: all clean run qemu out stop gdb fat funcs mlibc
