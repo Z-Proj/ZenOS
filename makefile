@@ -21,7 +21,7 @@ KERNEL = $(BUILD_DIR)/kernel.bin
 
 ISO_IMAGE = ZenOS.iso
 
-all: clean deps fat $(ISO_IMAGE) user init
+all: clean deps fat $(ISO_IMAGE) mlibc init user
 
 %.o: %.c
 	clang $(CFLAGS) $< -o $@
@@ -108,6 +108,8 @@ deps:
 	check gdb; \
 	check socat; \
 	check basename; \
+	check ninja; \
+	check meson; \
 	check rm; \
 	if [ $$missing -ne 0 ]; then \
 		echo ""; \

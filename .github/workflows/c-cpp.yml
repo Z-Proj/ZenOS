@@ -17,7 +17,7 @@ jobs:
       run: sudo apt update && sudo apt install -y lld clang nasm xorriso meson ninja-build
 
     - name: Building with make...
-      run: make fat && make ZenOS.iso && make user
+      run: make all
 
     - name: Upload ISO
       uses: actions/upload-artifact@v4
