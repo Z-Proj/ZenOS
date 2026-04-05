@@ -22,7 +22,8 @@ COMMON_CPPFLAGS := --sysroot=$(MLIBC_SYSROOT) -isystem $(MLIBC_USR)/include -I .
 COMMON_CFLAGS := -m64 -ffreestanding -fno-stack-protector -mno-red-zone -nostdlib -fPIE -O1
 COMMON_LDFLAGS := -m elf_x86_64 -pie -e _start -z max-page-size=0x1000 \
 	-dynamic-linker /mnt/drv0/usr/lib/ld.so -rpath /mnt/drv0/usr/lib \
-	-L$(MLIBC_USR)/lib
+	-L$(MLIBC_USR)/lib \
+	--as-needed
 
 all: $(APP)
 
@@ -35,7 +36,7 @@ all: $(APP)
 $(APP): $(OBJS)
 	ld.lld $(COMMON_LDFLAGS) $(LDFLAGS) \
 		$(MLIBC_USR)/lib/crti.o $(MLIBC_USR)/lib/crt0.o \
-		$(OBJS) $(LDLIBS) -lc -lm \
+		$(OBJS) $(LDLIBS) -l:libc.so -l:libm.so \
 		$(MLIBC_USR)/lib/crtn.o -o $(APP)
 
 install: $(APP)

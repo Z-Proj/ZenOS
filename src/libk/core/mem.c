@@ -261,8 +261,8 @@ void init_pmm(void)
     spinlock_init(&pmm_lock);
     
     uint64_t total_mem = get_total_memory();
-    total_mem += 1024*1024; //TODO: its hacky but we account for the minor difference
-    if (total_mem < (80 * 1024 * 1024)) {
+    total_mem += 1024*1024;
+    if (total_mem < (16 * 1024 * 1024)) {
         serial_write_string("\x1b[38;2;255;50;50m\nInduced Kernel Panic\n\n    - At : src/libk/core/mem.c\n    - Line : ???\n\n    - Error Log : Minimum 80MB RAM required (found ");
         char mem_str[32];
         itoa(total_mem / (1024 * 1024), mem_str);
@@ -344,7 +344,7 @@ void init_kernel_heap(void)
     for (int i = 0; i < NUM_SIZE_CLASSES; i++)
         free_lists[i] = NULL;
 
-    uint64_t heap_pages = 8192;
+    uint64_t heap_pages = 2048;
     uint64_t heap_phys  = alloc_pages(heap_pages);
     if (!heap_phys) {
         serial_write_string("[mem.c:???]- Failed to allocate heap pages!\n");

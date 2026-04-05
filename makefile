@@ -48,7 +48,7 @@ user:
 	$(USER_DIR)/build_elf.sh
 
 init:
-	@printf "/mnt/drv0/bin/shell" > init.run
+	@printf "# ZenOS Init Execution Procedure File\n# It is unrecommended to modify this file. But you can modify it however you want.\n# Zen is pretty stable enough for handling mostly anything on this file.\n\n# /mnt/drv0/sys/init.run (VHD location: /sys/init.run)\n\n# ---------------------------------\n#            ZenOS Shell          \n# ---------------------------------\n/mnt/drv0/bin/shell\n\n\n# ---------------------------------        \n#      ZenOS Compositor : Harp\n#      And Harp's Terminal Emu\n#\n# Uncomment last 4 lines to enable\n# Harp and term to run. This will \n# give a GUI environment.      \n# NOTE: Recommended to remove or\n# comment above shell line as it \n# may interfere with kbd ownership\n#\n# --------------------------------- \n\n#/mnt/drv0/bin/harp\n## 2 second delay to let Harp initialize before term is run      \n#!sleep 2\n#/mnt/drv0/bin/terminal" > init.run
 	./fat_man ZenOS.vhd mkdir /sys
 	./fat_man ZenOS.vhd import init.run /sys/init.run
 	@rm init.run
@@ -119,10 +119,6 @@ deps:
 		echo "All dependencies satisfied."; \
 	fi
 
-
-run:
-	virtualboxvm --startvm "ZenOS" &
-
 qemu:
 	qemu-system-x86_64 \
 	-cdrom ZenOS.iso \
@@ -132,7 +128,7 @@ qemu:
 	-drive file=ZenOS.vhd,if=ide,index=0 \
 	-drive file=Storage.vhd,if=ide,index=1 \
 	-boot d \
-	-smp 2 \
+	-smp 8 \
 	-serial stdio \
 	-netdev user,id=net0 \
 	-device e1000,netdev=net0 \
@@ -143,8 +139,8 @@ qemu:
 stop:
 	VBoxManage controlvm "ZenOS" poweroff
 
-out:
-	socat - UNIX-CONNECT:/tmp/zenos
+vbox:
+	virtualboxvm --startvm "ZenOS" & sleep 10 && socat - UNIX-CONNECT:/tmp/zenos
 
 gdb:
 	gdb build/kernel.bin

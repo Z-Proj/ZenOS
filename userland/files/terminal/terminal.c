@@ -402,7 +402,7 @@ int main(void)
     }
 
     if (slave_fd >= 0) close(slave_fd);
-
+    for (int i = 0; i < 6000000; i++) asm volatile("nop");
     while (1) {
         int status = 0;
         if (waitpid(shell_pid, &status, WNOHANG) == shell_pid) {
