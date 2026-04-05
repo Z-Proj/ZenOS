@@ -17,10 +17,10 @@ APP_SRC = demo.cpp
 APP_OBJ = $(BUILD_DIR)/demo.o
 PUBLIC_HDRS := $(shell find blend2d -type f -name '*.h' ! -name '*_p.h' | sort)
 
-CXX ?= clang++
+CXX ?= g++-14
 LD ?= ld.lld
 
-COMMON_CPPFLAGS := --sysroot=$(MLIBC_SYSROOT) -isystem $(MLIBC_USR)/include -nostdinc++ -isystem $(HOST_CXX_BASE) -isystem $(HOST_CXX_TARGET) -isystem /usr/include -I .
+COMMON_CPPFLAGS := --sysroot=$(MLIBC_SYSROOT) -isystem $(MLIBC_USR)/include -isystem $(HOST_CXX_BASE) -isystem $(HOST_CXX_TARGET) -isystem /usr/include -I .
 COMMON_CXXFLAGS := -m64 -fno-stack-protector -mno-red-zone -nostdlib -fPIE -fvisibility=hidden -fno-math-errno -fno-threadsafe-statics -fno-exceptions -fno-rtti -fno-semantic-interposition -fno-trapping-math -fno-finite-math-only -O2 -fmerge-all-constants -fno-enforce-eh-specs -ftree-vectorize -DBL_BUILD_NO_TLS -DBL_BUILD_NO_FUTEX -DBL_BUILD_NO_JIT -DBL_BUILD_OPT_AVX512 -DBL_STATIC
 WARNFLAGS := -Wall -Wextra -Wconversion -Wdouble-promotion -Wduplicated-cond -Wduplicated-branches -Wlogical-op -Wlogical-not-parentheses -Wrestrict -Wbidi-chars=any
 COMMON_LDFLAGS := -m elf_x86_64 -pie -e _start -z max-page-size=0x1000 -dynamic-linker /mnt/drv0/usr/lib/ld.so -rpath /mnt/drv0/usr/lib -L$(MLIBC_USR)/lib
