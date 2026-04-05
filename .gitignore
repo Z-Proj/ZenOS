@@ -1,8 +1,9 @@
 .vscode/
 *.o
 iso/
-build/
+**/build/
 *.iso
 fat_man
 *.elf
 funcs.txt
+userland/sysroot/
