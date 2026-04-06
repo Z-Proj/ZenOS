@@ -15,17 +15,17 @@
 #include "harp_draw.h"
 #include "harp_input.h"
 
-extern char _binary_FreeSansB_sfn_start;
-extern char _binary_FreeSansB_sfn_end;
+extern char _binary_default_sfn_start;
+extern char _binary_default_sfn_end;
 
 #define FONT_SIZE 14
 #define BASELINE(top) ((top) + FONT_SIZE)
 
-#define BLUR_R      2
-#define DARKEN_PCT 80
+#define BLUR_R      6
+#define DARKEN_PCT 255
 #define DASH_H     36
 #define DASH_MARGIN 8
-#define TITLEBAR_H 24
+#define TITLEBAR_H 28
 
 
 static ssfn_t ssfn;
@@ -41,6 +41,7 @@ static int        dash_bd_w    = 0;
 static fb_info_t  fb;
 static socket_file_t *ev_sock  = NULL;
 static int        pending_redraw = 0;
+static char* dir;
 
 static void full_redraw(void)
 {
@@ -233,7 +234,7 @@ static uint32_t *tga_load(const char *path, int *out_w, int *out_h)
 static void bake_bgbuf(void)
 {
     int bw = 0, bh = 0;
-    uint32_t *tga = tga_load("/mnt/drv0/bg.tga", &bw, &bh);
+    uint32_t *tga = tga_load(dir, &bw, &bh);
     bgbuf = (uint32_t *)malloc(SCR_W * SCR_H * 4);
     if (!bgbuf) { if (tga) free(tga); return; }
     for (uint32_t i = 0; i < SCR_W * SCR_H; i++) bgbuf[i] = 0xFF0E0E0E;
@@ -340,8 +341,15 @@ static void poll_ipc(void)
     }
 }
 
-int main(void)
+int main(int argc, char* argv[])
 {
+    dir = "";
+    if (argc > 2) {
+        printf("Invalid number of arguments passed.\n1 || 2 args expected.");
+        return 1;
+    }
+    if (argc < 2) dir = "/mnt/drv0/lib/harp/bg1.tga";
+    else dir = argv[1];
     if (zen_fbinfo(&fb) != 0) return 1;
     SCR_W = (uint32_t)fb.width;
     SCR_H = (uint32_t)fb.height;
@@ -363,7 +371,7 @@ int main(void)
     bake_dash_backdrop();
 
     memset(&ssfn, 0, sizeof(ssfn));
-    if (ssfn_load(&ssfn,  (const void *)&_binary_FreeSansB_sfn_start) != SSFN_OK) {
+    if (ssfn_load(&ssfn,  (const void *)&_binary_default_sfn_start) != SSFN_OK) {
         socket_close(ev_sock); socket_delete(WM_SOCK); free(backbuf);
         return 1;
     }

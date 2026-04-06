@@ -79,10 +79,10 @@ static void nk_harp_fill_rect(nk_harp_t *nh, int x, int y, int w, int h, uint32_
     if (x1 >= x2 || y1 >= y2) return;
 
     pixman_image_t *dst = pixman_image_create_bits(
-        PIXMAN_a8r8g8b8, nh->win->w, nh->win->h,
+        PIXMAN_x8r8g8b8, nh->win->w, nh->win->h,
         nh->win->buf, nh->win->w * 4);
     pixman_image_t *src = pixman_image_create_bits(
-        PIXMAN_a8r8g8b8, 1, 1, (uint32_t[]){col}, 4);
+        PIXMAN_x8r8g8b8, 1, 1, (uint32_t[]){col}, 4);
     pixman_image_set_repeat(src, PIXMAN_REPEAT_NORMAL);
 
     uint8_t a = (col >> 24) & 0xFF;

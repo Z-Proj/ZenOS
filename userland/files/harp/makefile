@@ -10,7 +10,7 @@ CC  := clang
 LD  := ld.lld
 
 SRCS = harp_main.c harp_wm.c harp_draw.c harp_input.c
-OBJS = $(SRCS:.c=.o) FreeSansB.o
+OBJS = $(SRCS:.c=.o) default.o
 
 PIXMAN_INC := $(MLIBC_USR)/include
 PIXMAN_LIB := $(MLIBC_USR)/lib/libpixman.a
@@ -22,12 +22,12 @@ COMMON_CPPFLAGS := \
 	-I $(PIXMAN_INC)
 
 COMMON_CFLAGS := \
-    -m64 -g -O0 -fPIE \
-    -fno-stack-protector -mno-red-zone -nostdlib \
+    -m64 -O3 -fPIE -fomit-frame-pointer -flto -ffast-math \
+    -fno-stack-protector -mno-red-zone -nostdlib -finline-functions \
     -fvisibility=hidden
 
 COMMON_LDFLAGS := \
-	-m elf_x86_64 -pie -e _start \
+	-m elf_x86_64 -pie -e _start -s \
 	-z max-page-size=0x1000 \
 	-dynamic-linker /mnt/drv0/usr/lib/ld.so \
 	-rpath /mnt/drv0/usr/lib \
@@ -51,7 +51,11 @@ install: $(APP)
 	$(FATMAN) $(VHD) mkdir /bin || true
 	$(FATMAN) $(VHD) delete $(INSTALL_PATH) || true
 	$(FATMAN) $(VHD) import $(APP) $(INSTALL_PATH)
-	$(FATMAN) $(VHD) import bg.tga bg.tga
+	$(FATMAN) $(VHD) mkdir /lib
+	$(FATMAN) $(VHD) mkdir /lib/harp
+	$(FATMAN) $(VHD) import bg1.tga /lib/harp/bg1.tga
+	$(FATMAN) $(VHD) import bg2.tga /lib/harp/bg2.tga
+	$(FATMAN) $(VHD) import bg3.tga /lib/harp/bg3.tga
 
 clean:
 	rm -f $(OBJS) $(APP)

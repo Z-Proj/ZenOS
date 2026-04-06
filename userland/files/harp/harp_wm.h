@@ -4,8 +4,8 @@
 #include "../../userlib.h"
 
 #define MAX_WINDOWS 16
-#define TITLEBAR_H  24
-#define WIN_R        6
+#define TITLEBAR_H  28
+#define WIN_R        12
 
 typedef struct {
     int      active;
