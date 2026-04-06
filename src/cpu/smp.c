@@ -18,14 +18,12 @@ static volatile struct limine_smp_request smp_request = {
 };
 
 volatile uint32_t g_activeCpuCount = 1;
-// static uint8_t ap_stacks[MAX_CPUS][STACK_SIZE] __attribute__((aligned(16)));
 static cpu_info_t g_cpu_info[MAX_CPUS];
 static uint32_t g_cpu_count = 1;
 static uint32_t g_bsp_cpu_index = 0;
 
 void ap_entry(struct limine_smp_info *info) {
     uint32_t cpu_index = (uint32_t)info->extra_argument;
-    // asm volatile("mov %0, %%rsp" : : "r" (ap_stacks[cpu_index] + STACK_SIZE) : "memory");
     enable_sse_and_fpu();
     init_gdt_for_cpu(cpu_index);
     init_idt();
@@ -40,11 +38,11 @@ void ap_entry(struct limine_smp_info *info) {
 void smp_prepare(void)
 {
     struct limine_smp_response *smp = smp_request.response;
-    if (smp == NULL || smp->cpu_count < 2) {
+    if (smp == NULL) {
         clr();
-        log("\n\nThis system cannot run ZenOS\n\n - This system does not meet the requirement of minimum 2 CPUs.\n\nConsider upgrading your CPU or computer.\nIncrease CPUs available if on a VM.\n ", 0, 1);
+        log("Failed to fetch SMP (CPU) info.", 0, 1);
     }
-    else if(smp->cpu_count > MAX_CPUS) {
+    if(smp->cpu_count > MAX_CPUS) {
         clr();
         log("\n\nThis system cannot run ZenOS\n\n - This system does not meet the requirement of maximum 8 CPUs.\n\nConsider downgrading your CPU.\nDecrease CPUs available if on a VM.\n ", 0, 1);
     }

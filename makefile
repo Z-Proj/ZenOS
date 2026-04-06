@@ -48,7 +48,7 @@ user:
 	$(USER_DIR)/build_elf.sh
 
 init:
-	@printf "# ZenOS Init Execution Procedure File\n# It is unrecommended to modify this file. But you can modify it however you want.\n# Zen is pretty stable enough for handling mostly anything on this file.\n\n# /mnt/drv0/sys/init.run (VHD location: /sys/init.run)\n\n# ---------------------------------\n#            ZenOS Shell          \n# ---------------------------------\n/mnt/drv0/bin/shell\n\n\n# ---------------------------------        \n#      ZenOS Compositor : Harp\n#      And Harp's Terminal Emu\n#\n# Uncomment last 4 lines to enable\n# Harp and term to run. This will \n# give a GUI environment.      \n# NOTE: Recommended to remove or\n# comment above shell line as it \n# may interfere with kbd ownership\n#\n# --------------------------------- \n\n#/mnt/drv0/bin/harp\n## 2 second delay to let Harp initialize before term is run      \n#!sleep 2\n#/mnt/drv0/bin/terminal" > init.run
+	@printf "# ZenOS Init Execution Procedure File\n# It is unrecommended to modify this file. But you can modify it however you want.\n# Zen is pretty stable enough for handling mostly anything on this file.\n\n# /mnt/drv0/sys/init.run (VHD location: /sys/init.run)\n\n# ---------------------------------\n#            ZenOS Shell          \n# ---------------------------------\n#/mnt/drv0/bin/shell\n\n\n# ---------------------------------        \n#      ZenOS Compositor : Harp\n#      And Harp's Terminal Emu\n#\n# Uncomment the shell line above and \n# comment the lines below to disable\n# GUI and use only the shell.\n# --------------------------------- \n\n/mnt/drv0/bin/harp\n# 2 second delay to let Harp initialize before term is run      \n!sleep 2\n/mnt/drv0/bin/terminal" > init.run
 	./fat_man ZenOS.vhd mkdir /sys
 	./fat_man ZenOS.vhd import init.run /sys/init.run
 	@rm init.run
@@ -57,7 +57,7 @@ init:
 help:
 	@echo "The ZenOS Project - Makefile Help Menu"
 	@echo "Available commands:"
-	@echo "  make all       : Build the entire OS and initialize."
+	@echo "  make all       : Build the entire OS, userspace and initialize."
 	@echo "  make $(ISO_IMAGE) : Build just the kernel."
 	@echo "  make user      : Build userspace and import to disk."
 	@echo "  make qemu      : Run the OS in QEMU."
@@ -65,7 +65,7 @@ help:
 	@echo "  make clean     : Clean all build files (Doesn't affect $(ISO_IMAGE) / ZenOS.vhd)."
 	@echo "  make funcs     : Generate a text file with all the functions defined in ZenOS"
 	@echo "  make deps      : Check whether you have tools required to build ZenOS"
-	@echo "  make mlibc     : Rebuild mlibc and reinstall into sysroot + VHD."
+	@echo "  make mlibc     : Build mlibc and install into sysroot + VHD."
 
 funcs:
 	@ctags -R --languages=C --c-kinds=f src && \
@@ -126,11 +126,11 @@ qemu:
 	-cdrom ZenOS.iso \
 	-audiodev pa,id=snd0 \
 	-machine pcspk-audiodev=snd0 \
-	-m 512M \
+	-m 256M \
 	-drive file=ZenOS.vhd,if=ide,index=0 \
 	-drive file=Storage.vhd,if=ide,index=1 \
 	-boot d \
-	-smp 8 \
+	-smp 4 \
 	-serial stdio \
 	-netdev user,id=net0 \
 	-device e1000,netdev=net0 \
