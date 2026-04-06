@@ -4,6 +4,9 @@
 #include <stdint.h>
 #include <stddef.h>
 
+typedef long ssize_t;
+typedef long off_t;
+
 static inline uint64_t _syscall0(uint64_t num)
 {
     uint64_t ret;

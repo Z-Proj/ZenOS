@@ -125,6 +125,9 @@ ZenOS is a learning-oriented project. Understanding the machine comes first for 
 clang
 ld.lld
 nasm
+basename
+ninja
+meson
 xorriso
 qemu-system-x86_64
 gdb
@@ -141,10 +144,11 @@ socat
 - [FatFs](https://elm-chan.org/fsw/ff/) — FAT32 library by CHAN
 - [mlibc](https://github.com/managarm/mlibc) — C standard library
 - [Lua](https://www.lua.org/) — lightweight scripting language
+- [Pixman](https://gitlab.freedesktop.org/pixman/pixman) — Pixel manipulation library.
 - [TinyCC](https://github.com/TinyCC/tinycc) — Tiny C Compiler, ported to ZenOS
 - [SmallerC](https://github.com/alexfru/SmallerC) — C to assembly compiler
 - [FIGlet](https://github.com/cmatsuoka/figlet) — Large ASCII text renderer
-- [Blend2D](https://blend2d.com/) — 2D Vector Graphics
+- [Nuklear](https://github.com/Immediate-Mode-UI/Nuklear) — An Immediate-Mode UI library.
 
 ---
 

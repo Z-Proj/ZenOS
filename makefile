@@ -142,7 +142,7 @@ stop:
 	VBoxManage controlvm "ZenOS" poweroff
 
 vbox:
-	virtualboxvm --startvm "ZenOS" & sleep 10 && socat - UNIX-CONNECT:/tmp/zenos
+	virtualboxvm --startvm "ZenOS" & sleep 6 && socat - UNIX-CONNECT:/tmp/zenos
 
 gdb:
 	gdb build/kernel.bin

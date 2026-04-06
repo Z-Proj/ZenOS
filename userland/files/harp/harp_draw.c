@@ -1,0 +1,484 @@
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <sys/time.h>
+#include <pixman-1/pixman.h>
+
+#include "harp_draw.h"
+#include "harp_wm.h"
+
+#define FONT_SIZE    12
+#define BASELINE(y)  ((y) + FONT_SIZE + 1)
+#define TITLEBAR_H   24
+#define WIN_R         6
+#define DASH_H       36
+#define DASH_MARGIN   8
+#define DASH_PAD     10
+#define DASH_R       10
+#define BTN_H        24
+#define BTN_W        96
+#define BTN_R        6
+#define BTN_GAP       6
+#define LEFT_W      120
+
+#define C_BG         0xFF0E0E0E
+#define C_DASH       0xFF1A1A1A
+#define C_TITLEBAR   0xFF181818
+#define C_TITLEBAR_F 0xFF232323
+#define C_TITLE_DIM  0xFF666666
+#define C_TITLE_ACT  0xFFDDDDDD
+#define C_CLOSE      0xFF3A1010
+#define C_CLOSE_F    0xFFCC3333
+#define C_BTN        0xFF242424
+#define C_BTN_F      0xFF303030
+#define C_BTN_TXT    0xFF777777
+#define C_BTN_TXT_F  0xFFEEEEEE
+#define C_CLOCK      0xFFAAAAAA
+#define C_DRAG       0xFF3A3A3A
+#define C_WHITE      0xFFFFFFFF
+#define TILE_ALPHA   128
+
+static uint32_t *s_backbuf;
+static uint32_t *s_bgbuf;
+static uint32_t *s_dash_backdrop;
+static int       s_dash_backdrop_y;
+static int       s_dash_backdrop_w;
+static ssfn_t   *s_ssfn;
+static ssfn_buf_t s_ssfn_buf;
+
+uint8_t dirty[MAX_DTY][MAX_DTX];
+int     dtx_count, dty_count;
+int     dirty_full = 1;
+
+void dirty_mark(int x, int y, int w, int h)
+{
+    if (dirty_full || w <= 0 || h <= 0) return;
+    int tx0 = x / DTILE; if (tx0 < 0) tx0 = 0;
+    int ty0 = y / DTILE; if (ty0 < 0) ty0 = 0;
+    int tx1 = (x + w - 1) / DTILE; if (tx1 >= dtx_count) tx1 = dtx_count - 1;
+    int ty1 = (y + h - 1) / DTILE; if (ty1 >= dty_count) ty1 = dty_count - 1;
+    for (int ty = ty0; ty <= ty1; ty++)
+        for (int tx = tx0; tx <= tx1; tx++)
+            dirty[ty][tx] = 1;
+}
+
+void dirty_all(void) { dirty_full = 1; }
+
+void draw_init(uint32_t *backbuf, uint32_t *bgbuf, uint32_t *dash_backdrop,
+               int dash_backdrop_y, int dash_backdrop_w, void *ssfn_ctx)
+{
+    s_backbuf          = backbuf;
+    s_bgbuf            = bgbuf;
+    s_dash_backdrop    = dash_backdrop;
+    s_dash_backdrop_y  = dash_backdrop_y;
+    s_dash_backdrop_w  = dash_backdrop_w;
+    s_ssfn             = (ssfn_t *)ssfn_ctx;
+
+    dtx_count = ((int)SCR_W + DTILE - 1) / DTILE;
+    if (dtx_count > MAX_DTX) dtx_count = MAX_DTX;
+    dty_count = ((int)SCR_H + DTILE - 1) / DTILE;
+    if (dty_count > MAX_DTY) dty_count = MAX_DTY;
+
+    s_ssfn_buf.ptr = (uint8_t *)s_backbuf;
+    s_ssfn_buf.w   = (int)SCR_W;
+    s_ssfn_buf.h   = (int)SCR_H;
+    s_ssfn_buf.p   = (int)(SCR_W * 4);
+}
+
+static inline void bb_px(int x, int y, uint32_t c)
+{
+    if ((uint32_t)x < SCR_W && (uint32_t)y < SCR_H)
+        s_backbuf[y * SCR_W + x] = c;
+}
+
+void bb_rect(int x, int y, int w, int h, uint32_t c)
+{
+    int x1 = x < 0 ? 0 : x;
+    int y1 = y < 0 ? 0 : y;
+    int x2 = x + w > (int)SCR_W ? (int)SCR_W : x + w;
+    int y2 = y + h > (int)SCR_H ? (int)SCR_H : y + h;
+    if (x1 >= x2 || y1 >= y2) return;
+
+    pixman_image_t *dst = pixman_image_create_bits(
+        PIXMAN_a8r8g8b8, (int)SCR_W, (int)SCR_H,
+        s_backbuf, (int)(SCR_W * 4));
+    pixman_image_t *src = pixman_image_create_bits(
+        PIXMAN_a8r8g8b8, 1, 1, (uint32_t[]){c}, 4);
+    pixman_image_set_repeat(src, PIXMAN_REPEAT_NORMAL);
+    pixman_image_composite(PIXMAN_OP_SRC, src, NULL, dst,
+                           0, 0, 0, 0, x1, y1, x2 - x1, y2 - y1);
+    pixman_image_unref(src);
+    pixman_image_unref(dst);
+}
+
+void bb_rrect_ex(int x, int y, int w, int h, int r, uint32_t c, round_corners_t corners)
+{
+    if (w <= 0 || h <= 0) return;
+    if (r < 1 || corners == ROUND_NONE) { bb_rect(x, y, w, h, c); return; }
+    if (r > w / 2) r = w / 2;
+    if (r > h / 2) r = h / 2;
+    int tl = corners & 0x01, tr = corners & 0x02;
+    int bl = corners & 0x04, br = corners & 0x08;
+    for (int row = 0; row < h; row++) {
+        int ay = y + row;
+        if (ay < 0 || (uint32_t)ay >= SCR_H) continue;
+        int x0 = x, x1 = x + w;
+        if (row < r) {
+            int dy = r - row - 1, dx = 0;
+            while (dx * dx + dy * dy < r * r) dx++;
+            int cut = r - dx;
+            if (tl) x0 = x + cut;
+            if (tr) x1 = x + w - cut;
+        } else if (row >= h - r) {
+            int dy = row - (h - r), dx = 0;
+            while (dx * dx + dy * dy < r * r) dx++;
+            int cut = r - dx;
+            if (bl) x0 = x + cut;
+            if (br) x1 = x + w - cut;
+        }
+        if (x0 < 0) x0 = 0;
+        if (x1 > (int)SCR_W) x1 = (int)SCR_W;
+        if (x0 >= x1) continue;
+        uint32_t *line = s_backbuf + ay * SCR_W;
+        for (int ax = x0; ax < x1; ax++) line[ax] = c;
+    }
+}
+
+void bb_rrect(int x, int y, int w, int h, int r, uint32_t c)
+{
+    bb_rrect_ex(x, y, w, h, r, c, ROUND_ALL);
+}
+
+void bb_rrect_alpha(int x, int y, int w, int h, int r, uint32_t c, uint32_t a)
+{
+    if (w <= 0 || h <= 0) return;
+    if (r > w / 2) r = w / 2;
+    if (r > h / 2) r = h / 2;
+
+    uint32_t src_color = (a << 24) | (c & 0x00FFFFFF);
+
+    for (int row = 0; row < h; row++) {
+        int ay = y + row;
+        if (ay < 0 || (uint32_t)ay >= SCR_H) continue;
+        int x0 = x, x1 = x + w;
+        if (row < r || row >= h - r) {
+            int dy = row < r ? (r - row - 1) : (row - (h - r));
+            int dx = 0;
+            while (dx * dx + dy * dy < r * r) dx++;
+            int cut = r - dx;
+            x0 = x + cut; x1 = x + w - cut;
+        }
+        if (x0 < 0) x0 = 0;
+        if (x1 > (int)SCR_W) x1 = (int)SCR_W;
+        if (x0 >= x1) continue;
+
+        pixman_image_t *dst = pixman_image_create_bits(
+            PIXMAN_a8r8g8b8, x1 - x0, 1,
+            s_backbuf + ay * SCR_W + x0, (x1 - x0) * 4);
+        pixman_image_t *src = pixman_image_create_bits(
+            PIXMAN_a8r8g8b8, 1, 1, (uint32_t[]){src_color}, 4);
+        pixman_image_set_repeat(src, PIXMAN_REPEAT_NORMAL);
+        pixman_image_composite(PIXMAN_OP_OVER, src, NULL, dst,
+                               0, 0, 0, 0, 0, 0, x1 - x0, 1);
+        pixman_image_unref(src);
+        pixman_image_unref(dst);
+    }
+}
+
+void bb_rrect_outline(int x, int y, int w, int h, int r, uint32_t c)
+{
+    if (w <= 0 || h <= 0) return;
+    if (r < 1) {
+        for (int i = x; i < x + w; i++) { bb_px(i, y, c); bb_px(i, y + h - 1, c); }
+        for (int i = y; i < y + h; i++) { bb_px(x, i, c); bb_px(x + w - 1, i, c); }
+        return;
+    }
+    if (r > w / 2) r = w / 2;
+    if (r > h / 2) r = h / 2;
+    for (int i = x + r; i < x + w - r; i++) { bb_px(i, y, c); bb_px(i, y + h - 1, c); }
+    for (int i = y + r; i < y + h - r; i++) { bb_px(x, i, c); bb_px(x + w - 1, i, c); }
+    for (int dy = 0; dy < r; dy++) {
+        int dx = r - 1;
+        while (dx * dx + dy * dy > r * r) dx--;
+        int inner = r - 1;
+        while (inner >= 0 && inner * inner + dy * dy > (r - 1) * (r - 1)) inner--;
+        for (int i = inner + 1; i <= dx; i++) {
+            bb_px(x + r - 1 - i, y + r - 1 - dy, c);
+            bb_px(x + w - r + i, y + r - 1 - dy, c);
+            bb_px(x + r - 1 - i, y + h - r + dy, c);
+            bb_px(x + w - r + i, y + h - r + dy, c);
+        }
+    }
+}
+
+static void draw_x(int cx, int cy, int sz, uint32_t c)
+{
+    int x1 = cx + 3, y1 = cy + 3, x2 = cx + sz - 4, len = x2 - x1;
+    if (len < 0) return;
+    for (int i = 0; i <= len; i++) {
+        bb_px(x1 + i,     y1 + i,     c);
+        bb_px(x1 + i + 1, y1 + i,     c);
+        bb_px(x1 + i,     y1 + i + 1, c);
+        bb_px(x2 - i,     y1 + i,     c);
+        bb_px(x2 - i - 1, y1 + i,     c);
+        bb_px(x2 - i,     y1 + i + 1, c);
+    }
+}
+
+void bb_text(int x, int y, uint32_t fg, uint32_t bg, const char *str)
+{
+    if (!str || !*str) return;
+    ssfn_select(s_ssfn, SSFN_FAMILY_ANY, NULL, SSFN_STYLE_REGULAR, FONT_SIZE);
+    s_ssfn_buf.x  = x;
+    s_ssfn_buf.y  = y;
+    s_ssfn_buf.fg = fg;
+    s_ssfn_buf.bg = bg;
+    const char *s = str;
+    while (*s && s_ssfn_buf.x < (int)SCR_W) {
+        int r = ssfn_render(s_ssfn, &s_ssfn_buf, s);
+        if (r <= 0) break;
+        s += r;
+    }
+}
+
+int text_w(const char *str)
+{
+    ssfn_select(s_ssfn, SSFN_FAMILY_ANY, NULL, SSFN_STYLE_REGULAR, FONT_SIZE);
+    ssfn_buf_t d;
+    memset(&d, 0, sizeof(d));
+    d.ptr = NULL; d.w = 0x7FFF; d.h = 0x7FFF; d.p = 0x7FFE;
+    d.x = 0; d.y = FONT_SIZE; d.fg = 0xFFFFFFFF;
+    const char *s = str;
+    while (*s) {
+        int r = ssfn_render(s_ssfn, &d, s);
+        if (r <= 0) break;
+        s += r;
+    }
+    return d.x;
+}
+
+void draw_desktop(void)
+{
+    if (s_bgbuf)
+        memcpy(s_backbuf, s_bgbuf, SCR_W * SCR_H * 4);
+    else
+        for (uint32_t i = 0; i < SCR_W * SCR_H; i++) s_backbuf[i] = C_BG;
+}
+
+void draw_window(int idx)
+{
+    window_t *w = &windows[idx];
+    if (!w->active || w->minimized || w->w <= 0 || w->h <= 0) return;
+
+    int fx = w->x, fy = w->y, fw = w->w, fh = w->h + TITLEBAR_H;
+    if (fx >= (int)SCR_W || fy >= (int)SCR_H || fx + fw <= 0 || fy + fh <= 0) return;
+
+    int focused = (idx == focused_win);
+    uint32_t tc = focused ? C_TITLEBAR_F : C_TITLEBAR;
+
+    bb_rrect_ex(fx, fy, fw, TITLEBAR_H, WIN_R, tc, ROUND_TOP);
+
+    if (w->shmbuf) {
+        pixman_image_t *dst_img = pixman_image_create_bits(
+            PIXMAN_a8r8g8b8, (int)SCR_W, (int)SCR_H,
+            s_backbuf, (int)(SCR_W * 4));
+        pixman_image_t *src_img = pixman_image_create_bits(
+            PIXMAN_a8r8g8b8, w->w, w->h,
+            (uint32_t *)w->shmbuf, w->w * 4);
+
+        pixman_image_composite(PIXMAN_OP_SRC, src_img, NULL, dst_img,
+                               0, 0, 0, 0,
+                               fx, fy + TITLEBAR_H, fw, w->h);
+        pixman_image_unref(src_img);
+        pixman_image_unref(dst_img);
+        bb_rrect_outline(fx, fy + TITLEBAR_H, fw, w->h, WIN_R, 0xFF1E1E1E);
+    } else {
+        bb_rect(fx, fy + TITLEBAR_H, fw, w->h, 0xFF0D0D0D);
+    }
+
+    char lbl[48];
+    __builtin_strncpy(lbl, w->title, 47); lbl[47] = 0;
+    int tw = text_w(lbl);
+    int lx = fx + (fw - tw) / 2;
+    if (lx < fx + 4) lx = fx + 4;
+    bb_text(lx, BASELINE(fy + 5), focused ? C_TITLE_ACT : C_TITLE_DIM, tc, lbl);
+
+    int bsz = 14, bcx = fx + fw - bsz - 5, bcy = fy + (TITLEBAR_H - bsz) / 2;
+    bb_rrect(bcx, bcy, bsz, bsz, 3, focused ? C_CLOSE_F : C_CLOSE);
+    draw_x(bcx, bcy, bsz, C_WHITE);
+
+    dirty_mark(fx, fy, fw, fh);
+}
+
+static void dash_blit_backdrop(int x, int w)
+{
+    if (!s_dash_backdrop) return;
+    int dt = (int)SCR_H - DASH_MARGIN - DASH_H;
+    int r = DASH_R;
+    if (r > w / 2) r = w / 2;
+    if (r > DASH_H / 2) r = DASH_H / 2;
+    for (int row = 0; row < DASH_H; row++) {
+        int sy = dt + row;
+        if (sy < 0 || (uint32_t)sy >= SCR_H) continue;
+        int x0 = x, x1 = x + w;
+        if (row < r || row >= DASH_H - r) {
+            int dy = row < r ? (r - row - 1) : (row - (DASH_H - r));
+            int dx = 0;
+            while (dx * dx + dy * dy < r * r) dx++;
+            int cut = r - dx;
+            x0 = x + cut; x1 = x + w - cut;
+        }
+        if (x0 < 0) x0 = 0;
+        if (x1 > (int)SCR_W) x1 = (int)SCR_W;
+        if (x0 >= x1) continue;
+        memcpy(s_backbuf + sy * SCR_W + x0,
+               s_dash_backdrop + row * s_dash_backdrop_w + x0,
+               (x1 - x0) * 4);
+    }
+}
+
+void draw_dash(void)
+{
+    int dt = dash_area_top();
+    int lx = DASH_MARGIN, ly = dt;
+
+    dash_blit_backdrop(lx, LEFT_W);
+    bb_rrect_alpha(lx, ly, LEFT_W, DASH_H, DASH_R, C_DASH, TILE_ALPHA);
+
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    int sec = (int)(tv.tv_sec % 86400);
+    char tbuf[16];
+    snprintf(tbuf, sizeof(tbuf), "%02d:%02d:%02d", sec / 3600, (sec % 3600) / 60, sec % 60);
+    int tw = text_w(tbuf);
+    int ty_center = ly + (DASH_H - FONT_SIZE) / 2;
+    uint32_t clock_bg = s_backbuf[(ly + DASH_H / 2) * SCR_W + lx + LEFT_W / 2];
+    bb_text(lx + (LEFT_W - tw) / 2, BASELINE(ty_center), C_CLOCK, clock_bg, tbuf);
+
+    dirty_mark(lx, ly, LEFT_W, DASH_H);
+
+    int btn_count = 0;
+    for (int i = 0; i < MAX_WINDOWS; i++)
+        if (windows[i].active) btn_count++;
+    if (btn_count == 0) return;
+
+    int total_w = btn_count * (BTN_W + BTN_GAP) - BTN_GAP + DASH_PAD * 2;
+    int rx = (int)SCR_W - DASH_MARGIN - total_w;
+    if (rx < lx + LEFT_W + DASH_MARGIN) rx = lx + LEFT_W + DASH_MARGIN;
+    int ry = dt;
+
+    dash_blit_backdrop(rx, total_w);
+    bb_rrect_alpha(rx, ry, total_w, DASH_H, DASH_R, C_DASH, TILE_ALPHA);
+
+    int bx = rx + DASH_PAD;
+    int top = z_top();
+    for (int i = 0; i < MAX_WINDOWS; i++) {
+        if (!windows[i].active) continue;
+        if (bx + BTN_W > rx + total_w - DASH_PAD) break;
+        int is_top = (i == top);
+        int by = ry + (DASH_H - BTN_H) / 2;
+        bb_rrect_alpha(bx, by, BTN_W, BTN_H, BTN_R, is_top ? C_BTN_F : C_BTN, TILE_ALPHA);
+        char lbl[16];
+        __builtin_strncpy(lbl, windows[i].title, 15); lbl[15] = 0;
+        int ltw = text_w(lbl);
+        int ty_c = ly + (DASH_H - FONT_SIZE) / 2;
+        uint32_t txt_bg = s_backbuf[(by + BTN_H / 2) * SCR_W + bx + BTN_W / 2];
+        bb_text(bx + (BTN_W - ltw) / 2, BASELINE(ty_c),
+                is_top ? C_BTN_TXT_F : C_BTN_TXT, txt_bg, lbl);
+        bx += BTN_W + BTN_GAP;
+    }
+    dirty_mark(rx, ry, total_w, DASH_H);
+}
+
+void draw_drag_outline(void)
+{
+    if (!dragging || drag_win < 0) return;
+    window_t *w = &windows[drag_win];
+    if (!w->active) return;
+    bb_rrect_outline(w->x, w->y, w->w, w->h + TITLEBAR_H, WIN_R, C_DRAG);
+    dirty_mark(w->x, w->y, w->w, w->h + TITLEBAR_H);
+}
+
+#define CUR_W 12
+#define CUR_H 19
+static const uint8_t cursor_shape[CUR_H][CUR_W] = {
+    {1,0,0,0,0,0,0,0,0,0,0,0},
+    {1,1,0,0,0,0,0,0,0,0,0,0},
+    {1,2,1,0,0,0,0,0,0,0,0,0},
+    {1,2,2,1,0,0,0,0,0,0,0,0},
+    {1,2,2,2,1,0,0,0,0,0,0,0},
+    {1,2,2,2,2,1,0,0,0,0,0,0},
+    {1,2,2,2,2,2,1,0,0,0,0,0},
+    {1,2,2,2,2,2,2,1,0,0,0,0},
+    {1,2,2,2,2,2,2,2,1,0,0,0},
+    {1,2,2,2,2,2,2,2,2,1,0,0},
+    {1,2,2,2,2,2,2,2,2,2,1,0},
+    {1,2,2,2,2,2,2,1,1,1,1,1},
+    {1,2,2,2,1,2,2,1,0,0,0,0},
+    {1,2,2,1,0,1,2,2,1,0,0,0},
+    {1,2,1,0,0,1,2,2,1,0,0,0},
+    {1,1,0,0,0,0,1,2,2,1,0,0},
+    {1,0,0,0,0,0,1,2,2,1,0,0},
+    {0,0,0,0,0,0,0,1,2,1,0,0},
+    {0,0,0,0,0,0,0,0,1,1,0,0},
+};
+static int cur_sx = -1, cur_sy = -1;
+
+static void cursor_restore(uint32_t *fb_addr, uint32_t pitch)
+{
+    if (cur_sx < 0) return;
+    for (int cy = 0; cy < CUR_H; cy++) {
+        int fy = cur_sy + cy;
+        if (fy < 0 || (uint32_t)fy >= SCR_H) continue;
+        for (int cx = 0; cx < CUR_W; cx++) {
+            int fx = cur_sx + cx;
+            if (fx < 0 || (uint32_t)fx >= SCR_W) continue;
+            if (cursor_shape[cy][cx])
+                *((uint32_t*)((uint8_t*)fb_addr + fy * pitch) + fx) = s_backbuf[fy * SCR_W + fx];
+        }
+    }
+    cur_sx = -1;
+}
+
+static void cursor_stamp(uint32_t *fb_addr, int mx, int my, uint32_t pitch)
+{
+    cur_sx = mx; cur_sy = my;
+    for (int cy = 0; cy < CUR_H; cy++) {
+        int fy = my + cy;
+        if (fy < 0 || (uint32_t)fy >= SCR_H) continue;
+        for (int cx = 0; cx < CUR_W; cx++) {
+            int fx = mx + cx;
+            if (fx < 0 || (uint32_t)fx >= SCR_W) continue;
+            uint8_t s = cursor_shape[cy][cx];
+            if (!s) continue;
+            *((uint32_t*)((uint8_t*)fb_addr + fy * pitch) + fx) =  (s == 1) ? 0xFF000000 : 0xFFFFFFFF;
+        }
+    }
+}
+
+void push_to_fb(uint32_t *fb_addr, uint32_t ptr_x, uint32_t ptr_y, uint32_t pitch)
+{
+    cursor_restore(fb_addr, pitch);
+    if (dirty_full) {
+        for (int y = 0; y < (int)SCR_H; y++)
+            memcpy((uint8_t*)fb_addr + y * pitch, s_backbuf + y * SCR_W, SCR_W * 4);
+        dirty_full = 0;
+        memset(dirty, 0, sizeof(dirty));
+    } else {
+        for (int ty = 0; ty < dty_count; ty++) {
+            for (int tx = 0; tx < dtx_count; tx++) {
+                if (!dirty[ty][tx]) continue;
+                dirty[ty][tx] = 0;
+                int px = tx * DTILE, py = ty * DTILE;
+                int pw = px + DTILE > (int)SCR_W ? (int)SCR_W - px : DTILE;
+                int ph = py + DTILE > (int)SCR_H ? (int)SCR_H - py : DTILE;
+                for (int row = 0; row < ph; row++) {
+                    int y = py + row;
+                    memcpy((uint8_t*)fb_addr + y * pitch + px * 4,
+                           s_backbuf + y * SCR_W + px, pw * 4);
+                }
+            }
+        }
+    }
+    cursor_stamp(fb_addr, (int)ptr_x, (int)ptr_y, pitch);
+}

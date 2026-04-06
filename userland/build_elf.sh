@@ -8,11 +8,9 @@ FATMAN="./fat_man"
 [ -x "$FATMAN" ]   || { echo "[!] fat_man not found"; exit 1; }
 [ -f "$VHD_PATH" ] || { echo "[!] VHD not found"; exit 1; }
 
-./userland/install_mlibc.sh
-
 $FATMAN "$VHD_PATH" mkdir /bin || true
 
-FAILED=0
+FAILED_APPS=()
 
 for app_dir in "$FILES_DIR"/*/; do
     app=$(basename "$app_dir")
@@ -23,10 +21,19 @@ for app_dir in "$FILES_DIR"/*/; do
     echo "[*] Building $app"
     if ! make -C "$app_dir" install -j1 --no-print-directory; then
         echo "[!] Failed: $app"
-        FAILED=1
+        FAILED_APPS+=("$app")
     else
         echo "[✓] $app installed"
     fi
 done
 
-[ "$FAILED" -eq 0 ] && echo "[✓] All apps built and imported" || { echo "[!] Some apps failed"; exit 1; }
+if [ "${#FAILED_APPS[@]}" -eq 0 ]; then
+    echo "[✓] All apps built and imported"
+else
+    echo ""
+    echo "[!] ${#FAILED_APPS[@]} app(s) failed to build:"
+    for a in "${FAILED_APPS[@]}"; do
+        echo "     - $a"
+    done
+    exit 1
+fi

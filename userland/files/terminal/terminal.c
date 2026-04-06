@@ -46,9 +46,10 @@ static cell_t screen[TERM_ROWS][TERM_COLS];
 static int32_t  cur_row, cur_col;
 static uint32_t cur_fg, cur_bg;
 static int      cursor_vis;
+static int      close_requested = 0;
 
-static int master_fd = -1;
-static int shell_pid = -1;
+static int master_fd  = -1;
+static int shell_pid  = -1;
 
 #define ESC_NONE 0
 #define ESC_ESC  1
@@ -66,16 +67,14 @@ static inline void buf_fill_rect(int x, int y, int w, int h, uint32_t c)
     uint32_t px = c | 0xFF000000;
     for (int row = y1; row < y2; row++) {
         uint32_t *line = win->buf + row * WIN_W;
-        for (int col = x1; col < x2; col++)
-            line[col] = px;
+        for (int col = x1; col < x2; col++) line[col] = px;
     }
 }
 
 static void render_cell(int row, int col)
 {
     cell_t *c = &screen[row][col];
-    int x = col * CELL_W;
-    int y = row * CELL_H;
+    int x = col * CELL_W, y = row * CELL_H;
     buf_fill_rect(x, y, CELL_W, CELL_H, c->bg);
     if (c->ch >= 32 && c->ch < 127) {
         sbuf.x  = x;
@@ -174,17 +173,16 @@ static void dispatch_csi(char cmd)
 
     switch (cmd) {
     case 'A': cur_row -= p0 ? p0 : 1; if (cur_row < 0) cur_row = 0; break;
-    case 'B': cur_row += p0 ? p0 : 1; if (cur_row >= TERM_ROWS) cur_row = TERM_ROWS - 1; break;
-    case 'C': cur_col += p0 ? p0 : 1; if (cur_col >= TERM_COLS) cur_col = TERM_COLS - 1; break;
+    case 'B': cur_row += p0 ? p0 : 1; if (cur_row >= TERM_ROWS) cur_row = TERM_ROWS-1; break;
+    case 'C': cur_col += p0 ? p0 : 1; if (cur_col >= TERM_COLS) cur_col = TERM_COLS-1; break;
     case 'D': cur_col -= p0 ? p0 : 1; if (cur_col < 0) cur_col = 0; break;
     case 'G': cur_col = (p0 ? p0 : 1) - 1;
               if (cur_col < 0) cur_col = 0;
-              if (cur_col >= TERM_COLS) cur_col = TERM_COLS - 1; break;
+              if (cur_col >= TERM_COLS) cur_col = TERM_COLS-1; break;
     case 'H': case 'f':
-        cur_row = (p0 ? p0 : 1) - 1;
-        cur_col = (p1 ? p1 : 1) - 1;
-        if (cur_row < 0) cur_row = 0; if (cur_row >= TERM_ROWS) cur_row = TERM_ROWS - 1;
-        if (cur_col < 0) cur_col = 0; if (cur_col >= TERM_COLS) cur_col = TERM_COLS - 1;
+        cur_row = (p0 ? p0 : 1) - 1; cur_col = (p1 ? p1 : 1) - 1;
+        if (cur_row < 0) cur_row = 0; if (cur_row >= TERM_ROWS) cur_row = TERM_ROWS-1;
+        if (cur_col < 0) cur_col = 0; if (cur_col >= TERM_COLS) cur_col = TERM_COLS-1;
         break;
     case 'J':
         if (p0 == 0) clear_eos();
@@ -228,7 +226,7 @@ static void put_raw(char c)
         if (c == '\r')   { cur_col = 0; break; }
         if (c == '\n') {
             cur_row++;
-            if (cur_row >= TERM_ROWS) { cur_row = TERM_ROWS - 1; scroll_up(); }
+            if (cur_row >= TERM_ROWS) { cur_row = TERM_ROWS-1; scroll_up(); }
             break;
         }
         if (c == '\b') {
@@ -250,7 +248,7 @@ static void put_raw(char c)
         if ((unsigned char)c >= 32 && (unsigned char)c < 128) {
             if (cur_col >= TERM_COLS) {
                 cur_col = 0; cur_row++;
-                if (cur_row >= TERM_ROWS) { cur_row = TERM_ROWS - 1; scroll_up(); }
+                if (cur_row >= TERM_ROWS) { cur_row = TERM_ROWS-1; scroll_up(); }
             }
             screen[cur_row][cur_col] = (cell_t){c, cur_fg, cur_bg};
             render_cell(cur_row, cur_col);
@@ -265,8 +263,7 @@ static void put_raw(char c)
         break;
     case ESC_CSI:
         if ((c >= '0' && c <= '9') || c == ';' || c == '?' || c == '>' || c == '!') {
-            if (esc_len < (int)sizeof(esc_buf) - 1)
-                esc_buf[esc_len++] = c;
+            if (esc_len < (int)sizeof(esc_buf) - 1) esc_buf[esc_len++] = c;
         } else {
             esc_buf[esc_len] = 0;
             dispatch_csi(c);
@@ -310,12 +307,13 @@ static void send_key(int k)
 static int pump_window_events(void)
 {
     int handled = 0;
-    harp_event_t event;
-    while (harp_poll_event(win, &event))
-    {
+    harp_event_t ev;
+    while (harp_poll_event(win, &ev)) {
         handled = 1;
-        if (event.type == HARP_EVENT_KEY && event.value != 0 && event.key != 0)
-            send_key(event.key);
+        if (ev.type == HARP_EVENT_KEY && ev.value != 0 && ev.key != 0)
+            send_key(ev.key);
+        else if (ev.type == HARP_EVENT_CLOSE_REQ)
+            close_requested = 1;
     }
     return handled;
 }
@@ -323,28 +321,21 @@ static int pump_window_events(void)
 int main(void)
 {
     win = harp_open("Terminal", 60, 60, WIN_W, WIN_H);
-    if (!win) {
-        zen_log("terminal: harp not available", 2, 1);
-        return 1;
-    }
+    if (!win) { zen_log("terminal: harp not available", 2, 1); return 1; }
 
     memset(&sctx, 0, sizeof(sctx));
     if (ssfn_load(&sctx, &_binary_mono_sfn_start) != SSFN_OK) {
         zen_log("terminal: font load failed", 2, 1);
-        harp_close(win);
-        return 1;
+        harp_close(win); return 1;
     }
     ssfn_select(&sctx, SSFN_FAMILY_MONOSPACE, NULL, SSFN_STYLE_REGULAR, 16);
 
     sbuf.ptr = (uint8_t *)win->buf;
-    sbuf.w   = WIN_W;
-    sbuf.h   = WIN_H;
-    sbuf.p   = WIN_W * 4;
+    sbuf.w   = WIN_W; sbuf.h = WIN_H; sbuf.p = WIN_W * 4;
 
     cur_row = 0; cur_col = 0;
     cur_fg  = C_FG; cur_bg = C_BG;
-    cursor_vis = 0;
-    esc_state = ESC_NONE; esc_len = 0;
+    cursor_vis = 0; esc_state = ESC_NONE; esc_len = 0;
 
     for (int r = 0; r < TERM_ROWS; r++)
         for (int c = 0; c < TERM_COLS; c++)
@@ -375,24 +366,17 @@ int main(void)
         tios.c_oflag = OPOST | ONLCR;
         tios.c_cflag = CREAD | CS8;
         tios.c_lflag = ISIG | ICANON | ECHO | ECHOE | ECHOK | IEXTEN;
-        tios.c_cc[VINTR]  = 3;
-        tios.c_cc[VQUIT]  = 28;
-        tios.c_cc[VERASE] = 127;
-        tios.c_cc[VKILL]  = 21;
-        tios.c_cc[VEOF]   = 4;
-        tios.c_cc[VTIME]  = 0;
-        tios.c_cc[VMIN]   = 1;
-        tios.c_cc[VSTART] = 17;
-        tios.c_cc[VSTOP]  = 19;
-        tios.c_cc[VSUSP]  = 26;
+        tios.c_cc[VINTR]  = 3;  tios.c_cc[VQUIT]  = 28;
+        tios.c_cc[VERASE] = 127; tios.c_cc[VKILL] = 21;
+        tios.c_cc[VEOF]   = 4;  tios.c_cc[VTIME]  = 0;
+        tios.c_cc[VMIN]   = 1;  tios.c_cc[VSTART] = 17;
+        tios.c_cc[VSTOP]  = 19; tios.c_cc[VSUSP]  = 26;
         tcsetattr(slave_fd, TCSANOW, &tios);
     }
 
     shell_pid = fork();
     if (shell_pid == 0) {
-        dup2(slave_fd, 0);
-        dup2(slave_fd, 1);
-        dup2(slave_fd, 2);
+        dup2(slave_fd, 0); dup2(slave_fd, 1); dup2(slave_fd, 2);
         if (slave_fd > 2) close(slave_fd);
         if (master_fd > 2) close(master_fd);
         execv("/mnt/drv0/bin/shell", (char *[]){"/mnt/drv0/bin/shell", NULL});
@@ -400,10 +384,17 @@ int main(void)
         write(1, "shell not found\n", 16);
         _exit(1);
     }
-
     if (slave_fd >= 0) close(slave_fd);
-    for (int i = 0; i < 6000000; i++) asm volatile("nop");
+
+    for (int i = 0; i < 50000000; i++) asm volatile("nop");
+
     while (1) {
+        if (close_requested) {
+            if (shell_pid > 0) zen_kill(shell_pid, 15);
+            harp_close(win);
+            return 0;
+        }
+
         int status = 0;
         if (waitpid(shell_pid, &status, WNOHANG) == shell_pid) {
             cursor_show(0);
@@ -421,15 +412,9 @@ int main(void)
         int avail = 0;
         zen_ioctl(master_fd, ZEN_FIONREAD, &avail);
         int did_work = 0;
-        if (avail > 0) {
-            drain_master();
-            did_work = 1;
-        }
-        if (pump_window_events())
-            did_work = 1;
-        if (!did_work)
-            zen_halt();
+        if (avail > 0) { drain_master(); did_work = 1; }
+        if (pump_window_events()) did_work = 1;
+        if (!did_work) zen_halt();
     }
-
     return 0;
 }
