@@ -147,7 +147,6 @@ int main(void)
     int     prev_radio = radio_sel, prev_combo = combo_sel;
     int     prev_count = click_count;
     nk_size prev_elen  = edit_len;
-    int     dirty      = 1;
 
     while (!nh->close_req) {
         nk_harp_feed_events(nh);
@@ -158,12 +157,9 @@ int main(void)
         prev_radio = radio_sel; prev_combo = combo_sel;
         prev_count = click_count;
         prev_elen  = edit_len;
-        dirty      = 0;
         nk_harp_render(nh);
         harp_flush(nh->win);
-        zen_halt();
     }
-
     nk_harp_free(nh);
     return 0;
 }

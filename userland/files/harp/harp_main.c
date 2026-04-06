@@ -352,8 +352,7 @@ int main(void)
 
     wm_init();
 
-    socket_delete(WM_SOCK);
-    if (socket_create(WM_SOCK) < 0) { free(backbuf); return 1; }
+    if (socket_create(WM_SOCK) < 0) { free(backbuf); write(STDERR_FILENO, "Harp is already running.\nMultiple instances cannot be run.", 58); return 1; }
     if (socket_open(WM_SOCK, &ev_sock) < 0 || !ev_sock) {
         socket_delete(WM_SOCK);
         free(backbuf);
@@ -439,7 +438,6 @@ int main(void)
                     drag_base_x  = windows[clicked].x;
                     drag_base_y  = windows[clicked].y;
                 }
-                full_redraw();
             }
         }
 
