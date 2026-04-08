@@ -1,6 +1,14 @@
 # ZenOS Makefile
 
-CFLAGS = -mcmodel=kernel -m64 -ffreestanding -fno-stack-protector -Wall -Wextra -c -fno-pie -fno-pic -Wno-missing-braces
+ifeq ($(origin CC), default)
+CC := clang
+endif
+ifeq ($(origin LD), undefined)
+LD := ld.lld
+endif
+KERNEL_OPT ?= -O2
+
+CFLAGS = -mcmodel=kernel -m64 -ffreestanding -fno-stack-protector -Wall -Wextra -fno-pie -fno-pic -Wno-missing-braces -mno-red-zone -fomit-frame-pointer $(KERNEL_OPT) -MMD -MP
 LDFLAGS = -Wl,-T,linker.ld -fuse-ld=lld -nostdlib -no-pie
 ASFLAGS = -f elf64
 
@@ -16,22 +24,23 @@ C_SOURCES = $(shell find $(SRC_DIR) -name "*.c")
 ASM_SOURCES = $(shell find $(SRC_DIR) -name "*.asm")
 
 OBJ = $(C_SOURCES:.c=.o) $(ASM_SOURCES:.asm=.o)
+DEPS = $(C_SOURCES:.c=.d)
 
 KERNEL = $(BUILD_DIR)/kernel.bin
 
 ISO_IMAGE = ZenOS.iso
 
-all: clean deps fat $(ISO_IMAGE) mlibc init user
+all: deps fat $(ISO_IMAGE) mlibc init user
 
 %.o: %.c
-	clang $(CFLAGS) $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
 
 %.o: %.asm
 	nasm $(ASFLAGS) $< -o $@
 
 $(KERNEL): $(OBJ)
 	@mkdir -p $(BUILD_DIR)
-	clang $(LDFLAGS) $(OBJ) -o $@
+	$(CC) $(LDFLAGS) $(OBJ) -o $@
 
 $(ISO_IMAGE): $(KERNEL) $(LIMINE_BINARIES)
 	@mkdir -p $(ISO_DIR)/boot
@@ -77,7 +86,7 @@ funcs:
 	@echo "✓ Generated funcs.txt"
 
 fat:
-	clang fat_man.c \
+	$(CC) -O2 fat_man.c \
 	src/drv/disk/fatfs/ff.c \
 	src/drv/disk/fatfs/ffunicode.c \
 	-Isrc/drv/disk/fatfs \
@@ -87,7 +96,7 @@ fat:
 	-o fat_man 2>&1
 
 clean:
-	rm -rf $(OBJ) $(KERNEL) $(ISO_IMAGE) $(ISO_DIR) $(BUILD_DIR) src/cpu/ap.bin
+	rm -rf $(OBJ) $(DEPS) $(KERNEL) $(ISO_IMAGE) $(ISO_DIR) $(BUILD_DIR) src/cpu/ap.bin
 
 deps:
 	@echo "Checking ZenOS build dependencies..."
@@ -178,3 +187,8 @@ mlibc:
 	$(USER_DIR)/install_mlibc.sh
 
 .PHONY: all clean run qemu out stop gdb fat funcs mlibc
+
+src/libk/core/mem.o: CFLAGS += -fno-vectorize -fno-slp-vectorize -mno-sse -mno-sse2 -mno-mmx
+src/libk/string.o: CFLAGS += -fno-builtin-memcpy -fno-builtin-memmove -fno-builtin-memset -fno-builtin-memcmp -fno-builtin-memchr -fno-vectorize -fno-slp-vectorize -mno-sse -mno-sse2 -mno-mmx
+
+-include $(DEPS)

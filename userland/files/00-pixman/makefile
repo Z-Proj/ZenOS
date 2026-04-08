@@ -6,6 +6,7 @@ MLIBC_USR := $(MLIBC_SYSROOT)/usr
 FATMAN   ?= ../../../fat_man
 VHD      ?= ../../../ZenOS.vhd
 AR       := $(shell command -v llvm-ar 2>/dev/null || command -v ar)
+.DEFAULT_GOAL := all
 
 SRC_DIR  = pixman
 
@@ -25,7 +26,6 @@ CORE_SRCS := \
 	$(SRC_DIR)/pixman-glyph.c \
 	$(SRC_DIR)/pixman-gradient-walker.c \
 	$(SRC_DIR)/pixman-image.c \
-	$(SRC_DIR)/pixman-mmx.c \
 	$(SRC_DIR)/pixman-implementation.c \
 	$(SRC_DIR)/pixman-linear-gradient.c \
 	$(SRC_DIR)/pixman-matrix.c \
@@ -55,7 +55,9 @@ $(BUILD_DIR)/pixman-mmx.o: $(SRC_DIR)/pixman-mmx.c
 	@mkdir -p $(BUILD_DIR)
 	$(CC) $(COMMON_CPPFLAGS) $(COMMON_CFLAGS) -mmmx -msse -c $< -o $@
 
-CC  ?= clang
+ifeq ($(origin CC), default)
+CC := clang
+endif
 LD  ?= ld.lld
 
 COMMON_CPPFLAGS := \
@@ -66,7 +68,7 @@ COMMON_CPPFLAGS := \
 	-include $(SRC_DIR)/pixman-config.h
 
 COMMON_CFLAGS := \
-	-m64 -O2 -fPIE \
+	-m64 -O3 -fPIE -fomit-frame-pointer \
 	-fno-stack-protector -mno-red-zone -nostdlib \
 	-fvisibility=hidden \
 	-fno-math-errno \

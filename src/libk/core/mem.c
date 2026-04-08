@@ -15,6 +15,7 @@ static uint64_t bitmap_size = 0;
 
 static uint64_t memory_base = 0;
 static uint64_t memory_top = 0;
+static uint64_t pmm_hint = 0;
 
 #define HEAP_ALIGN          16
 #define HEAP_MIN_BLOCK      (HEAP_ALIGN * 2)
@@ -22,7 +23,8 @@ static uint64_t memory_top = 0;
 #define HEAP_MAGIC          0xDEADBEEFCAFEBABEULL
 #define USER_SHM_PML4_INDEX ((0x0000500000000000ULL >> 39) & 0x1FF)
 
-#define BLK_OVERHEAD        (sizeof(blk_hdr_t) + sizeof(size_t))
+#define BLK_OVERHEAD        (((sizeof(blk_hdr_t) + sizeof(size_t)) + HEAP_ALIGN - 1) & ~(size_t)(HEAP_ALIGN - 1))
+#define BLK_PAD             (BLK_OVERHEAD - sizeof(blk_hdr_t) - sizeof(size_t))
 
 typedef struct blk_hdr {
     size_t          size;
@@ -54,18 +56,18 @@ static int size_class(size_t sz)
 
 static inline size_t *blk_footer(blk_hdr_t *b)
 {
-    return (size_t *)((uint8_t *)b + sizeof(blk_hdr_t) + b->size);
+    return (size_t *)((uint8_t *)b + sizeof(blk_hdr_t) + b->size + BLK_PAD);
 }
 
 static inline blk_hdr_t *blk_next(blk_hdr_t *b)
 {
-    return (blk_hdr_t *)((uint8_t *)b + sizeof(blk_hdr_t) + b->size + sizeof(size_t));
+    return (blk_hdr_t *)((uint8_t *)b + BLK_OVERHEAD + b->size);
 }
 
 static inline blk_hdr_t *blk_prev(blk_hdr_t *b)
 {
     size_t *prev_foot = (size_t *)((uint8_t *)b - sizeof(size_t));
-    return (blk_hdr_t *)((uint8_t *)b - sizeof(blk_hdr_t) - *prev_foot - sizeof(size_t));
+    return (blk_hdr_t *)((uint8_t *)b - BLK_OVERHEAD - *prev_foot);
 }
 
 static void fl_insert(blk_hdr_t *b)
@@ -146,38 +148,54 @@ static int test_bit(uint64_t bit)
     return pmm_bitmap[bit / 8] & (1 << (bit % 8));
 }
 
-static uint64_t find_free_pages(size_t count)
+static uint64_t find_free_pages_range(size_t count, uint64_t start, uint64_t end)
 {
+    if (count == 0 || start >= end || count > end - start)
+        return UINT64_MAX;
+
     if (count == 1)
     {
-        for (uint64_t i = 0; i < total_pages; i++)
+        for (uint64_t i = start; i < end; i++)
         {
             if (!test_bit(i))
-            {
                 return i;
-            }
         }
     }
     else
     {
-        for (uint64_t i = 0; i <= total_pages - count; i++)
+        uint64_t limit = end - count + 1;
+        for (uint64_t i = start; i < limit;)
         {
-            int found = 1;
             for (size_t j = 0; j < count; j++)
             {
                 if (test_bit(i + j))
                 {
-                    found = 0;
-                    break;
+                    i += j + 1;
+                    goto next_page_run;
                 }
             }
-            if (found)
-            {
-                return i;
-            }
+            return i;
+next_page_run:
+            ;
         }
     }
     return UINT64_MAX;
+}
+
+static uint64_t find_free_pages(size_t count)
+{
+    if (count == 0 || count > total_pages)
+        return UINT64_MAX;
+
+    uint64_t start = pmm_hint;
+    if (start >= total_pages)
+        start = 0;
+
+    uint64_t page_idx = find_free_pages_range(count, start, total_pages);
+    if (page_idx != UINT64_MAX || start == 0)
+        return page_idx;
+
+    return find_free_pages_range(count, 0, start);
 }
 
 void init_pmm(void)
@@ -190,6 +208,7 @@ void init_pmm(void)
     }
     memory_base = UINT64_MAX;
     memory_top = 0;
+    pmm_hint = 0;
 
     for (size_t i = 0; i < memmap->entry_count; i++)
     {
@@ -297,6 +316,9 @@ uint64_t alloc_pages(size_t count)
         set_bit(page_idx + i);
         used_pages++;
     }
+    pmm_hint = page_idx + count;
+    if (pmm_hint >= total_pages)
+        pmm_hint = 0;
     spinlock_release(&pmm_lock);
     return memory_base + (page_idx * PAGE_SIZE);
 }
@@ -324,6 +346,8 @@ void free_pages(uint64_t addr, size_t count)
             used_pages--;
         }
     }
+    if (page_idx < pmm_hint)
+        pmm_hint = page_idx;
     spinlock_release(&pmm_lock);
 }
 
@@ -389,12 +413,13 @@ void *kmalloc(size_t size)
                 fl_remove(b);
 
                 if (b->size >= size + BLK_OVERHEAD + HEAP_MIN_BLOCK) {
-                    blk_hdr_t *split = (blk_hdr_t *)((uint8_t *)b + sizeof(blk_hdr_t) + size + sizeof(size_t));
-                    split->size      = b->size - size - BLK_OVERHEAD;
+                    size_t old_size  = b->size;
+                    b->size          = size;
+                    blk_hdr_t *split = blk_next(b);
+                    split->size      = old_size - size - BLK_OVERHEAD;
                     split->used      = 0;
                     split->prev_free = NULL;
                     split->next_free = NULL;
-                    b->size          = size;
                     write_tags(b);
                     write_tags(split);
                     fl_insert(split);

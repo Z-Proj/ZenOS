@@ -139,19 +139,26 @@ static void input_event_queue_push(input_event_queue_t *queue, uint16_t type, ui
     spinlock_release_irqrestore(&queue->lock, rflags);
 }
 
-static int input_event_queue_pop(input_event_queue_t *queue, input_event_t *event)
+static uint32_t input_event_queue_read(input_event_queue_t *queue, input_event_t *events, uint32_t count)
 {
-    int found = 0;
     uint64_t rflags = spinlock_acquire_irqsave(&queue->lock);
-    if (queue->count)
+    uint32_t ready = queue->count;
+    if (ready > count)
+        ready = count;
+    uint32_t first = INPUT_EVENT_QUEUE_CAP - queue->tail;
+    if (first > ready)
+        first = ready;
+    memcpy(events, queue->data + queue->tail, first * sizeof(input_event_t));
+    queue->tail = (queue->tail + first) % INPUT_EVENT_QUEUE_CAP;
+    if (first < ready)
     {
-        *event = queue->data[queue->tail];
-        queue->tail = (queue->tail + 1) % INPUT_EVENT_QUEUE_CAP;
-        queue->count--;
-        found = 1;
+        uint32_t second = ready - first;
+        memcpy(events + first, queue->data + queue->tail, second * sizeof(input_event_t));
+        queue->tail = (queue->tail + second) % INPUT_EVENT_QUEUE_CAP;
     }
+    queue->count -= ready;
     spinlock_release_irqrestore(&queue->lock, rflags);
-    return found;
+    return ready;
 }
 
 static uint32_t input_event_queue_bytes(input_event_queue_t *queue)
@@ -175,19 +182,26 @@ static void input_byte_queue_push(input_byte_queue_t *queue, uint8_t value)
     spinlock_release_irqrestore(&queue->lock, rflags);
 }
 
-static int input_byte_queue_pop(input_byte_queue_t *queue, uint8_t *value)
+static uint32_t input_byte_queue_read(input_byte_queue_t *queue, uint8_t *dst, uint32_t size)
 {
-    int found = 0;
     uint64_t rflags = spinlock_acquire_irqsave(&queue->lock);
-    if (queue->count)
+    uint32_t ready = queue->count;
+    if (ready > size)
+        ready = size;
+    uint32_t first = INPUT_BYTE_QUEUE_CAP - queue->tail;
+    if (first > ready)
+        first = ready;
+    memcpy(dst, queue->data + queue->tail, first);
+    queue->tail = (queue->tail + first) % INPUT_BYTE_QUEUE_CAP;
+    if (first < ready)
     {
-        *value = queue->data[queue->tail];
-        queue->tail = (queue->tail + 1) % INPUT_BYTE_QUEUE_CAP;
-        queue->count--;
-        found = 1;
+        uint32_t second = ready - first;
+        memcpy(dst + first, queue->data + queue->tail, second);
+        queue->tail = (queue->tail + second) % INPUT_BYTE_QUEUE_CAP;
     }
+    queue->count -= ready;
     spinlock_release_irqrestore(&queue->lock, rflags);
-    return found;
+    return ready;
 }
 
 static uint32_t input_byte_queue_count(input_byte_queue_t *queue)
@@ -209,16 +223,16 @@ static int input_event_read(input_event_queue_t *queue, void *buf, uint32_t size
     uint32_t copied = 0;
     while (copied + sizeof(input_event_t) <= size)
     {
-        input_event_t event;
-        if (!input_event_queue_pop(queue, &event))
+        uint32_t remain = (size - copied) / (uint32_t)sizeof(input_event_t);
+        uint32_t got = input_event_queue_read(queue, (input_event_t *)((uint8_t *)buf + copied), remain);
+        if (got == 0)
         {
             if (copied)
                 break;
             sched_yield();
             continue;
         }
-        memcpy((uint8_t *)buf + copied, &event, sizeof(event));
-        copied += sizeof(event);
+        copied += got * (uint32_t)sizeof(input_event_t);
     }
 
     if (got)
@@ -236,15 +250,15 @@ static int input_byte_read(input_byte_queue_t *queue, void *buf, uint32_t size, 
     uint32_t copied = 0;
     while (copied < size)
     {
-        uint8_t value = 0;
-        if (!input_byte_queue_pop(queue, &value))
+        uint32_t got = input_byte_queue_read(queue, (uint8_t *)buf + copied, size - copied);
+        if (got == 0)
         {
             if (copied)
                 break;
             sched_yield();
             continue;
         }
-        ((uint8_t *)buf)[copied++] = value;
+        copied += got;
     }
 
     if (got)

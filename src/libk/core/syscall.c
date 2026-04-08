@@ -383,6 +383,36 @@ static int pty_push_m2s(pty_buf_t *pty, uint8_t ch)
     return 1;
 }
 
+static uint32_t pipe_read_locked(pipe_buf_t *pipe, uint8_t *dst, uint32_t size)
+{
+    uint32_t first = 4096 - pipe->read_pos;
+    if (first > size)
+        first = size;
+    memcpy(dst, pipe->data + pipe->read_pos, first);
+    pipe->read_pos = (pipe->read_pos + first) % 4096;
+    if (first == size)
+        return first;
+    uint32_t second = size - first;
+    memcpy(dst + first, pipe->data + pipe->read_pos, second);
+    pipe->read_pos = (pipe->read_pos + second) % 4096;
+    return size;
+}
+
+static uint32_t pipe_write_locked(pipe_buf_t *pipe, const uint8_t *src, uint32_t size)
+{
+    uint32_t first = 4096 - pipe->write_pos;
+    if (first > size)
+        first = size;
+    memcpy(pipe->data + pipe->write_pos, src, first);
+    pipe->write_pos = (pipe->write_pos + first) % 4096;
+    if (first == size)
+        return first;
+    uint32_t second = size - first;
+    memcpy(pipe->data + pipe->write_pos, src + first, second);
+    pipe->write_pos = (pipe->write_pos + second) % 4096;
+    return size;
+}
+
 static int pty_pop_m2s(pty_buf_t *pty, uint8_t *out)
 {
     if (pty->m2s_count == 0)
@@ -978,9 +1008,11 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                     sched_yield();
                     continue;
                 }
-                cbuf[n++] = e->pipe->data[e->pipe->read_pos];
-                e->pipe->read_pos = (e->pipe->read_pos + 1) % 4096;
-                e->pipe->count--;
+                uint32_t chunk = size - n;
+                if (chunk > e->pipe->count)
+                    chunk = e->pipe->count;
+                n += pipe_read_locked(e->pipe, cbuf + n, chunk);
+                e->pipe->count -= chunk;
                 spinlock_release_irqrestore(&e->pipe->lock, rflags);
             }
             return (int64_t)n;
@@ -1083,16 +1115,20 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (e->type == FD_PIPE_WRITE)
         {
             const uint8_t *cbuf = (const uint8_t *)buffer;
-            for (uint32_t i = 0; i < size; i++)
+            uint32_t total = 0;
+            while (total < size)
             {
                 while (1)
                 {
                     uint64_t rflags = spinlock_acquire_irqsave(&e->pipe->lock);
-                    if (e->pipe->count < 4096)
+                    uint32_t space = 4096 - e->pipe->count;
+                    if (space)
                     {
-                        e->pipe->data[e->pipe->write_pos] = cbuf[i];
-                        e->pipe->write_pos = (e->pipe->write_pos + 1) % 4096;
-                        e->pipe->count++;
+                        uint32_t chunk = size - total;
+                        if (chunk > space)
+                            chunk = space;
+                        total += pipe_write_locked(e->pipe, cbuf + total, chunk);
+                        e->pipe->count += chunk;
                         spinlock_release_irqrestore(&e->pipe->lock, rflags);
                         break;
                     }
@@ -1100,7 +1136,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                     sched_yield();
                 }
             }
-            return (int64_t)size;
+            return (int64_t)total;
         }
         if (e->type == FD_DEV)
         {

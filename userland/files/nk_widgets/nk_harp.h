@@ -8,7 +8,6 @@
 #define SSFN_free    free
 #include "ssfn.h"
 
-#include <pixman-1/pixman.h>
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
@@ -33,6 +32,24 @@ typedef struct {
 } nk_harp_t;
 
 static nk_harp_t *g_nh = NULL;
+
+static uint32_t nk_harp_blend_px(uint32_t dst, uint32_t src)
+{
+    uint32_t a = src >> 24;
+    if (a == 0) return dst;
+    if (a == 255) return src;
+    uint32_t sr = (src >> 16) & 0xFF;
+    uint32_t sg = (src >> 8) & 0xFF;
+    uint32_t sb = src & 0xFF;
+    uint32_t dr = (dst >> 16) & 0xFF;
+    uint32_t dg = (dst >> 8) & 0xFF;
+    uint32_t db = dst & 0xFF;
+    uint32_t ia = 255 - a;
+    uint32_t r = (sr * a + dr * ia) / 255;
+    uint32_t g = (sg * a + dg * ia) / 255;
+    uint32_t b = (sb * a + db * ia) / 255;
+    return 0xFF000000 | (r << 16) | (g << 8) | b;
+}
 
 static float nk_harp_text_width(nk_handle handle, float height, const char *text, int len)
 {
@@ -78,21 +95,17 @@ static void nk_harp_fill_rect(nk_harp_t *nh, int x, int y, int w, int h, uint32_
     int y2 = y + h > nh->win->h ? nh->win->h : y + h;
     if (x1 >= x2 || y1 >= y2) return;
 
-    pixman_image_t *dst = pixman_image_create_bits(
-        PIXMAN_x8r8g8b8, nh->win->w, nh->win->h,
-        nh->win->buf, nh->win->w * 4);
-    pixman_image_t *src = pixman_image_create_bits(
-        PIXMAN_x8r8g8b8, 1, 1, (uint32_t[]){col}, 4);
-    pixman_image_set_repeat(src, PIXMAN_REPEAT_NORMAL);
-
     uint8_t a = (col >> 24) & 0xFF;
-    pixman_op_t op = (a < 255) ? PIXMAN_OP_OVER : PIXMAN_OP_SRC;
-
-    pixman_image_composite(op, src, NULL, dst,
-                           0, 0, 0, 0,
-                           x1, y1, x2 - x1, y2 - y1);
-    pixman_image_unref(src);
-    pixman_image_unref(dst);
+    for (int row = y1; row < y2; row++) {
+        uint32_t *line = nh->win->buf + row * nh->win->w + x1;
+        if (a == 255) {
+            for (int i = 0; i < x2 - x1; i++)
+                line[i] = col;
+        } else {
+            for (int i = 0; i < x2 - x1; i++)
+                line[i] = nk_harp_blend_px(line[i], col);
+        }
+    }
 }
 
 static void nk_harp_fill_rrect(nk_harp_t *nh, int x, int y, int w, int h, int r, uint32_t col)

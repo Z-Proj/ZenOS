@@ -12,17 +12,13 @@ LD  := ld.lld
 SRCS = nk_impl.c nk_widgets.c
 OBJS = nk_impl.o nk_widgets.o FreeSansB.o
 
-PIXMAN_INC := $(MLIBC_USR)/include
-PIXMAN_LIB := $(MLIBC_USR)/lib/libpixman.a
-
 COMMON_CPPFLAGS := \
 	--sysroot=$(MLIBC_SYSROOT) \
 	-isystem $(MLIBC_USR)/include \
-	-I ../.. -I . \
-	-I $(PIXMAN_INC)
+	-I ../.. -I .
 
 COMMON_CFLAGS := \
-	-m64 -O1 -fPIE \
+	-m64 -O3 -fPIE -fomit-frame-pointer \
 	-fno-stack-protector -mno-red-zone -nostdlib \
 	-fvisibility=hidden
 
@@ -44,10 +40,10 @@ nk_impl.o: nk_impl.c
 %.o: %.sfn
 	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 $< $@
 
-$(APP): $(OBJS) $(PIXMAN_LIB)
+$(APP): $(OBJS)
 	$(LD) $(COMMON_LDFLAGS) \
 		$(MLIBC_USR)/lib/crti.o $(MLIBC_USR)/lib/crt0.o \
-		$(OBJS) $(PIXMAN_LIB) -l:libc.so -l:libm.so \
+		$(OBJS) -l:libc.so -l:libm.so \
 		$(MLIBC_USR)/lib/crtn.o -o $@
 
 install: $(APP)

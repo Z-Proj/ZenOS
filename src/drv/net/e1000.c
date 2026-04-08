@@ -1,4 +1,5 @@
 #include "e1000.h"
+#include "net.h"
 #include "pci.h"
 #include "../local_apic.h"
 
@@ -276,23 +277,6 @@ int e1000_send_packet(void *data, size_t len)
     dev.tx_cur = (tail + 1) % NUM_TX_DESC;
     e1000_write(E1000_REG_TDT, dev.tx_cur);
 
-    int tries = 1000000;
-    while (!(dev.tx_ring[tail].status & 0x1) && --tries > 0)
-    {
-        for (volatile int i = 0; i < 10; i++)
-            ;
-    }
-
-    if (tries == 0)
-    {
-        uint32_t tdh = e1000_read(E1000_REG_TDH);
-        uint32_t tdt = e1000_read(E1000_REG_TDT);
-        uint32_t tctl = e1000_read(E1000_REG_TCTL);
-        log("TX Timeout. Desc %d, Status: %02x, TDH: %d, TDT: %d, TCTL: %08x", 2, 1,
-            tail, dev.tx_ring[tail].status, tdh, tdt, tctl);
-        return -1;
-    }
-
     return len;
 }
 
@@ -309,15 +293,6 @@ int e1000_receive_packet(void *buf, size_t buf_size)
         len = buf_size;
 
     memcpy(buf, rx_buf_virt[idx], len);
-
-    uint64_t old_phys = desc->addr;
-    if (old_phys)
-        free_page(old_phys);
-
-    uint64_t new_buf = alloc_page();
-    void *va = (void *)(new_buf + KERNEL_VIRT_OFFSET);
-    rx_buf_virt[idx] = va;
-    desc->addr = new_buf;
     desc->status = 0;
     desc->length = RX_BUFFER_SIZE;
     desc->errors = 0;
@@ -386,14 +361,5 @@ void e1000_handle_interrupt(void)
     }
 
     if (status & (E1000_ICR_RXT0 | E1000_ICR_RXDMT | E1000_ICR_RXO))
-    {
-        static uint8_t tmp_rx[2048];
-        int got;
-        while ((got = e1000_receive_packet(tmp_rx, sizeof(tmp_rx))) > 0)
-        {
-
-            log("E1000: RX %d bytes (ethertype %02x%02x)", 1, 0,
-                got, tmp_rx[12], tmp_rx[13]);
-        }
-    }
+        net_poll();
 }

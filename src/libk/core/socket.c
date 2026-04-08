@@ -7,6 +7,35 @@ static socket_file_t socket_files[SOCKET_MAX_FILES];
 static bool initialized = false;
 static spinlock_t socket_table_lock;
 
+static uint32_t socket_ring_read_locked(socket_file_t *file, uint8_t *dest, uint32_t size)
+{
+    uint32_t first = file->capacity - file->read_pos;
+    if (first > size)
+        first = size;
+    memcpy(dest, file->data + file->read_pos, first);
+    file->read_pos = (file->read_pos + first) % file->capacity;
+    if (first == size)
+        return first;
+    uint32_t second = size - first;
+    memcpy(dest + first, file->data + file->read_pos, second);
+    file->read_pos = (file->read_pos + second) % file->capacity;
+    return size;
+}
+
+static void socket_ring_write_locked(socket_file_t *file, const uint8_t *src, uint32_t size)
+{
+    uint32_t first = file->capacity - file->write_pos;
+    if (first > size)
+        first = size;
+    memcpy(file->data + file->write_pos, src, first);
+    file->write_pos = (file->write_pos + first) % file->capacity;
+    if (first == size)
+        return;
+    uint32_t second = size - first;
+    memcpy(file->data + file->write_pos, src + first, second);
+    file->write_pos = (file->write_pos + second) % file->capacity;
+}
+
 void socket_init(void)
 {
     spinlock_init(&socket_table_lock);
@@ -123,18 +152,10 @@ socket_error_t socket_read(socket_file_t *file, void *buffer, uint32_t size, uin
     }
 
     uint32_t to_read = (size < file->available) ? size : file->available;
-    uint32_t read_count = 0;
-    uint8_t *dest = (uint8_t *)buffer;
-
-    while (read_count < to_read)
-    {
-        dest[read_count] = file->data[file->read_pos];
-        file->read_pos = (file->read_pos + 1) % file->capacity;
-        read_count++;
-    }
+    uint32_t read_count = socket_ring_read_locked(file, (uint8_t *)buffer, to_read);
 
     file->available -= to_read;
-    *bytes_read = to_read;
+    *bytes_read = read_count;
     spinlock_release_irqrestore(&file->lock, flags);
 
     return SOCKET_OK;
@@ -161,13 +182,7 @@ socket_error_t socket_write(socket_file_t *file, const void *buffer, uint32_t si
         return SOCKET_ERROR_BUFFER_FULL;
     }
 
-    const uint8_t *src = (const uint8_t *)buffer;
-
-    for (uint32_t i = 0; i < size; i++)
-    {
-        file->data[file->write_pos] = src[i];
-        file->write_pos = (file->write_pos + 1) % file->capacity;
-    }
+    socket_ring_write_locked(file, (const uint8_t *)buffer, size);
 
     file->available += size;
     spinlock_release_irqrestore(&file->lock, flags);

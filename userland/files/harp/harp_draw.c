@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/time.h>
-#include <pixman-1/pixman.h>
 
 #include "harp_draw.h"
 #include "harp_wm.h"
@@ -38,7 +37,6 @@
 #define C_WHITE      0xFFFFFFFF
 #define TILE_ALPHA   120
 
-static pixman_image_t *s_dst_img = NULL;
 static uint32_t *s_backbuf;
 static uint32_t *s_bgbuf;
 static uint32_t *s_dash_backdrop;
@@ -69,10 +67,6 @@ void draw_init(uint32_t *backbuf, uint32_t *bgbuf, uint32_t *dash_backdrop,
                int dash_backdrop_y, int dash_backdrop_w, void *ssfn_ctx)
 {
     s_backbuf          = backbuf;
-    if (s_dst_img) pixman_image_unref(s_dst_img);
-    s_dst_img = pixman_image_create_bits(
-        PIXMAN_x8r8g8b8, (int)SCR_W, (int)SCR_H,
-        s_backbuf, (int)(SCR_W * 4));
     s_bgbuf            = bgbuf;
     s_dash_backdrop    = dash_backdrop;
     s_dash_backdrop_y  = dash_backdrop_y;
@@ -96,6 +90,43 @@ static inline void bb_px(int x, int y, uint32_t c)
         s_backbuf[y * SCR_W + x] = c;
 }
 
+static inline uint32_t blend_px(uint32_t dst, uint32_t src)
+{
+    uint32_t a = src >> 24;
+    if (a == 0)
+        return dst;
+    if (a == 255)
+        return src;
+    uint32_t sr = (src >> 16) & 0xFF;
+    uint32_t sg = (src >> 8) & 0xFF;
+    uint32_t sb = src & 0xFF;
+    uint32_t dr = (dst >> 16) & 0xFF;
+    uint32_t dg = (dst >> 8) & 0xFF;
+    uint32_t db = dst & 0xFF;
+    uint32_t ia = 255 - a;
+    uint32_t r = (sr * a + dr * ia) / 255;
+    uint32_t g = (sg * a + dg * ia) / 255;
+    uint32_t b = (sb * a + db * ia) / 255;
+    return 0xFF000000 | (r << 16) | (g << 8) | b;
+}
+
+static inline void fill_span(uint32_t *dst, int count, uint32_t c)
+{
+    for (int i = 0; i < count; i++)
+        dst[i] = c;
+}
+
+static inline void blend_span(uint32_t *dst, int count, uint32_t src)
+{
+    uint32_t a = src >> 24;
+    if (a == 255) {
+        fill_span(dst, count, src);
+        return;
+    }
+    for (int i = 0; i < count; i++)
+        dst[i] = blend_px(dst[i], src);
+}
+
 void bb_rect(int x, int y, int w, int h, uint32_t c)
 {
     int x1 = x < 0 ? 0 : x;
@@ -103,17 +134,8 @@ void bb_rect(int x, int y, int w, int h, uint32_t c)
     int x2 = x + w > (int)SCR_W ? (int)SCR_W : x + w;
     int y2 = y + h > (int)SCR_H ? (int)SCR_H : y + h;
     if (x1 >= x2 || y1 >= y2) return;
-
-    pixman_image_t *dst = pixman_image_create_bits(
-        PIXMAN_a8r8g8b8, (int)SCR_W, (int)SCR_H,
-        s_backbuf, (int)(SCR_W * 4));
-    pixman_image_t *src = pixman_image_create_bits(
-        PIXMAN_a8r8g8b8, 1, 1, (uint32_t[]){c}, 4);
-    pixman_image_set_repeat(src, PIXMAN_REPEAT_NORMAL);
-    pixman_image_composite(PIXMAN_OP_SRC, src, NULL, dst,
-                           0, 0, 0, 0, x1, y1, x2 - x1, y2 - y1);
-    pixman_image_unref(src);
-    pixman_image_unref(dst);
+    for (int row = y1; row < y2; row++)
+        fill_span(s_backbuf + row * SCR_W + x1, x2 - x1, c);
 }
 
 void bb_rrect_ex(int x, int y, int w, int h, int r, uint32_t c, round_corners_t corners)
@@ -161,13 +183,6 @@ void bb_rrect_alpha(int x, int y, int w, int h, int r, uint32_t c, uint32_t a)
     if (r > h / 2) r = h / 2;
     uint32_t src_color = (a << 24) | (c & 0x00FFFFFF);
 
-    pixman_image_t *dst = pixman_image_create_bits(
-        PIXMAN_a8r8g8b8, (int)SCR_W, (int)SCR_H,
-        s_backbuf, (int)(SCR_W * 4));
-    pixman_image_t *src = pixman_image_create_bits(
-        PIXMAN_a8r8g8b8, 1, 1, (uint32_t[]){src_color}, 4);
-    pixman_image_set_repeat(src, PIXMAN_REPEAT_NORMAL);
-
     for (int row = 0; row < h; row++) {
         int ay = y + row;
         if (ay < 0 || (uint32_t)ay >= SCR_H) continue;
@@ -182,11 +197,8 @@ void bb_rrect_alpha(int x, int y, int w, int h, int r, uint32_t c, uint32_t a)
         if (x0 < 0) x0 = 0;
         if (x1 > (int)SCR_W) x1 = (int)SCR_W;
         if (x0 >= x1) continue;
-        pixman_image_composite(PIXMAN_OP_OVER, src, NULL, dst,
-                               0, 0, 0, 0, x0, ay, x1 - x0, 1);
+        blend_span(s_backbuf + ay * SCR_W + x0, x1 - x0, src_color);
     }
-    pixman_image_unref(src);
-    pixman_image_unref(dst);
 }
 
 void bb_rrect_outline(int x, int y, int w, int h, int r, uint32_t c)
@@ -288,16 +300,7 @@ void bb_rrect_alpha_top(int x, int y, int w, int h, int r, uint32_t c, uint32_t 
         if (x0 < 0) x0 = 0;
         if (x1 > (int)SCR_W) x1 = (int)SCR_W;
         if (x0 >= x1) continue;
-        pixman_image_t *dst = pixman_image_create_bits(
-            PIXMAN_a8r8g8b8, x1 - x0, 1,
-            s_backbuf + ay * SCR_W + x0, (x1 - x0) * 4);
-        pixman_image_t *src = pixman_image_create_bits(
-            PIXMAN_a8r8g8b8, 1, 1, (uint32_t[]){src_color}, 4);
-        pixman_image_set_repeat(src, PIXMAN_REPEAT_NORMAL);
-        pixman_image_composite(PIXMAN_OP_OVER, src, NULL, dst,
-                               0, 0, 0, 0, 0, 0, x1 - x0, 1);
-        pixman_image_unref(src);
-        pixman_image_unref(dst);
+        blend_span(s_backbuf + ay * SCR_W + x0, x1 - x0, src_color);
     }
 }
 
@@ -397,13 +400,18 @@ void draw_window(int idx)
         }
     }
     if (w->shmbuf) {
-        pixman_image_t *src_img = pixman_image_create_bits(
-            PIXMAN_x8r8g8b8, w->w, w->h,
-            (uint32_t *)w->shmbuf, w->w * 4);
-        pixman_image_composite(PIXMAN_OP_SRC, src_img, NULL, s_dst_img,
-                               0, 0, 0, 0,
-                               fx, fy + TITLEBAR_H, fw, w->h);
-        pixman_image_unref(src_img);
+        int dst_x0 = fx < 0 ? 0 : fx;
+        int dst_y0 = fy + TITLEBAR_H < 0 ? 0 : fy + TITLEBAR_H;
+        int dst_x1 = fx + fw > (int)SCR_W ? (int)SCR_W : fx + fw;
+        int dst_y1 = fy + TITLEBAR_H + w->h > (int)SCR_H ? (int)SCR_H : fy + TITLEBAR_H + w->h;
+        int src_x0 = dst_x0 - fx;
+        int src_y0 = dst_y0 - (fy + TITLEBAR_H);
+        if (dst_x0 < dst_x1 && dst_y0 < dst_y1)
+            for (int row = dst_y0; row < dst_y1; row++) {
+                memcpy(s_backbuf + row * SCR_W + dst_x0,
+                       (uint32_t *)w->shmbuf + (src_y0 + row - dst_y0) * w->w + src_x0,
+                       (dst_x1 - dst_x0) * 4);
+            }
         bb_round_clip_bottom(fx, fy + TITLEBAR_H, fw, w->h, WIN_R);
     } else {
         bb_rect(fx, fy + TITLEBAR_H, fw, w->h, 0xFF0D0D0D);

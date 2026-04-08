@@ -1,6 +1,7 @@
 #include "string.h"
 #include <stddef.h>
 #include <stdarg.h>
+#include <stdint.h>
 
 static char* strtok_save = NULL;
 
@@ -96,69 +97,72 @@ char* strrchr(const char* str, int c) {
 }
 
 void* memcpy(void* dest, const void* src, size_t size) {
-    if (!dest || !src || size == 0) return dest; 
+    if (!dest || !src || size == 0) return dest;
     unsigned char* d = (unsigned char*)dest;
     const unsigned char* s = (const unsigned char*)src;
-    while (size--) {
-        *d++ = *s++;
+
+    if ((((uintptr_t)d | (uintptr_t)s) & (sizeof(size_t) - 1)) == 0) {
+        size_t* dw = (size_t*)d;
+        const size_t* sw = (const size_t*)s;
+        while (size >= sizeof(size_t)) {
+            *dw++ = *sw++;
+            size -= sizeof(size_t);
+        }
+        d = (unsigned char*)dw;
+        s = (const unsigned char*)sw;
     }
+
+    while (size--) *d++ = *s++;
     return dest;
 }
 
 void* memset(void* ptr, int value, size_t size) {
-    if (!ptr || size == 0) {
-        return ptr;
-    }
-    
-    volatile unsigned char* p = (volatile unsigned char*)ptr;
-    unsigned char val = (unsigned char)value;
-    
-    while (size > 0) {
-        *p = val;
-        p++;
+    if (!ptr || size == 0) return ptr;
+    unsigned char* p = (unsigned char*)ptr;
+    unsigned char b = (unsigned char)value;
+
+    while (size && ((uintptr_t)p & (sizeof(size_t) - 1))) {
+        *p++ = b;
         size--;
     }
-    
+
+    if (size >= sizeof(size_t)) {
+        size_t word = b;
+        word |= word << 8;
+        word |= word << 16;
+        if (sizeof(size_t) == 8) word |= word << 32;
+        size_t* pw = (size_t*)p;
+        while (size >= sizeof(size_t)) {
+            *pw++ = word;
+            size -= sizeof(size_t);
+        }
+        p = (unsigned char*)pw;
+    }
+
+    while (size--) *p++ = b;
     return ptr;
 }
 
 void* memmove(void* dest, const void* src, size_t n) {
-    if (!dest || !src || n == 0) {
-        return dest;
-    }
-    
-    if (dest == src) {
-        return dest;
-    }
-
-    volatile unsigned char* d = (volatile unsigned char*)dest;
-    volatile const unsigned char* s = (volatile const unsigned char*)src;
+    if (!dest || !src || n == 0 || dest == src) return dest;
+    unsigned char* d = (unsigned char*)dest;
+    const unsigned char* s = (const unsigned char*)src;
 
     if (d < s || d >= s + n) {
-        size_t i = 0;
-        while (i < n) {
-            d[i] = s[i];
-            i++;
-        }
-    } else {
-        size_t i = n;
-        while (i > 0) {
-            i--;
-            d[i] = s[i];
-        }
+        return memcpy(dest, src, n);
     }
 
+    d += n;
+    s += n;
+    while (n--) *--d = *--s;
     return dest;
 }
 
 int memcmp(const void* ptr1, const void* ptr2, size_t size) {
     const unsigned char* p1 = (const unsigned char*)ptr1;
     const unsigned char* p2 = (const unsigned char*)ptr2;
-    
     while (size--) {
-        if (*p1 != *p2) {
-            return *p1 - *p2;
-        }
+        if (*p1 != *p2) return (int)*p1 - (int)*p2;
         p1++;
         p2++;
     }
@@ -166,13 +170,11 @@ int memcmp(const void* ptr1, const void* ptr2, size_t size) {
 }
 
 void* memchr(const void* ptr, int value, size_t size) {
+    if (!ptr || size == 0) return NULL;
     const unsigned char* p = (const unsigned char*)ptr;
-    unsigned char val = (unsigned char)value;
-    
+    unsigned char b = (unsigned char)value;
     while (size--) {
-        if (*p == val) {
-            return (void*)p;
-        }
+        if (*p == b) return (void*)p;
         p++;
     }
     return NULL;

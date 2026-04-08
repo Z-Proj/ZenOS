@@ -591,8 +591,6 @@ int main(void)
     }
     if (slave_fd >= 0) close(slave_fd);
 
-    for (int i = 0; i < 50000000; i++) asm volatile("nop");
-
     while (1) {
         if (close_requested) {
             if (shell_pid > 0) zen_kill(shell_pid, 15);

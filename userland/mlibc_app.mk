@@ -12,6 +12,7 @@ INSTALL_PATH ?= /bin/$(APP)
 ifeq ($(origin CC), default)
 CC := clang
 endif
+USER_OPT ?= -O2
 CFLAGS ?=
 CPPFLAGS ?=
 LDFLAGS ?=
@@ -19,7 +20,7 @@ LDLIBS ?=
 INSTALL_HOOK ?= :
 
 COMMON_CPPFLAGS := --sysroot=$(MLIBC_SYSROOT) -isystem $(MLIBC_USR)/include -I ../.. -I .
-COMMON_CFLAGS := -m64 -ffreestanding -fno-stack-protector -mno-red-zone -nostdlib -fPIE -O1
+COMMON_CFLAGS := -m64 -ffreestanding -fno-stack-protector -mno-red-zone -nostdlib -fPIE $(USER_OPT) -fomit-frame-pointer
 COMMON_LDFLAGS := -m elf_x86_64 -pie -e _start -z max-page-size=0x1000 \
 	-dynamic-linker /mnt/drv0/usr/lib/ld.so -rpath /mnt/drv0/usr/lib \
 	-L$(MLIBC_USR)/lib \

@@ -7,6 +7,7 @@ syscall_entry:
     swapgs
     mov r9, rsp
     mov rsp, qword [gs:4]
+    sub rsp, 8
 
     push r9
     push rcx
@@ -36,6 +37,7 @@ syscall_entry:
     pop r11
     pop rcx
     pop r9
+    add rsp, 8
 
     mov rsp, r9
     swapgs

@@ -9,6 +9,36 @@
 static unix_sock_t unix_sock_pool[UNIX_SOCK_MAX];
 static spinlock_t  pool_lock;
 
+static uint32_t unix_sock_ring_write_locked(unix_sock_t *s, const uint8_t *src, uint32_t size)
+{
+    uint32_t first = UNIX_BUF_SIZE - s->rwrite;
+    if (first > size)
+        first = size;
+    memcpy(s->rbuf + s->rwrite, src, first);
+    s->rwrite = (s->rwrite + first) % UNIX_BUF_SIZE;
+    if (first == size)
+        return first;
+    uint32_t second = size - first;
+    memcpy(s->rbuf + s->rwrite, src + first, second);
+    s->rwrite = (s->rwrite + second) % UNIX_BUF_SIZE;
+    return size;
+}
+
+static uint32_t unix_sock_ring_read_locked(unix_sock_t *s, uint8_t *dst, uint32_t size)
+{
+    uint32_t first = UNIX_BUF_SIZE - s->rread;
+    if (first > size)
+        first = size;
+    memcpy(dst, s->rbuf + s->rread, first);
+    s->rread = (s->rread + first) % UNIX_BUF_SIZE;
+    if (first == size)
+        return first;
+    uint32_t second = size - first;
+    memcpy(dst + first, s->rbuf + s->rread, second);
+    s->rread = (s->rread + second) % UNIX_BUF_SIZE;
+    return size;
+}
+
 static int unix_sock_valid_path(const char *path)
 {
     if (!path || path[0] != '/' || path[1] == '\0')
@@ -357,11 +387,13 @@ static int unix_sock_write_locked(unix_sock_t *dst, const uint8_t *src, size_t l
             return written > 0 ? (int)written : -1;
         }
 
-        while (written < len && dst->rcount < UNIX_BUF_SIZE)
+        uint32_t space = UNIX_BUF_SIZE - dst->rcount;
+        if (space > len - written)
+            space = (uint32_t)(len - written);
+        if (space)
         {
-            dst->rbuf[dst->rwrite] = src[written++];
-            dst->rwrite = (dst->rwrite + 1) % UNIX_BUF_SIZE;
-            dst->rcount++;
+            written += unix_sock_ring_write_locked(dst, src + written, space);
+            dst->rcount += space;
         }
 
         spinlock_release_irqrestore(&dst->lock, f);
@@ -421,13 +453,11 @@ int unix_sock_recvfrom(unix_sock_t *s, void *buf, size_t len, char *path, size_t
         uint64_t f = spinlock_acquire_irqsave(&s->lock);
         if (s->rcount > 0)
         {
-            size_t n = 0;
-            while (n < len && s->rcount > 0)
-            {
-                dst[n++] = s->rbuf[s->rread];
-                s->rread = (s->rread + 1) % UNIX_BUF_SIZE;
-                s->rcount--;
-            }
+            uint32_t n = s->rcount;
+            if (n > len)
+                n = (uint32_t)len;
+            unix_sock_ring_read_locked(s, dst, n);
+            s->rcount -= n;
 
             if (path && path_len)
                 unix_sock_copy_path(path, path_len, s->peer_path);

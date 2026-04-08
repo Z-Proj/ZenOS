@@ -27,11 +27,6 @@ extern char _binary_default_sfn_end;
 #define DASH_MARGIN 8
 #define TITLEBAR_H 28
 
-
-static ssfn_t ssfn;
-static ssfn_buf_t canvas;
-static fb_info_t fb;
-
 static ssfn_t     ssfn;
 static uint32_t  *backbuf      = NULL;
 static uint32_t  *bgbuf        = NULL;
@@ -40,13 +35,18 @@ static int        dash_bd_y    = 0;
 static int        dash_bd_w    = 0;
 static fb_info_t  fb;
 static socket_file_t *ev_sock  = NULL;
-static int        pending_redraw = 0;
+static int        pending_full_redraw = 0;
+static int        pending_from_z = MAX_WINDOWS;
+static int        pending_dash_redraw = 0;
 static char* dir;
 
 #define TASK_SNAPSHOT_MAX 128
 
 static void full_redraw(void)
 {
+    pending_full_redraw = 0;
+    pending_from_z = MAX_WINDOWS;
+    pending_dash_redraw = 0;
     dirty_all();
     draw_desktop();
     for (int i = 0; i < zcount; i++) {
@@ -56,6 +56,53 @@ static void full_redraw(void)
     if (dragging) draw_drag_outline();
     draw_dash();
     push_to_fb((uint32_t *)(uintptr_t)fb.addr, input_ptr_x(), input_ptr_y(), fb.pitch);
+}
+
+static int z_pos_of(int idx)
+{
+    for (int i = 0; i < zcount; i++)
+        if (zstack[i] == idx)
+            return i;
+    return -1;
+}
+
+static void request_full_redraw(void)
+{
+    pending_full_redraw = 1;
+    pending_from_z = 0;
+    pending_dash_redraw = 1;
+}
+
+static void request_window_redraw(int idx, int redraw_dash)
+{
+    int pos = z_pos_of(idx);
+    if (pos < 0) {
+        request_full_redraw();
+        return;
+    }
+    if (pending_from_z > pos)
+        pending_from_z = pos;
+    if (redraw_dash)
+        pending_dash_redraw = 1;
+}
+
+static void flush_pending_redraw(uint32_t mx, uint32_t my)
+{
+    if (dragging)
+        return;
+    if (pending_full_redraw) {
+        full_redraw();
+        return;
+    }
+    if (pending_from_z >= zcount)
+        return;
+    for (int i = pending_from_z; i < zcount; i++)
+        draw_window(zstack[i]);
+    if (pending_dash_redraw)
+        draw_dash();
+    push_to_fb((uint32_t *)(uintptr_t)fb.addr, mx, my, fb.pitch);
+    pending_from_z = MAX_WINDOWS;
+    pending_dash_redraw = 0;
 }
 
 static void box_blur_h(uint32_t *src, uint32_t *dst, int w, int h, int r)
@@ -271,9 +318,9 @@ static void bake_dash_backdrop(void)
     box_blur_v(tmp, strip, bw, bh, BLUR_R);
     for (int i = 0; i < bw * bh; i++) {
         uint32_t p = strip[i];
-        uint32_t r = ((p >> 16) & 0xFF) * DARKEN_PCT / 100;
-        uint32_t g = ((p >>  8) & 0xFF) * DARKEN_PCT / 100;
-        uint32_t b = (p & 0xFF) * DARKEN_PCT / 100;
+        uint32_t r = ((p >> 16) & 0xFF) * DARKEN_PCT / 255;
+        uint32_t g = ((p >>  8) & 0xFF) * DARKEN_PCT / 255;
+        uint32_t b = (p & 0xFF) * DARKEN_PCT / 255;
         strip[i] = 0xFF000000 | (r << 16) | (g << 8) | b;
     }
     free(tmp);
@@ -314,12 +361,12 @@ static void poll_ipc(void)
             clamp_window(w);
             z_raise(slot);
             set_focused_window(slot);
-            full_redraw();
+            request_full_redraw();
 
         } else if (msg.type == WM_MSG_DIRTY) {
             for (int i = 0; i < MAX_WINDOWS; i++) {
                 if (!windows[i].active || windows[i].pid != msg.pid) continue;
-                pending_redraw = 1;
+                request_window_redraw(i, 0);
                 break;
             }
 
@@ -328,7 +375,7 @@ static void poll_ipc(void)
                 if (!windows[i].active || windows[i].pid != msg.pid) continue;
                 strncpy(windows[i].title, msg.title, 63);
                 windows[i].title[63] = 0;
-                pending_redraw = 1;
+                request_window_redraw(i, 1);
                 break;
             }
 
@@ -336,7 +383,7 @@ static void poll_ipc(void)
             for (int i = 0; i < MAX_WINDOWS; i++) {
                 if (!windows[i].active || windows[i].pid != msg.pid) continue;
                 wm_close_window(i);
-                full_redraw();
+                request_full_redraw();
                 break;
             }
         }
@@ -373,7 +420,7 @@ static void reap_dead_windows(void)
     }
 
     if (changed)
-        full_redraw();
+        request_full_redraw();
 }
 
 int main(int argc, char* argv[])
@@ -449,7 +496,7 @@ int main(int argc, char* argv[])
                 if (windows[idx].active && !windows[idx].minimized) {
                     z_raise(idx);
                     set_focused_window(idx);
-                    full_redraw();
+                    request_full_redraw();
                     break;
                 }
             }
@@ -469,11 +516,12 @@ int main(int argc, char* argv[])
                     z_raise(db);
                     set_focused_window(db);
                 }
-                full_redraw();
+                request_full_redraw();
             } else if (clicked >= 0) {
                 int already = (clicked == focused_win);
                 z_raise(clicked);
                 set_focused_window(clicked);
+                request_full_redraw();
                 if (close_btn_at(clicked, (int)mx, (int)my) && already) {
                     send_close_req(clicked);
                 } else if (titlebar_at(clicked, (int)mx, (int)my) && already) {
@@ -506,7 +554,7 @@ int main(int argc, char* argv[])
         if (!(btn & 1) && (prev_btn & 1)) {
             if (drag_win >= 0) {
                 clamp_window(&windows[drag_win]);
-                full_redraw();
+                request_full_redraw();
             }
             drag_win = -1; dragging = 0;
         }
@@ -521,10 +569,7 @@ int main(int argc, char* argv[])
             if (changed & 4) send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_RIGHT,  (btn&4)?1:0, (int)mx, (int)my, mods);
         }
 
-        if (pending_redraw && !dragging) {
-            pending_redraw = 0;
-            full_redraw();
-        }
+        flush_pending_redraw(mx, my);
 
         if (!dragging && ++clock_tick >= 200) {
             clock_tick = 0;

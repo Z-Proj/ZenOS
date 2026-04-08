@@ -4,6 +4,7 @@ set -Eeuo pipefail
 FILES_DIR="userland/files"
 VHD_PATH="ZenOS.vhd"
 FATMAN="./fat_man"
+JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
 
 [ -x "$FATMAN" ]   || { echo "[!] fat_man not found"; exit 1; }
 [ -f "$VHD_PATH" ] || { echo "[!] VHD not found"; exit 1; }
@@ -19,7 +20,7 @@ for app_dir in "$FILES_DIR"/*/; do
     [ -f "$mf" ] || { echo "[!] No makefile in $app_dir, skipping"; continue; }
 
     echo "[*] Building $app"
-    if ! make -C "$app_dir" install -j1 --no-print-directory; then
+    if ! make -C "$app_dir" install -j"$JOBS" --no-print-directory; then
         echo "[!] Failed: $app"
         FAILED_APPS+=("$app")
     else
