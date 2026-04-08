@@ -16,6 +16,8 @@ static spinlock_t process_lock = {0};
 static volatile int scheduler_enabled = 0;
 static uint32_t next_user_cpu = 0;
 
+#define USER_SHM_PML4_INDEX ((0x0000500000000000ULL >> 39) & 0x1FF)
+
 static void task_entry_wrapper(void);
 
 typedef struct
@@ -66,6 +68,90 @@ static void idle_task_loop(void)
 {
     for (;;)
         asm volatile("sti; hlt" ::: "memory");
+}
+
+static page_table_t *fork_clone_user_pml4(page_table_t *src)
+{
+    if (!src)
+        return NULL;
+
+    page_table_t *dst = clone_page_directory(get_kernel_pml4());
+    if (!dst)
+        return NULL;
+
+    for (int pml4_idx = 0; pml4_idx < 256; pml4_idx++)
+    {
+        uint64_t src_pml4e = src->entries[pml4_idx];
+        if (!(src_pml4e & PAGE_PRESENT))
+            continue;
+
+        page_table_t *src_pdpt = (page_table_t *)((src_pml4e & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+
+        for (int pdpt_idx = 0; pdpt_idx < 512; pdpt_idx++)
+        {
+            uint64_t src_pdpte = src_pdpt->entries[pdpt_idx];
+            if (!(src_pdpte & PAGE_PRESENT) || !(src_pdpte & PAGE_USER))
+                continue;
+            if (src_pdpte & (1ULL << 7))
+                goto fail;
+
+            page_table_t *src_pd = (page_table_t *)((src_pdpte & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+
+            for (int pd_idx = 0; pd_idx < 512; pd_idx++)
+            {
+                uint64_t src_pde = src_pd->entries[pd_idx];
+                if (!(src_pde & PAGE_PRESENT) || !(src_pde & PAGE_USER))
+                    continue;
+                if (src_pde & (1ULL << 7))
+                    goto fail;
+
+                page_table_t *src_pt = (page_table_t *)((src_pde & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+
+                for (int pt_idx = 0; pt_idx < 512; pt_idx++)
+                {
+                    uint64_t src_pte = src_pt->entries[pt_idx];
+                    if (!(src_pte & PAGE_PRESENT) || !(src_pte & PAGE_USER))
+                        continue;
+
+                    uint64_t virt = ((uint64_t)pml4_idx << 39)
+                                  | ((uint64_t)pdpt_idx << 30)
+                                  | ((uint64_t)pd_idx << 21)
+                                  | ((uint64_t)pt_idx << 12);
+                    uint64_t src_phys = src_pte & 0xFFFFFFFFFFFFF000ULL;
+                    uint64_t flags = src_pte & ~0x000FFFFFFFFFF000ULL;
+
+                    if (pml4_idx == USER_SHM_PML4_INDEX)
+                    {
+                        map_page(dst, virt, src_phys, flags);
+                        if (virt_to_phys(dst, virt) != src_phys)
+                            goto fail;
+                        continue;
+                    }
+
+                    uint64_t dst_phys = alloc_page();
+                    if (!dst_phys)
+                        goto fail;
+
+                    memcpy((void *)(dst_phys + KERNEL_VIRT_OFFSET),
+                           (void *)(src_phys + KERNEL_VIRT_OFFSET),
+                           PAGE_SIZE);
+                    map_page(dst, virt, dst_phys, flags);
+                    if (virt_to_phys(dst, virt) != dst_phys)
+                    {
+                        free_page(dst_phys);
+                        goto fail;
+                    }
+                }
+            }
+        }
+    }
+
+    return dst;
+
+fail:
+    free_user_pages(dst);
+    free_page_directory(dst);
+    return NULL;
 }
 
 static void insert_task_locked(task_t *task)
@@ -283,7 +369,7 @@ void sched_ap_entry(void)
     }
 }
 
-task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp)
+task_t *task_create_user_from_parent(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp, task_t *parent)
 {
     spinlock_acquire(&sched_lock);
     if (task_count >= MAX_TASKS)
@@ -312,15 +398,36 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
     task->argc = argc;
     task->argv = argv;
     task->envp = envp;
-    task->parent_pid = TASK_NO_PARENT;
+    task->parent_pid = parent ? parent->pid : TASK_NO_PARENT;
     task->wait_status = 0;
     task->wait_pid_target = -1;
     task->wait_result_pid = -1;
     task->waiting_on_pid = 0;
     task->wait_collected = 0;
-    task->fd_table = fd_table_alloc();
-    strncpy(task->cwd, "/mnt/drv0", sizeof(task->cwd) - 1);
-    task->cwd[sizeof(task->cwd) - 1] = '\0';
+    if (parent && parent->fd_table)
+    {
+        task->fd_table = fd_table_clone(parent->fd_table);
+    }
+    else
+    {
+        task->fd_table = fd_table_alloc();
+    }
+    if (!task->fd_table)
+    {
+        kfree(task);
+        spinlock_release(&sched_lock);
+        return NULL;
+    }
+    if (parent)
+    {
+        strncpy(task->cwd, parent->cwd, sizeof(task->cwd) - 1);
+        task->cwd[sizeof(task->cwd) - 1] = '\0';
+    }
+    else
+    {
+        strncpy(task->cwd, "/mnt/drv0", sizeof(task->cwd) - 1);
+        task->cwd[sizeof(task->cwd) - 1] = '\0';
+    }
     memset(task->sighandlers, 0, sizeof(task->sighandlers));
     task->sig_pending = 0;
     task->sig_mask = 0;
@@ -331,6 +438,8 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
     task->kernel_stack = (uint64_t)kmalloc(TASK_STACK_SIZE);
     if (!task->kernel_stack)
     {
+        if (task->fd_table)
+            fd_table_free(task->fd_table);
         kfree(task);
         spinlock_release(&sched_lock);
         return NULL;
@@ -353,6 +462,11 @@ task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pm
 
     spinlock_release(&sched_lock);
     return task;
+}
+
+task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp)
+{
+    return task_create_user_from_parent(entry, name, pml4, user_rsp, argc, argv, envp, NULL);
 }
 
 task_t *task_create(void (*entry)(void), const char *name)
@@ -1026,7 +1140,7 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
     child->time_slice_remaining = TIME_SLICE;
     child->stack_size = parent->stack_size;
     child->is_kernel_task = 0;
-    child->owns_user_pages = 0;
+    child->owns_user_pages = 1;
     child->heap_brk = parent->heap_brk;
     child->mmap_base = parent->mmap_base;
     child->argc = parent->argc;
@@ -1053,7 +1167,7 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
     strncpy(child->name, parent->name, 63);
     child->name[63] = '\0';
 
-    child->pml4 = clone_page_directory(parent->pml4);
+    child->pml4 = fork_clone_user_pml4(parent->pml4);
     if (!child->pml4)
     {
         kfree(child);
@@ -1061,51 +1175,10 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
         return -1;
     }
 
-    size_t stack_pages = (TASK_STACK_SIZE + PAGE_SIZE - 1) / PAGE_SIZE;
-    uint64_t new_stack_phys[64];
-    if (stack_pages > 64)
-    {
-        free_page_directory(child->pml4);
-        kfree(child);
-        spinlock_release_raw(&process_lock);
-        return -1;
-    }
-    memset(new_stack_phys, 0, sizeof(new_stack_phys));
-
-    for (size_t i = 0; i < stack_pages; i++)
-    {
-        uint64_t virt = parent->user_stack + i * PAGE_SIZE;
-        uint64_t src_phys = virt_to_phys(parent->pml4, virt);
-        if (!src_phys)
-            continue;
-
-        uint64_t dst_phys = alloc_page();
-        if (!dst_phys)
-        {
-            for (size_t j = 0; j < stack_pages; j++)
-            {
-                if (!new_stack_phys[j])
-                    continue;
-                uint64_t v = parent->user_stack + j * PAGE_SIZE;
-                unmap_page(child->pml4, v);
-                free_page(new_stack_phys[j]);
-            }
-            free_page_directory(child->pml4);
-            kfree(child);
-            spinlock_release_raw(&process_lock);
-            return -1;
-        }
-
-        memcpy((void *)(dst_phys + KERNEL_VIRT_OFFSET),
-               (void *)(src_phys + KERNEL_VIRT_OFFSET),
-               PAGE_SIZE);
-        map_page(child->pml4, virt, dst_phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
-        new_stack_phys[i] = dst_phys;
-    }
-
     child->kernel_stack = (uint64_t)kmalloc(TASK_STACK_SIZE);
     if (!child->kernel_stack)
     {
+        free_user_pages(child->pml4);
         free_page_directory(child->pml4);
         kfree(child);
         spinlock_release_raw(&process_lock);
@@ -1117,6 +1190,7 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
     if (!child->fd_table)
     {
         kfree((void *)child->kernel_stack);
+        free_user_pages(child->pml4);
         free_page_directory(child->pml4);
         kfree(child);
         spinlock_release_raw(&process_lock);
@@ -1146,13 +1220,13 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
         spinlock_release(&sched_lock);
         fd_table_free(child->fd_table);
         kfree((void *)child->kernel_stack);
+        free_user_pages(child->pml4);
         free_page_directory(child->pml4);
         kfree(child);
         spinlock_release_raw(&process_lock);
         return -1;
     }
 
-    parent->owns_user_pages = 0;
     child->pid = next_pid++;
     insert_task_locked(child);
     task_count++;

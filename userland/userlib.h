@@ -219,6 +219,14 @@ static inline void zen_shutdown(void) { _syscall0(41); }
 static inline void zen_reboot(void) { _syscall0(42); }
 static inline void zen_halt(void) { _syscall0(50); }
 static inline int zen_fork(void) { return (int)_sc_ret(_syscall0(51)); }
+static inline int zen_spawn(const char *path, char *const argv[])
+{
+    int argc = 0;
+    if (argv)
+        while (argv[argc])
+            argc++;
+    return (int)_sc_ret(_syscall3(85, (uint64_t)path, (uint64_t)argc, (uint64_t)argv));
+}
 static inline int zen_pipe(int pfd[2]) { return (int)_sc_ret(_syscall1(52, (uint64_t)pfd)); }
 static inline int zen_dup(int fd) { return (int)_sc_ret(_syscall1(53, (uint64_t)(unsigned int)fd)); }
 static inline int zen_dup2(int o, int n) { return (int)_sc_ret(_syscall2(54, (uint64_t)(unsigned int)o, (uint64_t)(unsigned int)n)); }

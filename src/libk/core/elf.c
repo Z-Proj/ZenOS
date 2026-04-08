@@ -551,6 +551,107 @@ int elf_exec(const char *filename, int argc, char **argv)
     return 0;
 }
 
+int elf_spawn(const char *filename, int argc, char **argv, task_t *parent)
+{
+    spinlock_acquire_raw(&exec_lock);
+    if (!filename) {
+        spinlock_release_raw(&exec_lock);
+        return -1;
+    }
+
+    char *kfilename = NULL;
+    char **kargv = NULL;
+
+    if (copy_user_string(filename, &kfilename) < 0) {
+        spinlock_release_raw(&exec_lock);
+        return -1;
+    }
+
+    if (copy_user_argv(argc, argv, &kargv) < 0) {
+        kfree(kfilename);
+        spinlock_release_raw(&exec_lock);
+        return -1;
+    }
+
+    page_table_t *pml4 = clone_page_directory(get_kernel_pml4());
+    if (!pml4) {
+        free_string_vector(kargv, argc);
+        kfree(kfilename);
+        spinlock_release_raw(&exec_lock);
+        return -1;
+    }
+
+    elf_load_result_t loaded;
+    if (load_elf_path_into_pml4(pml4, kfilename, 0, &loaded) < 0) {
+        free_page_directory(pml4);
+        free_string_vector(kargv, argc);
+        kfree(kfilename);
+        spinlock_release_raw(&exec_lock);
+        return -1;
+    }
+
+    elf_load_result_t interp_loaded;
+    memset(&interp_loaded, 0, sizeof(interp_loaded));
+    if (loaded.interp_path[0] && load_elf_path_into_pml4(pml4, loaded.interp_path, USER_INTERP_BASE, &interp_loaded) < 0) {
+        free_user_range(pml4, loaded.map_start, loaded.map_end);
+        free_page_directory(pml4);
+        free_string_vector(kargv, argc);
+        kfree(kfilename);
+        spinlock_release_raw(&exec_lock);
+        return -1;
+    }
+
+    if (map_user_stack(pml4) < 0) {
+        if (interp_loaded.map_end > interp_loaded.map_start)
+            free_user_range(pml4, interp_loaded.map_start, interp_loaded.map_end);
+        free_user_range(pml4, loaded.map_start, loaded.map_end);
+        free_page_directory(pml4);
+        free_string_vector(kargv, argc);
+        kfree(kfilename);
+        spinlock_release_raw(&exec_lock);
+        return -1;
+    }
+
+    elf_stack_info_t stack_info = {
+        .at_phdr = loaded.phdr_addr,
+        .at_phent = loaded.phentsize,
+        .at_phnum = loaded.phnum,
+        .at_base = interp_loaded.base,
+        .at_entry = loaded.entry,
+        .execfn = kfilename
+    };
+    uint64_t user_rsp = 0;
+    if (build_user_stack(pml4, argc, kargv, 0, NULL, &stack_info, &user_rsp) < 0) {
+        free_user_range(pml4, USER_STACK_BASE, USER_STACK_BASE + TASK_STACK_SIZE);
+        if (interp_loaded.map_end > interp_loaded.map_start)
+            free_user_range(pml4, interp_loaded.map_start, interp_loaded.map_end);
+        free_user_range(pml4, loaded.map_start, loaded.map_end);
+        free_page_directory(pml4);
+        free_string_vector(kargv, argc);
+        kfree(kfilename);
+        spinlock_release_raw(&exec_lock);
+        return -1;
+    }
+
+    uint64_t entry = interp_loaded.entry ? interp_loaded.entry : loaded.entry;
+    task_t *task = task_create_user_from_parent((void (*)(void))entry, kfilename, pml4, user_rsp, argc, kargv, NULL, parent);
+    if (!task) {
+        free_user_range(pml4, USER_STACK_BASE, USER_STACK_BASE + TASK_STACK_SIZE);
+        if (interp_loaded.map_end > interp_loaded.map_start)
+            free_user_range(pml4, interp_loaded.map_start, interp_loaded.map_end);
+        free_user_range(pml4, loaded.map_start, loaded.map_end);
+        free_page_directory(pml4);
+        free_string_vector(kargv, argc);
+        kfree(kfilename);
+        spinlock_release_raw(&exec_lock);
+        return -1;
+    }
+
+    int pid = (int)task->pid;
+    spinlock_release_raw(&exec_lock);
+    return pid;
+}
+
 int elf_execve_replace(const char *filename, int argc, char **argv, char **envp)
 {
     spinlock_acquire_raw(&exec_lock);

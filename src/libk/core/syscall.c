@@ -1,6 +1,7 @@
 #include "syscall.h"
 #include "elf.h"
 #include "../debug/log.h"
+#include "../debug/serial.h"
 #include "../../drv/net/net.h"
 #include "../../drv/keyboard.h"
 #include "../../drv/keyboard.h"
@@ -32,6 +33,7 @@ typedef struct {
     char     name[SHM_NAME_MAX];
     uint64_t phys;
     size_t   pages;
+    uint32_t refs;
     bool     in_use;
 } shm_region_t;
 
@@ -790,6 +792,17 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         return elf_execve_replace(filename, argc, argv, envp);
     }
 
+    case SYSCALL_SPAWN:
+    {
+        const char *filename = (const char *)arg1;
+        int argc = (int)arg2;
+        char **argv = (char **)arg3;
+        task_t *current = sched_current_task();
+        if (!filename || !current)
+            return -1;
+        return elf_spawn(filename, argc, argv, current);
+    }
+
     case SYSCALL_EXIT:
     {
         task_t *current = sched_current_task();
@@ -834,7 +847,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return -1;
         for (uint32_t i = 0; i < len && str[i]; i++){
             printc(str[i]);
-            // serial_write_char(str[i]);
+            serial_write_char(str[i]);
         }
         return 0;
     }
@@ -1014,7 +1027,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             const char *p = (const char *)buffer;
             for (uint32_t i = 0; i < size; i++){
                 printc(p[i]);
-                // serial_write_char(p[i]);
+                serial_write_char(p[i]);
             }
             return (int64_t)size;
         }
@@ -2228,6 +2241,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         shm_table[slot].name[SHM_NAME_MAX - 1] = '\0';
         shm_table[slot].phys   = phys;
         shm_table[slot].pages  = pages;
+        shm_table[slot].refs   = 1;
         shm_table[slot].in_use = true;
 
         info->addr = virt;
@@ -2259,6 +2273,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                      shm_table[slot].phys + i * PAGE_SIZE,
                      PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
 
+        shm_table[slot].refs++;
         info->addr = virt;
         info->size = shm_table[slot].pages * PAGE_SIZE;
         return 0;
@@ -2274,9 +2289,22 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         {
             if (shm_table[i].in_use && strcmp(shm_table[i].name, name) == 0)
             {
+                task_t *current = sched_current_task();
+                if (!current || !current->pml4)
+                    return -1;
+
+                uint64_t virt = SHM_VIRT_BASE + (uint64_t)i * 0x10000000ULL;
                 for (size_t p = 0; p < shm_table[i].pages; p++)
-                    free_page(shm_table[i].phys + p * PAGE_SIZE);
-                shm_table[i].in_use = false;
+                    unmap_page(current->pml4, virt + p * PAGE_SIZE);
+
+                if (shm_table[i].refs > 0)
+                    shm_table[i].refs--;
+
+                if (shm_table[i].refs == 0)
+                {
+                    free_pages(shm_table[i].phys, shm_table[i].pages);
+                    memset(&shm_table[i], 0, sizeof(shm_table[i]));
+                }
                 return 0;
             }
         }

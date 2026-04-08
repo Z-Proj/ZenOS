@@ -43,6 +43,8 @@ static socket_file_t *ev_sock  = NULL;
 static int        pending_redraw = 0;
 static char* dir;
 
+#define TASK_SNAPSHOT_MAX 128
+
 static void full_redraw(void)
 {
     dirty_all();
@@ -341,6 +343,39 @@ static void poll_ipc(void)
     }
 }
 
+static int task_alive(uint32_t pid)
+{
+    task_info_t infos[TASK_SNAPSHOT_MAX];
+    int count = zen_list_tasks(infos, TASK_SNAPSHOT_MAX);
+
+    if (count <= 0)
+        return 0;
+
+    for (int i = 0; i < count; i++) {
+        if (infos[i].pid == pid)
+            return 1;
+    }
+
+    return 0;
+}
+
+static void reap_dead_windows(void)
+{
+    int changed = 0;
+
+    for (int i = 0; i < MAX_WINDOWS; i++) {
+        if (!windows[i].active)
+            continue;
+        if (task_alive(windows[i].pid))
+            continue;
+        wm_close_window(i);
+        changed = 1;
+    }
+
+    if (changed)
+        full_redraw();
+}
+
 int main(int argc, char* argv[])
 {
     dir = "";
@@ -391,6 +426,7 @@ int main(int argc, char* argv[])
     uint32_t prev_btn = 0;
     int prev_mx = -1, prev_my = -1;
     int clock_tick = 0;
+    int reap_tick = 0;
 
     while (1) {
         poll_ipc();
@@ -502,6 +538,12 @@ int main(int argc, char* argv[])
         prev_btn = btn;
         prev_mx  = (int)mx;
         prev_my  = (int)my;
+
+        if (++reap_tick >= 64) {
+            reap_tick = 0;
+            reap_dead_windows();
+        }
+
         zen_halt();
     }
     return 0;

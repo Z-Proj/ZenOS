@@ -88,6 +88,7 @@
 #define SYSCALL_UNIX_RECV        82
 #define SYSCALL_UNIX_SHUTDOWN    83
 #define SYSCALL_GETSOCKNAME      84
+#define SYSCALL_SPAWN            85
 #define ZEN_TIOCGWINSZ  0x5413  
 #define ZEN_TIOCSWINSZ  0x5414  
 #define ZEN_TIOCSPTYGID 0x5420  

@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "../spinlock.h"
 
 #define SOCKET_MAX_FILES 64
 #define SOCKET_FILE_SIZE (256 * 1024)
@@ -30,6 +31,7 @@ typedef struct
     uint32_t read_pos;
     uint32_t write_pos;
     uint32_t available;
+    spinlock_t lock;
     bool in_use;
 } socket_file_t;
 
