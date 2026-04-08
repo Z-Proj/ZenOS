@@ -1,7 +1,6 @@
 #include "syscall.h"
 #include "elf.h"
 #include "../debug/log.h"
-#include "../debug/serial.h"
 #include "../../drv/net/net.h"
 #include "../../drv/keyboard.h"
 #include "../../drv/keyboard.h"
@@ -882,7 +881,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return -1;
         for (uint32_t i = 0; i < len && str[i]; i++){
             printc(str[i]);
-            serial_write_char(str[i]);
+            //serial_write_char(str[i]);
         }
         return 0;
     }
@@ -1062,7 +1061,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             const char *p = (const char *)buffer;
             for (uint32_t i = 0; i < size; i++){
                 printc(p[i]);
-                serial_write_char(p[i]);
+                //serial_write_char(p[i]);
             }
             return (int64_t)size;
         }
