@@ -34,6 +34,12 @@ static int fatfs_unlink(void *fs_data, const char *path)
     return fat_delete_vol(path, d->vol);
 }
 
+static int fatfs_rename(void *fs_data, const char *old_path, const char *new_path)
+{
+    fatfs_data_t *d = (fatfs_data_t *)fs_data;
+    return fat_rename_vol(old_path, new_path, d->vol);
+}
+
 static int fatfs_stat(void *fs_data, const char *path)
 {
     fatfs_data_t *d = (fatfs_data_t *)fs_data;
@@ -59,6 +65,7 @@ static fs_ops_t fatfs_ops = {
     .mkdir   = fatfs_mkdir,
     .rmdir   = fatfs_rmdir,
     .unlink  = fatfs_unlink,
+    .rename  = fatfs_rename,
     .stat    = fatfs_stat,
     .create  = fatfs_create,
 };

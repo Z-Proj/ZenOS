@@ -1187,6 +1187,44 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         return vfs_delete(filename);
     }
 
+    case SYSCALL_RENAME:
+    {
+        const char *old_path = (const char *)arg1;
+        const char *new_path = (const char *)arg2;
+        if (!old_path || !new_path)
+            return -1;
+        return vfs_rename(old_path, new_path);
+    }
+
+    case SYSCALL_FTRUNCATE:
+    {
+        int fd = (int)arg1;
+        uint32_t size = (uint32_t)arg2;
+        task_t *cur = sched_current_task();
+        if (!cur || !cur->fd_table)
+            return -1;
+        if (fd < 0 || fd >= TASK_MAX_FDS)
+            return -1;
+        fd_entry_t *e = &cur->fd_table->entries[fd];
+        if (!e->used || e->type != FD_FILE)
+            return -1;
+        return vfs_truncate_entry(e, size);
+    }
+
+    case SYSCALL_FSYNC:
+    {
+        int fd = (int)arg1;
+        task_t *cur = sched_current_task();
+        if (!cur || !cur->fd_table)
+            return -1;
+        if (fd < 0 || fd >= TASK_MAX_FDS)
+            return -1;
+        fd_entry_t *e = &cur->fd_table->entries[fd];
+        if (!e->used || e->type != FD_FILE)
+            return -1;
+        return vfs_sync_entry(e);
+    }
+
     case SYSCALL_STAT:
     {
         const char *path = (const char *)arg1;

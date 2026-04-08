@@ -180,6 +180,18 @@ int64_t vfs_mtime_entry(fd_entry_t *e)
     return fat_mtime_entry(e);
 }
 
+int vfs_truncate_entry(fd_entry_t *e, uint32_t size)
+{
+    if (!e || !e->used || e->type != FD_FILE) return -1;
+    return fat_truncate_entry(e, size);
+}
+
+int vfs_sync_entry(fd_entry_t *e)
+{
+    if (!e || !e->used || e->type != FD_FILE) return -1;
+    return fat_sync_entry(e);
+}
+
 int vfs_opendir_entry(const char *path, fd_entry_t *out)
 {
     if (!path || !out) return -1;
@@ -319,6 +331,27 @@ int vfs_delete(const char *path)
     vfs_mount_t *m = vfs_mount_find(rpath, &rel);
     if (!m || !m->ops->unlink) return -1;
     return m->ops->unlink(m->fs_data, rel);
+}
+
+int vfs_rename(const char *old_path, const char *new_path)
+{
+    char old_rpath[512];
+    char new_rpath[512];
+    resolve_path(old_path, old_rpath, sizeof(old_rpath));
+    resolve_path(new_path, new_rpath, sizeof(new_rpath));
+    if (unix_sock_path_exists(old_rpath) || unix_sock_path_exists(new_rpath))
+        return -95;
+    const char *old_rel = NULL;
+    const char *new_rel = NULL;
+    vfs_mount_t *old_m = vfs_mount_find(old_rpath, &old_rel);
+    vfs_mount_t *new_m = vfs_mount_find(new_rpath, &new_rel);
+    if (!old_m || !new_m)
+        return -1;
+    if (old_m != new_m)
+        return -18;
+    if (!old_m->ops->rename)
+        return -95;
+    return old_m->ops->rename(old_m->fs_data, old_rel, new_rel);
 }
 
 int vfs_mkdir(const char *path)

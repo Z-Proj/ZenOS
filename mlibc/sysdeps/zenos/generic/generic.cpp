@@ -13,8 +13,10 @@
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
 #include <sys/utsname.h>
 #include <termios.h>
+#include <unistd.h>
 
 #include <frg/manual_box.hpp>
 #include <mlibc/all-sysdeps.hpp>
@@ -312,10 +314,29 @@ int sys_unlinkat(int dirfd, const char *path, int flags) {
 	return sc_error(ret);
 }
 
+int sys_rename(const char *path, const char *new_path) {
+	long ret = zenos_do_syscall2(ZENOS_SYSCALL_RENAME,
+			reinterpret_cast<long>(path), reinterpret_cast<long>(new_path));
+	return sc_error(ret);
+}
+
+int sys_renameat(int olddirfd, const char *old_path, int newdirfd, const char *new_path) {
+	if(olddirfd != AT_FDCWD || newdirfd != AT_FDCWD)
+		return ENOSYS;
+	return sys_rename(old_path, new_path);
+}
+
 int sys_access(const char *path, int mode) {
 	(void)mode;
 	struct stat st{};
 	return sys_stat(fsfd_target::path, -1, path, 0, &st);
+}
+
+int sys_faccessat(int dirfd, const char *pathname, int mode, int flags) {
+	(void)flags;
+	if(dirfd != AT_FDCWD)
+		return ENOSYS;
+	return sys_access(pathname, mode);
 }
 
 int sys_stat(fsfd_target fsfdt, int fd, const char *path, int flags, struct stat *statbuf) {
@@ -385,6 +406,66 @@ int sys_fcntl(int fd, int request, va_list args, int *result) {
 	}
 }
 
+int sys_readv(int fd, const struct iovec *iovs, int iovc, ssize_t *bytes_read) {
+	ssize_t total = 0;
+	for(int i = 0; i < iovc; i++) {
+		ssize_t chunk = 0;
+		int e = sys_read(fd, iovs[i].iov_base, iovs[i].iov_len, &chunk);
+		if(e)
+			return e;
+		total += chunk;
+		if((size_t)chunk < iovs[i].iov_len)
+			break;
+	}
+	*bytes_read = total;
+	return 0;
+}
+
+int sys_writev(int fd, const struct iovec *iovs, int iovc, ssize_t *bytes_written) {
+	ssize_t total = 0;
+	for(int i = 0; i < iovc; i++) {
+		ssize_t chunk = 0;
+		int e = sys_write(fd, iovs[i].iov_base, iovs[i].iov_len, &chunk);
+		if(e)
+			return e;
+		total += chunk;
+		if((size_t)chunk < iovs[i].iov_len)
+			break;
+	}
+	*bytes_written = total;
+	return 0;
+}
+
+int sys_pread(int fd, void *buf, size_t n, off_t off, ssize_t *bytes_read) {
+	off_t old_off = 0;
+	int e = sys_seek(fd, 0, SEEK_CUR, &old_off);
+	if(e)
+		return e;
+	off_t target = 0;
+	e = sys_seek(fd, off, SEEK_SET, &target);
+	if(e)
+		return e;
+	e = sys_read(fd, buf, n, bytes_read);
+	off_t ignored = 0;
+	sys_seek(fd, old_off, SEEK_SET, &ignored);
+	return e;
+}
+
+int sys_pwrite(int fd, const void *buf, size_t n, off_t off, ssize_t *bytes_written) {
+	off_t old_off = 0;
+	int e = sys_seek(fd, 0, SEEK_CUR, &old_off);
+	if(e)
+		return e;
+	off_t target = 0;
+	e = sys_seek(fd, off, SEEK_SET, &target);
+	if(e)
+		return e;
+	e = sys_write(fd, buf, n, bytes_written);
+	off_t ignored = 0;
+	sys_seek(fd, old_off, SEEK_SET, &ignored);
+	return e;
+}
+
 int sys_ioctl(int fd, unsigned long request, void *arg, int *result) {
 	long ret = zenos_do_syscall3(ZENOS_SYSCALL_IOCTL, fd, request, reinterpret_cast<long>(arg));
 	int e = sc_error(ret);
@@ -419,6 +500,20 @@ int sys_tcsetattr(int fd, int optional_action, const struct termios *attr) {
 	}
 	int result = 0;
 	return sys_ioctl(fd, req, const_cast<struct termios *>(attr), &result);
+}
+
+int sys_tcdrain(int fd) {
+	return sys_isatty(fd);
+}
+
+int sys_tcflow(int fd, int action) {
+	(void)action;
+	return sys_isatty(fd);
+}
+
+int sys_tcflush(int fd, int queue) {
+	(void)queue;
+	return sys_isatty(fd);
 }
 
 int sys_sigaction(int sig, const struct sigaction *act, struct sigaction *oldact) {
@@ -511,6 +606,39 @@ int sys_kill(int pid, int signal) {
 int sys_uname(struct utsname *buf) {
 	long ret = zenos_do_syscall1(ZENOS_SYSCALL_UNAME, reinterpret_cast<long>(buf));
 	return sc_error(ret);
+}
+
+int sys_gethostname(char *buffer, size_t bufsize) {
+	struct utsname uts{};
+	int e = sys_uname(&uts);
+	if(e)
+		return e;
+	size_t len = bounded_length(uts.nodename, sizeof(uts.nodename));
+	if(len + 1 > bufsize)
+		return ENAMETOOLONG;
+	memcpy(buffer, uts.nodename, len);
+	buffer[len] = '\0';
+	return 0;
+}
+
+int sys_mkdirat(int dirfd, const char *path, mode_t mode) {
+	if(dirfd != AT_FDCWD)
+		return ENOSYS;
+	return sys_mkdir(path, mode);
+}
+
+int sys_ftruncate(int fd, size_t size) {
+	long ret = zenos_do_syscall2(ZENOS_SYSCALL_FTRUNCATE, fd, size);
+	return sc_error(ret);
+}
+
+int sys_fsync(int fd) {
+	long ret = zenos_do_syscall1(ZENOS_SYSCALL_FSYNC, fd);
+	return sc_error(ret);
+}
+
+int sys_fdatasync(int fd) {
+	return sys_fsync(fd);
 }
 
 int sys_clone(void *tcb, pid_t *pid_out, void *stack) {

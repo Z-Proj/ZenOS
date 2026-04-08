@@ -36,6 +36,7 @@ int         fat_lseek(int fd, int32_t offset, int whence);
 uint32_t    fat_size(int fd);                     
 int         fat_create(const char *path);         
 int         fat_delete(const char *path);
+int         fat_rename(const char *old_path, const char *new_path);
 int         fat_mkdir(const char *path);
 int         fat_rmdir(const char *path);
 int         fat_chdir(const char *path);
@@ -53,6 +54,8 @@ int         fat_close_entry(fd_entry_t *e);
 int         fat_lseek_entry(fd_entry_t *e, int32_t offset, int whence);
 uint32_t    fat_size_entry(fd_entry_t *e);
 int64_t     fat_mtime_entry(fd_entry_t *e);
+int         fat_truncate_entry(fd_entry_t *e, uint32_t size);
+int         fat_sync_entry(fd_entry_t *e);
 
 int         fat_opendir_entry(const char *path, fd_entry_t *out);
 int         fat_readdir_entry(fd_entry_t *e, char *name_out, int *is_dir_out);
@@ -65,6 +68,7 @@ void        make_fatpath_vol     (const char *path, int vol, char *out, size_t o
 int         fat_open_vol         (const char *path, int write, int vol);
 int         fat_create_vol       (const char *path, int vol);
 int         fat_delete_vol       (const char *path, int vol);
+int         fat_rename_vol       (const char *old_path, const char *new_path, int vol);
 int         fat_mkdir_vol        (const char *path, int vol);
 int         fat_rmdir_vol        (const char *path, int vol);
 int         fat_chdir_vol        (const char *path, int vol);

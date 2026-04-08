@@ -11,6 +11,7 @@ typedef struct fs_ops {
     int      (*mkdir)   (void *fs_data, const char *path);
     int      (*rmdir)   (void *fs_data, const char *path);
     int      (*unlink)  (void *fs_data, const char *path);
+    int      (*rename)  (void *fs_data, const char *old_path, const char *new_path);
     int      (*stat)    (void *fs_data, const char *path);
     int      (*create)  (void *fs_data, const char *path);
 } fs_ops_t;

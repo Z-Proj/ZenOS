@@ -226,6 +226,20 @@ int fat_delete_vol(const char *path, int vol) {
 
 int fat_delete(const char *path) { return fat_delete_vol(path, 0); }
 
+int fat_rename_vol(const char *old_path, const char *new_path, int vol) {
+    if (!initialized) return -1;
+    char old_fpath[FAT_MAX_PATH];
+    char new_fpath[FAT_MAX_PATH];
+    make_fatpath_vol(old_path, vol, old_fpath, sizeof(old_fpath));
+    make_fatpath_vol(new_path, vol, new_fpath, sizeof(new_fpath));
+    fat_lock();
+    FRESULT fr = f_rename(old_fpath, new_fpath);
+    fat_unlock();
+    return (fr == FR_OK) ? 0 : -1;
+}
+
+int fat_rename(const char *old_path, const char *new_path) { return fat_rename_vol(old_path, new_path, 0); }
+
 int fat_mkdir_vol(const char *path, int vol) {
     if (!initialized) return -1;
     char fpath[FAT_MAX_PATH];
@@ -463,6 +477,32 @@ int64_t fat_mtime_entry(fd_entry_t *e) {
         days += (m == 2 && leap) ? 29 : mdays[m-1];
     days += day - 1;
     return days * 86400 + hour * 3600 + min * 60 + sec;
+}
+
+int fat_truncate_entry(fd_entry_t *e, uint32_t size) {
+    if (!e || !e->used || e->type != FD_FILE || !e->file) return -1;
+    if (!e->file->writable) return -1;
+    fat_lock();
+    uint32_t oldpos = (uint32_t)f_tell(&e->file->fil);
+    FRESULT fr = f_lseek(&e->file->fil, size);
+    if (fr == FR_OK)
+        fr = f_truncate(&e->file->fil);
+    if (fr == FR_OK)
+        fr = f_sync(&e->file->fil);
+    uint32_t restore = oldpos < size ? oldpos : size;
+    if (fr == FR_OK)
+        fr = f_lseek(&e->file->fil, restore);
+    fat_unlock();
+    return (fr == FR_OK) ? 0 : -1;
+}
+
+int fat_sync_entry(fd_entry_t *e) {
+    if (!e || !e->used || e->type != FD_FILE || !e->file) return -1;
+    if (!e->file->writable) return 0;
+    fat_lock();
+    FRESULT fr = f_sync(&e->file->fil);
+    fat_unlock();
+    return (fr == FR_OK) ? 0 : -1;
 }
 
 int fat_opendir_entry_vol(const char *path, fd_entry_t *out, int vol) {

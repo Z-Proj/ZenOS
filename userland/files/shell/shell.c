@@ -247,7 +247,7 @@ static void cmd_socket_delete(int argc, char* argv[]) {
 static void run_foreground(const char *path, char *argv[]) {
     pid_t pid = zen_spawn(path, argv);
     if (pid < 0) {
-        fputs(COLOR_RED "Spawn failed\n" COLOR_RESET, stdout);
+        fputs(COLOR_RED "Execution failed\n" COLOR_RESET, stdout);
         return;
     }
 

@@ -63,11 +63,11 @@ The project focuses on clean design, correctness, and real hardware interaction.
 
 ### Applications
 
-- **Shell & Core Utils** — shell, echo, yes, sleep, cat, ls, touch, rm, stat, wc, mkdir, rmdir, pwd
+- **Shell & Core Utils** — shell, echo, yes, sleep, cat, ls, touch, rm, stat, wc, mkdir, rmdir, pwd, mv, cp, rename
 - **Process Utils** — ps, kill
 - **System Info** — uname, time
 - **Math** — calc, primes, fibonacci, counter
-- **Text & UI** — [Harp](https://github.com/Z-Proj/ZenOS/blob/main/userland/files/harp/harp_main.c) (Custom compositor and server for Zen), terminal (PTY terminal emulator), edit (text editor), clock, beep, mouse, [FIGlet](https://github.com/cmatsuoka/figlet).
+- **Text & UI** — [Harp](https://github.com/Z-Proj/ZenOS/blob/main/userland/files/harp/harp_main.c) (Custom compositor and server for Zen), terminal (PTY terminal emulator), edit (text editor), clock, beep, mouse, [FIGlet](https://github.com/cmatsuoka/figlet), [Kilo](https://github.com/antirez/kilo), [DOOM](https://github.com/ozkl/doomgeneric).
 - **Compilers** — [TinyCC](https://github.com/TinyCC/tinycc), [SmallerC](https://github.com/alexfru/SmallerC)
 - **Scripting** — [Lua 5.5.0](https://www.lua.org/)
 - **Networking** — wget, zen package manager, nettest
@@ -149,6 +149,8 @@ socat
 - [SmallerC](https://github.com/alexfru/SmallerC) — C to assembly compiler
 - [FIGlet](https://github.com/cmatsuoka/figlet) — Large ASCII text renderer
 - [Nuklear](https://github.com/Immediate-Mode-UI/Nuklear) — An Immediate-Mode UI library.
+- [Kilo](https://github.com/antirez/kilo) — A terminal text editor.
+- [DOOM](https://github.com/id-Software/DOOM), and the [generic platform layer](https://github.com/ozkl/doomgeneric) — 3D FPS action game.
 
 ---
 

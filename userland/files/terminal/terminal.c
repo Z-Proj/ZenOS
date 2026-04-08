@@ -29,6 +29,22 @@ extern char _binary_mono_sfn_start;
 #define C_FG     0xFFCDD6F4
 #define C_CURSOR 0xFFCDD6F4
 
+#ifndef KEY_HOME
+#define KEY_HOME 102
+#endif
+#ifndef KEY_PAGEUP
+#define KEY_PAGEUP 104
+#endif
+#ifndef KEY_END
+#define KEY_END 107
+#endif
+#ifndef KEY_PAGEDOWN
+#define KEY_PAGEDOWN 109
+#endif
+#ifndef KEY_DELETE
+#define KEY_DELETE 111
+#endif
+
 static const uint32_t ansi_pal[16] = {
     0xFF1E2030, 0xFFF38BA8, 0xFFA6E3A1, 0xFFF9E2AF,
     0xFF89B4FA, 0xFFCBA6F7, 0xFF89DCEB, 0xFFBAC2DE,
@@ -50,6 +66,9 @@ static int      close_requested = 0;
 
 static int master_fd  = -1;
 static int shell_pid  = -1;
+static int ctrl_down  = 0;
+static int shift_down = 0;
+static int alt_down   = 0;
 
 #define ESC_NONE 0
 #define ESC_ESC  1
@@ -292,16 +311,202 @@ static void drain_master(void)
     harp_flush(win);
 }
 
-static void send_key(int k)
+static void send_bytes(const char *s, size_t n)
 {
-    if (k == 0) return;
-    if (k == KEY_ARROW_UP)    { write(master_fd, "\033[A", 3); return; }
-    if (k == KEY_ARROW_DOWN)  { write(master_fd, "\033[B", 3); return; }
-    if (k == KEY_ARROW_RIGHT) { write(master_fd, "\033[C", 3); return; }
-    if (k == KEY_ARROW_LEFT)  { write(master_fd, "\033[D", 3); return; }
-    if (k == '\r') k = '\n';
-    char c = (char)k;
-    write(master_fd, &c, 1);
+    if (master_fd >= 0 && s && n)
+        write(master_fd, s, n);
+}
+
+static void send_char(char c)
+{
+    send_bytes(&c, 1);
+}
+
+static void send_esc_prefixed_char(char c)
+{
+    send_char(27);
+    send_char(c);
+}
+
+static void send_csi_key(char final, uint32_t mods)
+{
+    int modifier = 1;
+    int shift = (mods & HARP_MOD_SHIFT) != 0;
+    int alt = (mods & HARP_MOD_ALT) != 0;
+    int ctrl = (mods & HARP_MOD_CTRL) != 0;
+
+    if (shift && alt && ctrl) modifier = 8;
+    else if (alt && ctrl) modifier = 7;
+    else if (shift && ctrl) modifier = 6;
+    else if (ctrl) modifier = 5;
+    else if (shift && alt) modifier = 4;
+    else if (alt) modifier = 3;
+    else if (shift) modifier = 2;
+
+    if (modifier == 1) {
+        char seq[3] = {'\033', '[', final};
+        send_bytes(seq, sizeof(seq));
+        return;
+    }
+
+    char seq[8];
+    int len = snprintf(seq, sizeof(seq), "\033[1;%d%c", modifier, final);
+    if (len > 0)
+        send_bytes(seq, (size_t)len);
+}
+
+static void send_tilde_key(int number, uint32_t mods)
+{
+    int modifier = 1;
+    int shift = (mods & HARP_MOD_SHIFT) != 0;
+    int alt = (mods & HARP_MOD_ALT) != 0;
+    int ctrl = (mods & HARP_MOD_CTRL) != 0;
+
+    if (shift && alt && ctrl) modifier = 8;
+    else if (alt && ctrl) modifier = 7;
+    else if (shift && ctrl) modifier = 6;
+    else if (ctrl) modifier = 5;
+    else if (shift && alt) modifier = 4;
+    else if (alt) modifier = 3;
+    else if (shift) modifier = 2;
+
+    char seq[12];
+    int len;
+    if (modifier == 1)
+        len = snprintf(seq, sizeof(seq), "\033[%d~", number);
+    else
+        len = snprintf(seq, sizeof(seq), "\033[%d;%d~", number, modifier);
+    if (len > 0)
+        send_bytes(seq, (size_t)len);
+}
+
+static int ctrl_code_from_keycode(uint16_t code, int *out)
+{
+    if (!out)
+        return 0;
+    switch (code) {
+    case KEY_A: *out = 1; return 1;
+    case KEY_B: *out = 2; return 1;
+    case KEY_C: *out = 3; return 1;
+    case KEY_D: *out = 4; return 1;
+    case KEY_E: *out = 5; return 1;
+    case KEY_F: *out = 6; return 1;
+    case KEY_G: *out = 7; return 1;
+    case KEY_H: *out = 8; return 1;
+    case KEY_I: *out = 9; return 1;
+    case KEY_J: *out = 10; return 1;
+    case KEY_K: *out = 11; return 1;
+    case KEY_L: *out = 12; return 1;
+    case KEY_M: *out = 13; return 1;
+    case KEY_N: *out = 14; return 1;
+    case KEY_O: *out = 15; return 1;
+    case KEY_P: *out = 16; return 1;
+    case KEY_Q: *out = 17; return 1;
+    case KEY_R: *out = 18; return 1;
+    case KEY_S: *out = 19; return 1;
+    case KEY_T: *out = 20; return 1;
+    case KEY_U: *out = 21; return 1;
+    case KEY_V: *out = 22; return 1;
+    case KEY_W: *out = 23; return 1;
+    case KEY_X: *out = 24; return 1;
+    case KEY_Y: *out = 25; return 1;
+    case KEY_Z: *out = 26; return 1;
+    case KEY_LEFTBRACE: *out = 27; return 1;
+    case KEY_BACKSLASH: *out = 28; return 1;
+    case KEY_RIGHTBRACE: *out = 29; return 1;
+    case KEY_6: *out = 30; return 1;
+    case KEY_MINUS: *out = 31; return 1;
+    case KEY_SPACE: *out = 0; return 1;
+    default:
+        return 0;
+    }
+}
+
+static void send_key_event(const harp_event_t *ev)
+{
+    if (!ev)
+        return;
+
+    uint16_t code = ev->code;
+    if (code == KEY_LEFTSHIFT || code == KEY_RIGHTSHIFT) {
+        shift_down = ev->value != 0;
+        return;
+    }
+    if (code == KEY_LEFTCTRL || code == KEY_RIGHTCTRL) {
+        ctrl_down = ev->value != 0;
+        return;
+    }
+    if (code == KEY_LEFTALT || code == KEY_RIGHTALT) {
+        alt_down = ev->value != 0;
+        return;
+    }
+
+    if (ev->value == 0)
+        return;
+
+    uint32_t mods = ev->modifiers;
+    if (shift_down)
+        mods |= HARP_MOD_SHIFT;
+    if (ctrl_down)
+        mods |= HARP_MOD_CTRL;
+    if (alt_down)
+        mods |= HARP_MOD_ALT;
+
+    if (mods & HARP_MOD_CTRL) {
+        int ctrl_code = -1;
+        if (ev->key >= 0 && ev->key < 32)
+            ctrl_code = ev->key;
+        else if (ctrl_code_from_keycode(code, &ctrl_code)) {
+        }
+        if (ctrl_code >= 0) {
+            if (mods & HARP_MOD_ALT)
+                send_char(27);
+            send_char((char)ctrl_code);
+            return;
+        }
+    }
+
+    switch (code) {
+    case KEY_UP:        send_csi_key('A', mods); return;
+    case KEY_DOWN:      send_csi_key('B', mods); return;
+    case KEY_RIGHT:     send_csi_key('C', mods); return;
+    case KEY_LEFT:      send_csi_key('D', mods); return;
+    case KEY_HOME:      send_csi_key('H', mods); return;
+    case KEY_END:       send_csi_key('F', mods); return;
+    case KEY_DELETE:    send_tilde_key(3, mods); return;
+    case KEY_PAGEUP:    send_tilde_key(5, mods); return;
+    case KEY_PAGEDOWN:  send_tilde_key(6, mods); return;
+    case KEY_ENTER:
+        if (mods & HARP_MOD_ALT)
+            send_char(27);
+        send_char('\r');
+        return;
+    case KEY_BACKSPACE:
+        if (mods & HARP_MOD_ALT)
+            send_char(27);
+        send_char(127);
+        return;
+    case KEY_ESC:       send_char(27); return;
+    case KEY_TAB:
+        if (mods & HARP_MOD_SHIFT) {
+            send_bytes("\033[Z", 3);
+            return;
+        }
+        if (mods & HARP_MOD_ALT)
+            send_char(27);
+        send_char('\t');
+        return;
+    default:
+        break;
+    }
+
+    if (ev->key != 0) {
+        char c = (char)ev->key;
+        if (mods & HARP_MOD_ALT)
+            send_esc_prefixed_char(c);
+        else
+            send_char(c);
+    }
 }
 
 static int pump_window_events(void)
@@ -310,8 +515,8 @@ static int pump_window_events(void)
     harp_event_t ev;
     while (harp_poll_event(win, &ev)) {
         handled = 1;
-        if (ev.type == HARP_EVENT_KEY && ev.value != 0 && ev.key != 0)
-            send_key(ev.key);
+        if (ev.type == HARP_EVENT_KEY)
+            send_key_event(&ev);
         else if (ev.type == HARP_EVENT_CLOSE_REQ)
             close_requested = 1;
     }

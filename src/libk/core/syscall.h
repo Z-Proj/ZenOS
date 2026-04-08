@@ -91,6 +91,9 @@
 #define SYSCALL_SPAWN            85
 #define SYSCALL_GETPEERNAME      86
 #define SYSCALL_UNIX_SOCKETPAIR  87
+#define SYSCALL_RENAME           88
+#define SYSCALL_FTRUNCATE        89
+#define SYSCALL_FSYNC            90
 #define ZEN_TIOCGWINSZ  0x5413  
 #define ZEN_TIOCSWINSZ  0x5414  
 #define ZEN_TIOCSPTYGID 0x5420  
