@@ -31,13 +31,25 @@ static void fd_close_entry(fd_entry_t *e)
     if (!e->used) return;
 
     if (e->type == FD_FILE) {
-        fat_lock();
-        f_close(&e->file.fil);
-        fat_unlock();
+        if (e->file) {
+            e->file->refcount--;
+            if (e->file->refcount <= 0) {
+                fat_lock();
+                f_close(&e->file->fil);
+                fat_unlock();
+                kfree(e->file);
+            }
+        }
     } else if (e->type == FD_DIR) {
-        fat_lock();
-        f_closedir(&e->dir.dir);
-        fat_unlock();
+        if (e->dir) {
+            e->dir->refcount--;
+            if (e->dir->refcount <= 0) {
+                fat_lock();
+                f_closedir(&e->dir->dir);
+                fat_unlock();
+                kfree(e->dir);
+            }
+        }
     } else if (e->type == FD_PIPE_READ) {
         e->pipe->readers--;
         if (e->pipe->readers <= 0) e->pipe->read_closed = 1;
@@ -63,11 +75,57 @@ static void fd_close_entry(fd_entry_t *e)
         if (e->pty->refcount <= 0)
             kfree(e->pty);
     } else if (e->type == FD_UNIX_SOCK) {
-        unix_sock_shutdown(e->usock);
+        if (e->usock && e->usock->refcount <= 1)
+            unix_sock_shutdown(e->usock);
         unix_sock_free(e->usock);
     }
 
     memset(e, 0, sizeof(fd_entry_t));
+}
+
+int fd_entry_clone(fd_entry_t *dst, const fd_entry_t *src, int inherit_cloexec)
+{
+    if (!dst || !src || !src->used)
+        return -1;
+
+    memset(dst, 0, sizeof(fd_entry_t));
+    dst->used = src->used;
+    dst->type = src->type;
+    dst->cloexec = inherit_cloexec ? src->cloexec : 0;
+
+    if (src->type == FD_FILE) {
+        if (!src->file)
+            return -1;
+        dst->file = src->file;
+        dst->file->refcount++;
+    } else if (src->type == FD_DIR) {
+        if (!src->dir)
+            return -1;
+        dst->dir = src->dir;
+        dst->dir->refcount++;
+    } else if (src->type == FD_PIPE_READ || src->type == FD_PIPE_WRITE) {
+        dst->pipe = src->pipe;
+        dst->pipe->refcount++;
+        if (src->type == FD_PIPE_READ) dst->pipe->readers++;
+        if (src->type == FD_PIPE_WRITE) dst->pipe->writers++;
+    } else if (src->type == FD_PTY_MASTER) {
+        dst->pty = src->pty;
+        dst->pty->refcount++;
+        dst->pty->master_refs++;
+        dst->pty->master_open = 1;
+    } else if (src->type == FD_PTY_SLAVE) {
+        dst->pty = src->pty;
+        dst->pty->refcount++;
+        dst->pty->slave_refs++;
+        dst->pty->slave_open = 1;
+    } else if (src->type == FD_UNIX_SOCK) {
+        dst->usock = src->usock;
+        unix_sock_retain(dst->usock);
+    } else if (src->type == FD_DEV) {
+        dst->dev_ops = src->dev_ops;
+    }
+
+    return 0;
 }
 
 fd_table_t *fd_table_clone(fd_table_t *src)
@@ -80,35 +138,9 @@ fd_table_t *fd_table_clone(fd_table_t *src)
         fd_entry_t *se = &src->entries[i];
         fd_entry_t *de = &dst->entries[i];
         if (!se->used) continue;
-
-        de->used    = se->used;
-        de->type    = se->type;
-        de->cloexec = se->cloexec;
-
-        if (se->type == FD_FILE) {
-            fat_lock();
-            FRESULT fr = f_open(&de->file.fil, NULL, 0);
-            (void)fr;
-            de->file = se->file;
-            FSIZE_t pos = f_tell(&se->file.fil);
-            f_rewind(&de->file.fil);
-            f_lseek(&de->file.fil, pos);
-            fat_unlock();
-        } else if (se->type == FD_PIPE_READ || se->type == FD_PIPE_WRITE) {
-            de->pipe = se->pipe;
-            de->pipe->refcount++;
-            if (se->type == FD_PIPE_READ) de->pipe->readers++;
-            if (se->type == FD_PIPE_WRITE) de->pipe->writers++;
-        } else if (se->type == FD_PTY_MASTER) {
-            de->used = 0;
-            continue;
-        } else if (se->type == FD_UNIX_SOCK) {
-            de->used = 0;
-            continue;
-        } else if (se->type == FD_PTY_SLAVE) {
-            de->pty = se->pty;
-            de->pty->refcount++;
-            de->pty->slave_refs++;
+        if (fd_entry_clone(de, se, 1) < 0) {
+            fd_table_free(dst);
+            return NULL;
         }
     }
 

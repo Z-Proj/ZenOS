@@ -6,6 +6,7 @@
 #include "../../drv/disk/vfs.h"
 #include "mem.h"
 #include "syscall.h"
+#include "fd.h"
 #include "../spinlock.h"
 
 #define EXEC_MAX_ARGS    128
@@ -646,6 +647,8 @@ int elf_spawn(const char *filename, int argc, char **argv, task_t *parent)
         spinlock_release_raw(&exec_lock);
         return -1;
     }
+    if (task->fd_table)
+        fd_table_close_cloexec(task->fd_table);
 
     int pid = (int)task->pid;
     spinlock_release_raw(&exec_lock);
@@ -763,6 +766,8 @@ int elf_execve_replace(const char *filename, int argc, char **argv, char **envp)
     task->sig_trampoline = 0;
     task->user_fs_base = 0;
     task->user_gs_base = 0;
+    if (task->fd_table)
+        fd_table_close_cloexec(task->fd_table);
 
     strncpy(task->name, filename, sizeof(task->name) - 1);
     task->name[sizeof(task->name) - 1] = '\0';

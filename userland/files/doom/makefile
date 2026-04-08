@@ -135,6 +135,7 @@ install: $(APP)
 	$(FATMAN) $(VHD) mkdir /bin || true
 	$(FATMAN) $(VHD) delete $(INSTALL_PATH) || true
 	$(FATMAN) $(VHD) import $(APP) $(INSTALL_PATH)
+	$(FATMAN) $(VHD) import doom.wad doom.wad
 
 clean:
 	rm -f $(OBJS) $(APP)

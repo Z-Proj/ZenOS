@@ -543,10 +543,9 @@ int sys_listen(int fd, int backlog) {
 	return sc_error(ret);
 }
 
-int sys_accept(int fd, struct sockaddr *addr, socklen_t *addrlen, int *newfd) {
-	(void)addr;
-	(void)addrlen;
-	long ret = zenos_do_syscall2(ZENOS_SYSCALL_UNIX_ACCEPT, fd, 0);
+int sys_accept(int fd, int *newfd, struct sockaddr *addr, socklen_t *addrlen, int flags) {
+	long ret = zenos_do_syscall4(ZENOS_SYSCALL_UNIX_ACCEPT, fd,
+			reinterpret_cast<long>(addr), reinterpret_cast<long>(addrlen), flags);
 	return finish_fd(ret, newfd);
 }
 
@@ -557,16 +556,17 @@ int sys_connect(int fd, const struct sockaddr *addr, socklen_t addrlen) {
 	return sc_error(ret);
 }
 
-int sys_sendmsg(int fd, const struct msghdr *msg, int flags, ssize_t *bytes_written) {
+int sys_msg_send(int fd, const struct msghdr *msg, int flags, ssize_t *bytes_written) {
 	(void)flags;
 	if (!msg || !msg->msg_iov || msg->msg_iovlen == 0)
 		return EINVAL;
 	ssize_t total = 0;
 	for (size_t i = 0; i < msg->msg_iovlen; i++) {
-		long ret = zenos_do_syscall3(ZENOS_SYSCALL_UNIX_SEND,
+		long ret = zenos_do_syscall4(ZENOS_SYSCALL_UNIX_SEND,
 				fd,
 				reinterpret_cast<long>(msg->msg_iov[i].iov_base),
-				msg->msg_iov[i].iov_len);
+				msg->msg_iov[i].iov_len,
+				reinterpret_cast<long>(i == 0 ? msg->msg_name : nullptr));
 		int e = sc_error(ret);
 		if (e) return e;
 		total += ret;
@@ -575,16 +575,18 @@ int sys_sendmsg(int fd, const struct msghdr *msg, int flags, ssize_t *bytes_writ
 	return 0;
 }
 
-int sys_recvmsg(int fd, struct msghdr *msg, int flags, ssize_t *bytes_read) {
+int sys_msg_recv(int fd, struct msghdr *msg, int flags, ssize_t *bytes_read) {
 	(void)flags;
 	if (!msg || !msg->msg_iov || msg->msg_iovlen == 0)
 		return EINVAL;
 	ssize_t total = 0;
 	for (size_t i = 0; i < msg->msg_iovlen; i++) {
-		long ret = zenos_do_syscall3(ZENOS_SYSCALL_UNIX_RECV,
+		long ret = zenos_do_syscall5(ZENOS_SYSCALL_UNIX_RECV,
 				fd,
 				reinterpret_cast<long>(msg->msg_iov[i].iov_base),
-				msg->msg_iov[i].iov_len);
+				msg->msg_iov[i].iov_len,
+				reinterpret_cast<long>(i == 0 ? msg->msg_name : nullptr),
+				reinterpret_cast<long>(i == 0 ? &msg->msg_namelen : nullptr));
 		int e = sc_error(ret);
 		if (e) return e;
 		total += ret;
@@ -595,12 +597,12 @@ int sys_recvmsg(int fd, struct msghdr *msg, int flags, ssize_t *bytes_read) {
 	return 0;
 }
 
-int sys_getsockname(int fd, struct sockaddr *addr, socklen_t *addrlen) {
-	long ret = zenos_do_syscall2(ZENOS_SYSCALL_GETSOCKNAME,
-			fd, reinterpret_cast<long>(addr));
+int sys_sockname(int fd, struct sockaddr *addr, socklen_t max_addr_length,
+		socklen_t *actual_length) {
+	long ret = zenos_do_syscall4(ZENOS_SYSCALL_GETSOCKNAME,
+			fd, reinterpret_cast<long>(addr), max_addr_length,
+			reinterpret_cast<long>(actual_length));
 	int e = sc_error(ret);
-	if (!e && addrlen)
-		*addrlen = 110;
 	return e;
 }
 
@@ -615,13 +617,23 @@ int sys_setsockopt(int fd, int layer, int number, const void *buffer, socklen_t 
 }
 
 int sys_shutdown(int fd, int how) {
-	(void)how;
-	long ret = zenos_do_syscall1(ZENOS_SYSCALL_UNIX_SHUTDOWN, fd);
+	long ret = zenos_do_syscall2(ZENOS_SYSCALL_UNIX_SHUTDOWN, fd, how);
 	return sc_error(ret);
 }
 
-int sys_peername(int fd, struct sockaddr *addr, socklen_t *addrlen) {
-	return sys_getsockname(fd, addr, addrlen);
+int sys_peername(int fd, struct sockaddr *addr, socklen_t max_addr_length,
+		socklen_t *actual_length) {
+	long ret = zenos_do_syscall4(ZENOS_SYSCALL_GETPEERNAME,
+			fd, reinterpret_cast<long>(addr), max_addr_length,
+			reinterpret_cast<long>(actual_length));
+	return sc_error(ret);
+}
+
+int sys_socketpair(int domain, int type_and_flags, int proto, int *fds) {
+	(void)proto;
+	long ret = zenos_do_syscall3(ZENOS_SYSCALL_UNIX_SOCKETPAIR, domain,
+			type_and_flags, reinterpret_cast<long>(fds));
+	return sc_error(ret);
 }
 
 } // namespace mlibc

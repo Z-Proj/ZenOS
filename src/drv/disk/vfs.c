@@ -6,6 +6,7 @@
 #include "../../libk/string.h"
 #include "../../libk/debug/log.h"
 #include "../../libk/core/fd.h"
+#include "../../libk/core/unix_sock.h"
 #include "../../libk/core/mem.h"
 #include "../../kernel/sched.h"
 
@@ -279,6 +280,17 @@ int vfs_list(char *buf, size_t buf_size)
             for (int j = 0; component[j] && pos + 1 < buf_size; j++) buf[pos++] = component[j];
             if (pos + 1 < buf_size) buf[pos++] = '\n';
         }
+        if (strcmp(rpath, "/") == 0) {
+            char sock_paths[UNIX_SOCK_MAX][UNIX_PATH_MAX];
+            uint32_t sock_count = unix_sock_list_paths(sock_paths, UNIX_SOCK_MAX);
+            for (uint32_t i = 0; i < sock_count && pos + 64 < buf_size; i++) {
+                const char *name = sock_paths[i][0] == '/' ? sock_paths[i] + 1 : sock_paths[i];
+                const char *pre = "[SOCK] ";
+                for (int j = 0; pre[j] && pos + 1 < buf_size; j++) buf[pos++] = pre[j];
+                for (int j = 0; name[j] && pos + 1 < buf_size; j++) buf[pos++] = name[j];
+                if (pos + 1 < buf_size) buf[pos++] = '\n';
+            }
+        }
         buf[pos] = '\0';
         return 0;
     }
@@ -301,6 +313,8 @@ int vfs_create(const char *path)
 int vfs_delete(const char *path)
 {
     char rpath[512]; resolve_path(path, rpath, sizeof(rpath));
+    if (unix_sock_unlink_path(rpath) == 0)
+        return 0;
     const char *rel = NULL;
     vfs_mount_t *m = vfs_mount_find(rpath, &rel);
     if (!m || !m->ops->unlink) return -1;

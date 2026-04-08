@@ -70,6 +70,7 @@ typedef struct
     uint32_t total_written;
     uint16_t fdate;
     uint16_t ftime;
+    int refcount;
 } fd_file_t;
 
 typedef struct pipe_buf
@@ -91,6 +92,7 @@ typedef struct
     DIR dir;
     FILINFO fno;
     int first_read;
+    int refcount;
 } fd_dir_t;
 
 struct dev_entry;
@@ -102,9 +104,9 @@ typedef struct
     int cloexec;
     union
     {
-        fd_file_t file;
+        fd_file_t *file;
         pipe_buf_t *pipe;
-        fd_dir_t dir;
+        fd_dir_t *dir;
         struct dev_entry *dev_ops;
         pty_buf_t *pty;
         unix_sock_t *usock;
@@ -119,6 +121,7 @@ typedef struct
 fd_table_t *fd_table_alloc(void);
 void fd_table_free(fd_table_t *t);
 fd_table_t *fd_table_clone(fd_table_t *src);
+int fd_entry_clone(fd_entry_t *dst, const fd_entry_t *src, int inherit_cloexec);
 void fd_table_close_cloexec(fd_table_t *t);
 void fd_table_close_all(fd_table_t *t);
 int fd_alloc(fd_table_t *t);
