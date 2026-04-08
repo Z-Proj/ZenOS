@@ -8,12 +8,19 @@
 
 #define FONT_SIZE    16
 #define BASELINE(y)  ((y) + FONT_SIZE + 1)
+#define LAUNCH_FONT_SIZE 11
+#define LAUNCH_BASELINE(y) ((y) + LAUNCH_FONT_SIZE + 1)
 #define TITLEBAR_H   28
 #define WIN_R         12
 #define DASH_H       36
 #define DASH_MARGIN   8
+#define DASH_GAP      8
 #define DASH_PAD     10
 #define DASH_R       10
+#define LAUNCH_PAD    6
+#define LAUNCH_ICON  24
+#define LAUNCH_GAP    6
+#define LAUNCH_R      7
 #define BTN_H        24
 #define BTN_W        96
 #define BTN_R        6
@@ -257,6 +264,22 @@ void bb_text(int x, int y, uint32_t fg, uint32_t bg, const char *str)
     }
 }
 
+static void bb_text_sz(int x, int y, int size, uint32_t fg, uint32_t bg, const char *str)
+{
+    if (!str || !*str) return;
+    ssfn_select(s_ssfn, SSFN_FAMILY_ANY, NULL, SSFN_STYLE_REGULAR, size);
+    s_ssfn_buf.x  = x;
+    s_ssfn_buf.y  = y;
+    s_ssfn_buf.fg = fg;
+    s_ssfn_buf.bg = bg;
+    const char *s = str;
+    while (*s && s_ssfn_buf.x < (int)SCR_W) {
+        int r = ssfn_render(s_ssfn, &s_ssfn_buf, s);
+        if (r <= 0) break;
+        s += r;
+    }
+}
+
 int text_w(const char *str)
 {
     ssfn_select(s_ssfn, SSFN_FAMILY_ANY, NULL, SSFN_STYLE_REGULAR, FONT_SIZE);
@@ -271,6 +294,42 @@ int text_w(const char *str)
         s += r;
     }
     return d.x;
+}
+
+static int text_w_sz(const char *str, int size)
+{
+    ssfn_select(s_ssfn, SSFN_FAMILY_ANY, NULL, SSFN_STYLE_REGULAR, size);
+    ssfn_buf_t d;
+    memset(&d, 0, sizeof(d));
+    d.ptr = NULL;
+    d.w = 0x7FFF;
+    d.h = 0x7FFF;
+    d.p = 0x7FFE;
+    d.x = 0;
+    d.y = size;
+    d.fg = 0xFFFFFFFF;
+    const char *s = str;
+    while (*s) {
+        int r = ssfn_render(s_ssfn, &d, s);
+        if (r <= 0) break;
+        s += r;
+    }
+    return d.x;
+}
+
+static void fit_text(char *dst, size_t dst_sz, const char *src, int max_w)
+{
+    if (!dst || dst_sz == 0) return;
+    if (!src) {
+        dst[0] = 0;
+        return;
+    }
+    size_t n = strlen(src);
+    if (n >= dst_sz) n = dst_sz - 1;
+    memcpy(dst, src, n);
+    dst[n] = 0;
+    while (n > 0 && text_w(dst) > max_w)
+        dst[--n] = 0;
 }
 
 void draw_desktop(void)
@@ -494,35 +553,54 @@ void draw_dash(void)
 
     dirty_mark(lx, ly, LEFT_W, DASH_H);
 
-    int btn_count = 0;
-    for (int i = 0; i < MAX_WINDOWS; i++)
-        if (windows[i].active) btn_count++;
-    if (btn_count == 0) return;
+    int launch_x = 0;
+    int launch_y = 0;
+    int launch_w = 0;
+    if (launcher_dash_layout(&launch_x, &launch_y, &launch_w)) {
+        dash_blit_backdrop(launch_x, launch_w);
+        bb_rrect_alpha(launch_x, launch_y, launch_w, DASH_H, DASH_R, C_DASH, TILE_ALPHA);
+        int ix = launch_x + LAUNCH_PAD;
+        int iy = launch_y + (DASH_H - LAUNCH_ICON) / 2;
+        for (int i = 0; i < launcher_app_count; i++) {
+            bb_rrect_alpha(ix, iy, LAUNCH_ICON, LAUNCH_ICON, LAUNCH_R, launcher_apps[i].color, 208);
+            int ltw = text_w_sz(launcher_apps[i].label, LAUNCH_FONT_SIZE);
+            int tx = ix + (LAUNCH_ICON - ltw) / 2;
+            int ty = iy + (LAUNCH_ICON - LAUNCH_FONT_SIZE) / 2 - 1;
+            uint32_t txt_bg = s_backbuf[(iy + LAUNCH_ICON / 2) * SCR_W + ix + LAUNCH_ICON / 2];
+            bb_text_sz(tx, LAUNCH_BASELINE(ty), LAUNCH_FONT_SIZE, C_WHITE, txt_bg, launcher_apps[i].label);
+            ix += LAUNCH_ICON + LAUNCH_GAP;
+        }
+        dirty_mark(launch_x, launch_y, launch_w, DASH_H);
+    }
 
-    int total_w = btn_count * (BTN_W + BTN_GAP) - BTN_GAP + DASH_PAD * 2;
-    int rx = (int)SCR_W - DASH_MARGIN - total_w;
-    if (rx < lx + LEFT_W + DASH_MARGIN) rx = lx + LEFT_W + DASH_MARGIN;
-    int ry = dt;
+    int rx = 0;
+    int ry = 0;
+    int total_w = 0;
+    int visible = 0;
+    if (!running_dash_layout(&rx, &ry, &total_w, &visible)) return;
 
     dash_blit_backdrop(rx, total_w);
     bb_rrect_alpha(rx, ry, total_w, DASH_H, DASH_R, C_DASH, TILE_ALPHA);
 
     int bx = rx + DASH_PAD;
     int top = z_top();
+    int shown = 0;
     for (int i = 0; i < MAX_WINDOWS; i++) {
         if (!windows[i].active) continue;
+        if (shown >= visible) break;
         if (bx + BTN_W > rx + total_w - DASH_PAD) break;
         int is_top = (i == top);
         int by = ry + (DASH_H - BTN_H) / 2;
         bb_rrect_alpha(bx, by, BTN_W, BTN_H, BTN_R, is_top ? C_BTN_F : C_BTN, TILE_ALPHA);
-        char lbl[16];
-        __builtin_strncpy(lbl, windows[i].title, 15); lbl[15] = 0;
+        char lbl[64];
+        fit_text(lbl, sizeof(lbl), windows[i].title, BTN_W - 14);
         int ltw = text_w(lbl);
         int ty_c = ly + (DASH_H - FONT_SIZE) / 2;
         uint32_t txt_bg = s_backbuf[(by + BTN_H / 2) * SCR_W + bx + BTN_W / 2];
         bb_text(bx + (BTN_W - ltw) / 2, BASELINE(ty_c) - 3,
                 is_top ? C_BTN_TXT_F : C_BTN_TXT, txt_bg, lbl);
         bx += BTN_W + BTN_GAP;
+        shown++;
     }
     dirty_mark(rx, ry, total_w, DASH_H);
 }

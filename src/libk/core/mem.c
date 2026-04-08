@@ -22,6 +22,7 @@ static uint64_t pmm_hint = 0;
 #define NUM_SIZE_CLASSES    12
 #define HEAP_MAGIC          0xDEADBEEFCAFEBABEULL
 #define USER_SHM_PML4_INDEX ((0x0000500000000000ULL >> 39) & 0x1FF)
+#define USER_FB_PML4_INDEX  ((0x0000600000000000ULL >> 39) & 0x1FF)
 
 #define BLK_OVERHEAD        (((sizeof(blk_hdr_t) + sizeof(size_t)) + HEAP_ALIGN - 1) & ~(size_t)(HEAP_ALIGN - 1))
 #define BLK_PAD             (BLK_OVERHEAD - sizeof(blk_hdr_t) - sizeof(size_t))
@@ -750,7 +751,7 @@ void free_user_pages(page_table_t *pml4)
 
     for (int pml4_idx = 0; pml4_idx < 256; pml4_idx++)
     {
-        if (pml4_idx == USER_SHM_PML4_INDEX)
+        if (pml4_idx == USER_SHM_PML4_INDEX || pml4_idx == USER_FB_PML4_INDEX)
             continue;
 
         if (!(pml4->entries[pml4_idx] & PAGE_PRESENT))

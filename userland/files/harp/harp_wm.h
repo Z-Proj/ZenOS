@@ -4,8 +4,16 @@
 #include "../../userlib.h"
 
 #define MAX_WINDOWS 16
+#define MAX_LAUNCH_APPS 3
 #define TITLEBAR_H  28
 #define WIN_R        12
+
+typedef struct {
+    int active;
+    char path[128];
+    uint32_t color;
+    char label[4];
+} launcher_app_t;
 
 typedef struct {
     int      active;
@@ -28,6 +36,8 @@ extern int      drag_start_x, drag_start_y;
 extern int      drag_base_x, drag_base_y;
 extern int      dragging;
 extern uint32_t SCR_W, SCR_H;
+extern launcher_app_t launcher_apps[MAX_LAUNCH_APPS];
+extern int launcher_app_count;
 
 void wm_init(void);
 void z_raise(int i);
@@ -45,4 +55,7 @@ void send_key_event(int idx, uint16_t code, int32_t value, uint32_t mods, int ke
 void send_close_req(int idx);
 void wm_close_window(int idx);
 int  dash_area_top(void);
+int  launcher_dash_layout(int *x, int *y, int *w);
+int  running_dash_layout(int *x, int *y, int *w, int *visible_count);
+int  launcher_btn_at(int x, int y);
 int  dash_btn_at(int x, int y);

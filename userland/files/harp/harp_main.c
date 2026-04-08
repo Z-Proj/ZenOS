@@ -4,7 +4,9 @@
 #include <stdint.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <linux/input.h>
 
 #define SSFN_IMPLEMENTATION
@@ -40,8 +42,201 @@ static int        pending_full_redraw = 0;
 static int        pending_from_z = MAX_WINDOWS;
 static int        pending_dash_redraw = 0;
 static char* dir;
+static char       drive_root[32];
+static char       launcher_cfg_path[64];
 
 #define TASK_SNAPSHOT_MAX 128
+
+static const char *path_basename(const char *path)
+{
+    const char *base = path;
+    while (*path) {
+        if (*path == '/' || *path == '\\')
+            base = path + 1;
+        path++;
+    }
+    return base;
+}
+
+static int hex_nibble(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static char upper_ascii(char c)
+{
+    if (c >= 'a' && c <= 'z')
+        return (char)(c - 'a' + 'A');
+    return c;
+}
+
+static char *trim_ws(char *s)
+{
+    while (*s == ' ' || *s == '\t')
+        s++;
+    size_t n = strlen(s);
+    while (n > 0 && (s[n - 1] == ' ' || s[n - 1] == '\t' || s[n - 1] == '\r' || s[n - 1] == '\n'))
+        s[--n] = 0;
+    return s;
+}
+
+static void set_launcher_label(char out[4], const char *src)
+{
+    int j = 0;
+    while (src && *src && j < 3) {
+        char c = *src++;
+        if (c == ' ' || c == '\t')
+            continue;
+        out[j++] = upper_ascii(c);
+    }
+    if (j == 0) {
+        out[0] = '?';
+        j = 1;
+    }
+    out[j] = 0;
+}
+
+static uint32_t fallback_launcher_color(const char *seed)
+{
+    uint32_t h = 2166136261u;
+    while (seed && *seed) {
+        h ^= (uint8_t)*seed++;
+        h *= 16777619u;
+    }
+    uint32_t r = 32 + ((h >>  0) & 0x3F);
+    uint32_t g = 32 + ((h >>  8) & 0x3F);
+    uint32_t b = 32 + ((h >> 16) & 0x3F);
+    return 0xFF000000U | (r << 16) | (g << 8) | b;
+}
+
+static int parse_launcher_color(const char *s, uint32_t *out)
+{
+    if (!s || !*s)
+        return 0;
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X'))
+        s += 2;
+    uint32_t value = 0;
+    int digits = 0;
+    while (*s) {
+        int v = hex_nibble(*s++);
+        if (v < 0)
+            return 0;
+        value = (value << 4) | (uint32_t)v;
+        digits++;
+    }
+    if (digits == 6) {
+        *out = 0xFF000000U | value;
+        return 1;
+    }
+    if (digits == 8) {
+        *out = value;
+        return 1;
+    }
+    return 0;
+}
+
+static void get_drive_root_from_cwd(void)
+{
+    char cwd[256];
+    if (!getcwd(cwd, sizeof(cwd))) {
+        strcpy(drive_root, "/mnt/drv0");
+        return;
+    }
+    if (strncmp(cwd, "/mnt/drv", 8) != 0) {
+        strcpy(drive_root, "/mnt/drv0");
+        return;
+    }
+    char *slash = cwd + 8;
+    while (*slash && *slash != '/')
+        slash++;
+    size_t len = (size_t)(slash - cwd);
+    if (len == 0 || len >= sizeof(drive_root)) {
+        strcpy(drive_root, "/mnt/drv0");
+        return;
+    }
+    memcpy(drive_root, cwd, len);
+    drive_root[len] = 0;
+}
+
+static void ensure_launcher_cfg(void)
+{
+    snprintf(launcher_cfg_path, sizeof(launcher_cfg_path), "%s/sys/harp.cfg", drive_root);
+    FILE *fp = fopen(launcher_cfg_path, "r");
+    if (fp) {
+        fclose(fp);
+        return;
+    }
+    char sys_dir[48];
+    snprintf(sys_dir, sizeof(sys_dir), "%s/sys", drive_root);
+    mkdir(sys_dir, 0755);
+    fp = fopen(launcher_cfg_path, "w");
+    if (!fp)
+        return;
+    fprintf(fp, "%s/bin/terminal; 0xF0F0F0; TRM\n", drive_root);
+    fprintf(fp, "%s/bin/imgview; 0x88C0D0; IMG\n", drive_root);
+    fprintf(fp, "%s/bin/doom; 0xD08770; DUM\n", drive_root);
+    fclose(fp);
+}
+
+static void load_launcher_cfg(void)
+{
+    launcher_app_count = 0;
+    memset(launcher_apps, 0, sizeof(launcher_apps));
+
+    FILE *fp = fopen(launcher_cfg_path, "r");
+    if (!fp)
+        return;
+
+    char line[256];
+    while (launcher_app_count < MAX_LAUNCH_APPS && fgets(line, sizeof(line), fp)) {
+        char *p = trim_ws(line);
+        if (*p == 0 || *p == '#')
+            continue;
+
+        char *sep1 = strchr(p, ';');
+        if (!sep1)
+            continue;
+        *sep1++ = 0;
+        char *sep2 = strchr(sep1, ';');
+        if (!sep2)
+            continue;
+        *sep2++ = 0;
+
+        char *path = trim_ws(p);
+        char *color = trim_ws(sep1);
+        char *label = trim_ws(sep2);
+        if (*path == 0)
+            continue;
+
+        launcher_app_t *app = &launcher_apps[launcher_app_count];
+        memset(app, 0, sizeof(*app));
+        strncpy(app->path, path, sizeof(app->path) - 1);
+        if (!parse_launcher_color(color, &app->color))
+            app->color = fallback_launcher_color(app->path);
+        if (*label)
+            set_launcher_label(app->label, label);
+        else
+            set_launcher_label(app->label, path_basename(app->path));
+        app->active = 1;
+        launcher_app_count++;
+    }
+
+    fclose(fp);
+}
+
+static void launch_launcher_app(int idx)
+{
+    if (idx < 0 || idx >= launcher_app_count || !launcher_apps[idx].active)
+        return;
+    char *argv[] = { launcher_apps[idx].path, NULL };
+    int pid = zen_spawn(launcher_apps[idx].path, argv);
+    if (pid < 0)
+        return;
+    zen_set_focus(pid);
+}
 
 static void full_redraw(void)
 {
@@ -474,6 +669,13 @@ static void reap_dead_windows(void)
         request_full_redraw();
 }
 
+static void reap_spawned_children(void)
+{
+    int status = 0;
+    while (waitpid(-1, &status, WNOHANG) > 0) {
+    }
+}
+
 int main(int argc, char* argv[])
 {
     dir = "";
@@ -483,6 +685,9 @@ int main(int argc, char* argv[])
     }
     if (argc < 2) dir = "/mnt/drv0/lib/harp/bg.png";
     else dir = argv[1];
+    get_drive_root_from_cwd();
+    ensure_launcher_cfg();
+    load_launcher_cfg();
     if (zen_fbinfo(&fb) != 0) return 1;
     SCR_W = (uint32_t)fb.width;
     SCR_H = (uint32_t)fb.height;
@@ -527,6 +732,7 @@ int main(int argc, char* argv[])
     int reap_tick = 0;
 
     while (1) {
+        reap_spawned_children();
         poll_ipc();
         input_pump_keyboard();
         input_pump_mouse();
@@ -556,9 +762,12 @@ int main(int argc, char* argv[])
         if ((btn & 1) && !(prev_btn & 1)) {
             drag_win = -1;
             int clicked = win_at((int)mx, (int)my);
+            int lb = launcher_btn_at((int)mx, (int)my);
             int db = dash_btn_at((int)mx, (int)my);
 
-            if (db >= 0) {
+            if (lb >= 0) {
+                launch_launcher_app(lb);
+            } else if (db >= 0) {
                 if (db == focused_win) {
                     windows[db].minimized ^= 1;
                     if (windows[db].minimized) set_focused_window(z_top());

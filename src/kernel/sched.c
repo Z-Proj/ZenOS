@@ -17,8 +17,31 @@ static volatile int scheduler_enabled = 0;
 static uint32_t next_user_cpu = 0;
 
 #define USER_SHM_PML4_INDEX ((0x0000500000000000ULL >> 39) & 0x1FF)
+#define USER_FB_PML4_INDEX  ((0x0000600000000000ULL >> 39) & 0x1FF)
 
 static void task_entry_wrapper(void);
+
+static inline size_t task_stack_pages(void)
+{
+    return (TASK_STACK_SIZE + PAGE_SIZE - 1) / PAGE_SIZE;
+}
+
+static uint64_t alloc_task_kernel_stack(void)
+{
+    uint64_t phys = alloc_pages(task_stack_pages());
+    if (!phys)
+        return 0;
+    uint64_t virt = phys + KERNEL_VIRT_OFFSET;
+    memset((void *)virt, 0, TASK_STACK_SIZE);
+    return virt;
+}
+
+static void free_task_kernel_stack(uint64_t stack)
+{
+    if (!stack)
+        return;
+    free_pages(stack - KERNEL_VIRT_OFFSET, task_stack_pages());
+}
 
 typedef struct
 {
@@ -120,7 +143,7 @@ static page_table_t *fork_clone_user_pml4(page_table_t *src)
                     uint64_t src_phys = src_pte & 0xFFFFFFFFFFFFF000ULL;
                     uint64_t flags = src_pte & ~0x000FFFFFFFFFF000ULL;
 
-                    if (pml4_idx == USER_SHM_PML4_INDEX)
+                    if (pml4_idx == USER_SHM_PML4_INDEX || pml4_idx == USER_FB_PML4_INDEX)
                     {
                         map_page(dst, virt, src_phys, flags);
                         if (virt_to_phys(dst, virt) != src_phys)
@@ -201,14 +224,12 @@ static task_t *create_kernel_task_locked(void (*entry)(void), const char *name, 
     task->running_cpu = -1;
     task->last_cpu = -1;
 
-    task->kernel_stack = (uint64_t)kmalloc(TASK_STACK_SIZE);
+    task->kernel_stack = alloc_task_kernel_stack();
     if (!task->kernel_stack)
     {
         kfree(task);
         return NULL;
     }
-
-    memset((void *)task->kernel_stack, 0, TASK_STACK_SIZE);
     task->user_stack = 0;
 
     memset(&task->regs, 0, sizeof(registers_t));
@@ -435,7 +456,7 @@ task_t *task_create_user_from_parent(void (*entry)(void), const char *name, page
     task->running_cpu = -1;
     task->last_cpu = -1;
 
-    task->kernel_stack = (uint64_t)kmalloc(TASK_STACK_SIZE);
+    task->kernel_stack = alloc_task_kernel_stack();
     if (!task->kernel_stack)
     {
         if (task->fd_table)
@@ -444,7 +465,6 @@ task_t *task_create_user_from_parent(void (*entry)(void), const char *name, page
         spinlock_release(&sched_lock);
         return NULL;
     }
-    memset((void *)task->kernel_stack, 0, TASK_STACK_SIZE);
     task->user_stack = USER_STACK_BASE;
 
     memset(&task->regs, 0, sizeof(registers_t));
@@ -544,8 +564,11 @@ static void reap_dead_tasks(void)
             }
             if (iter->kernel_stack)
             {
-                kfree((void *)iter->kernel_stack);
+                free_task_kernel_stack(iter->kernel_stack);
             }
+
+            if (!iter->is_kernel_task && iter->pml4 && iter->pml4 != get_kernel_pml4())
+                syscall_release_special_user_mappings(iter->pml4);
 
             if (!iter->is_kernel_task && iter->owns_user_pages)
             {
@@ -1174,22 +1197,24 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
         spinlock_release_raw(&process_lock);
         return -1;
     }
+    syscall_retain_special_user_mappings(child->pml4);
 
-    child->kernel_stack = (uint64_t)kmalloc(TASK_STACK_SIZE);
+    child->kernel_stack = alloc_task_kernel_stack();
     if (!child->kernel_stack)
     {
+        syscall_release_special_user_mappings(child->pml4);
         free_user_pages(child->pml4);
         free_page_directory(child->pml4);
         kfree(child);
         spinlock_release_raw(&process_lock);
         return -1;
     }
-    memset((void *)child->kernel_stack, 0, TASK_STACK_SIZE);
 
     child->fd_table = fd_table_clone(parent->fd_table);
     if (!child->fd_table)
     {
-        kfree((void *)child->kernel_stack);
+        free_task_kernel_stack(child->kernel_stack);
+        syscall_release_special_user_mappings(child->pml4);
         free_user_pages(child->pml4);
         free_page_directory(child->pml4);
         kfree(child);
@@ -1219,7 +1244,8 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
     {
         spinlock_release(&sched_lock);
         fd_table_free(child->fd_table);
-        kfree((void *)child->kernel_stack);
+        free_task_kernel_stack(child->kernel_stack);
+        syscall_release_special_user_mappings(child->pml4);
         free_user_pages(child->pml4);
         free_page_directory(child->pml4);
         kfree(child);

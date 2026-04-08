@@ -2,6 +2,7 @@
 #define SYSCALL_H
 
 #include <stdint.h>
+#include "mem.h"
 
 #define SYSCALL_EXEC             0
 #define SYSCALL_EXIT             1
@@ -164,6 +165,9 @@ typedef struct {
     uint8_t  ip[4];
     uint16_t port;
 } net_connect_args_t;
+
+void syscall_retain_special_user_mappings(page_table_t *pml4);
+void syscall_release_special_user_mappings(page_table_t *pml4);
 
 
 typedef struct {

@@ -4,6 +4,10 @@
 
 #define DASH_H      36
 #define DASH_MARGIN  8
+#define DASH_GAP     8
+#define LAUNCH_PAD   6
+#define LAUNCH_ICON  24
+#define LAUNCH_GAP   6
 #define BTN_W       96
 #define BTN_H       24
 #define BTN_GAP      6
@@ -18,6 +22,8 @@ int      drag_win    = -1;
 int      drag_start_x, drag_start_y;
 int      drag_base_x, drag_base_y;
 int      dragging    = 0;
+launcher_app_t launcher_apps[MAX_LAUNCH_APPS];
+int launcher_app_count = 0;
 
 uint32_t SCR_W, SCR_H;
 
@@ -88,6 +94,76 @@ void set_focused_window(int idx)
 int dash_area_top(void)
 {
     return (int)SCR_H - DASH_MARGIN - DASH_H;
+}
+
+int launcher_dash_layout(int *x, int *y, int *w)
+{
+    if (launcher_app_count <= 0)
+        return 0;
+    int width = LAUNCH_PAD * 2 + launcher_app_count * LAUNCH_ICON + (launcher_app_count - 1) * LAUNCH_GAP;
+    if (x)
+        *x = DASH_MARGIN + LEFT_W + DASH_GAP;
+    if (y)
+        *y = dash_area_top();
+    if (w)
+        *w = width;
+    return 1;
+}
+
+int running_dash_layout(int *x, int *y, int *w, int *visible_count)
+{
+    int active_count = 0;
+    for (int i = 0; i < MAX_WINDOWS; i++)
+        if (windows[i].active)
+            active_count++;
+
+    if (y)
+        *y = dash_area_top();
+    if (active_count == 0) {
+        if (x)
+            *x = (int)SCR_W - DASH_MARGIN;
+        if (w)
+            *w = 0;
+        if (visible_count)
+            *visible_count = 0;
+        return 0;
+    }
+
+    int launcher_x = 0;
+    int launcher_w = 0;
+    int left_limit = DASH_MARGIN + LEFT_W + DASH_MARGIN;
+    if (launcher_dash_layout(&launcher_x, NULL, &launcher_w))
+        left_limit = launcher_x + launcher_w + DASH_GAP;
+
+    int available = (int)SCR_W - DASH_MARGIN - left_limit;
+    if (available < DASH_PAD * 2 + BTN_W) {
+        if (x)
+            *x = (int)SCR_W - DASH_MARGIN;
+        if (w)
+            *w = 0;
+        if (visible_count)
+            *visible_count = 0;
+        return 0;
+    }
+
+    int max_visible = (available - DASH_PAD * 2 + BTN_GAP) / (BTN_W + BTN_GAP);
+    if (max_visible < 1)
+        max_visible = 1;
+    if (max_visible > active_count)
+        max_visible = active_count;
+
+    int total_w = DASH_PAD * 2 + max_visible * BTN_W + (max_visible - 1) * BTN_GAP;
+    int rx = (int)SCR_W - DASH_MARGIN - total_w;
+    if (rx < left_limit)
+        rx = left_limit;
+
+    if (x)
+        *x = rx;
+    if (w)
+        *w = total_w;
+    if (visible_count)
+        *visible_count = max_visible;
+    return 1;
 }
 
 void clamp_window(window_t *w)
@@ -205,19 +281,44 @@ void wm_close_window(int idx)
 
 int dash_btn_at(int x, int y)
 {
-    int dt = dash_area_top(), ry = dt;
-    int btn_count = 0;
-    for (int i = 0; i < MAX_WINDOWS; i++)
-        if (windows[i].active) btn_count++;
-    if (btn_count == 0) return -1;
-    int total_w = btn_count * (BTN_W + BTN_GAP) - BTN_GAP + DASH_PAD * 2;
-    int rx = (int)SCR_W - DASH_MARGIN - total_w;
-    if (x < rx || x >= rx + total_w || y < ry || y >= ry + DASH_H) return -1;
+    int rx = 0;
+    int ry = 0;
+    int total_w = 0;
+    int visible = 0;
+    if (!running_dash_layout(&rx, &ry, &total_w, &visible))
+        return -1;
+    if (x < rx || x >= rx + total_w || y < ry || y >= ry + DASH_H)
+        return -1;
     int bx = rx + DASH_PAD;
+    int shown = 0;
     for (int i = 0; i < MAX_WINDOWS; i++) {
-        if (!windows[i].active) continue;
-        if (x >= bx && x < bx + BTN_W) return i;
+        if (!windows[i].active)
+            continue;
+        if (shown >= visible)
+            break;
+        if (x >= bx && x < bx + BTN_W)
+            return i;
         bx += BTN_W + BTN_GAP;
+        shown++;
+    }
+    return -1;
+}
+
+int launcher_btn_at(int x, int y)
+{
+    int lx = 0;
+    int ly = 0;
+    int lw = 0;
+    if (!launcher_dash_layout(&lx, &ly, &lw))
+        return -1;
+    if (x < lx || x >= lx + lw || y < ly || y >= ly + DASH_H)
+        return -1;
+    int ix = lx + LAUNCH_PAD;
+    int iy = ly + (DASH_H - LAUNCH_ICON) / 2;
+    for (int i = 0; i < launcher_app_count; i++) {
+        if (x >= ix && x < ix + LAUNCH_ICON && y >= iy && y < iy + LAUNCH_ICON)
+            return i;
+        ix += LAUNCH_ICON + LAUNCH_GAP;
     }
     return -1;
 }

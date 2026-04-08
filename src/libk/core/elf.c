@@ -785,6 +785,7 @@ int elf_execve_replace(const char *filename, int argc, char **argv, char **envp)
     sched_set_active_pml4(new_pml4);
     syscall_prepare_user_return(task->user_gs_base);
     if (old_pml4 && old_pml4 != get_kernel_pml4() && old_pml4 != new_pml4) {
+        syscall_release_special_user_mappings(old_pml4);
         if (old_owns_user_pages) {
             free_user_pages(old_pml4);
         } else if (old_user_stack) {

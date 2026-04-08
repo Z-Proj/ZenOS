@@ -25,6 +25,7 @@
 extern void syscall_entry(void);
 
 #define SHM_VIRT_BASE 0x0000500000000000ULL
+#define FB_VIRT_BASE  0x0000600000000000ULL
 #define USER_MMAP_START 0x0000200000000000ULL
 #define USER_MMAP_END   SHM_VIRT_BASE
 
@@ -60,6 +61,40 @@ typedef struct {
 static inline void write_msr64(uint32_t msr, uint64_t value)
 {
     __asm__ volatile("wrmsr" : : "c"(msr), "a"((uint32_t)value), "d"((uint32_t)(value >> 32)));
+}
+
+void syscall_retain_special_user_mappings(page_table_t *pml4)
+{
+    if (!pml4)
+        return;
+
+    for (int i = 0; i < SHM_MAX; i++) {
+        if (!shm_table[i].in_use)
+            continue;
+        uint64_t virt = SHM_VIRT_BASE + (uint64_t)i * 0x10000000ULL;
+        if (virt_to_phys(pml4, virt) == shm_table[i].phys)
+            shm_table[i].refs++;
+    }
+}
+
+void syscall_release_special_user_mappings(page_table_t *pml4)
+{
+    if (!pml4)
+        return;
+
+    for (int i = 0; i < SHM_MAX; i++) {
+        if (!shm_table[i].in_use)
+            continue;
+        uint64_t virt = SHM_VIRT_BASE + (uint64_t)i * 0x10000000ULL;
+        if (virt_to_phys(pml4, virt) != shm_table[i].phys)
+            continue;
+        if (shm_table[i].refs > 0)
+            shm_table[i].refs--;
+        if (shm_table[i].refs == 0) {
+            free_pages(shm_table[i].phys, shm_table[i].pages);
+            memset(&shm_table[i], 0, sizeof(shm_table[i]));
+        }
+    }
 }
 
 static int unix_sock_copy_user_path(task_t *task, const sa_un_t *addr, char *out, size_t out_len)
