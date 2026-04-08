@@ -159,14 +159,13 @@ socat
 <table>
   <tr>
     <td><img src="https://github.com/user-attachments/assets/0f86c8a7-e93f-4cf4-b381-a587c025e43b" /></td>
-    <td><img src="https://github.com/user-attachments/assets/76417203-2ba3-467a-9a64-f62dfc424cb6" /></td>
-</td>
+    <td><img src="https://github.com/user-attachments/assets/982f0dc6-9777-4b63-9346-2005f2438d4d" /></td>
   </tr>
   <tr>
     <td><img src="https://github.com/user-attachments/assets/5017c149-0ea5-4c09-87f2-f60e120795cf" /></td>
     <td><img src="https://github.com/user-attachments/assets/3dfdf375-bb38-4507-84d2-7d9aeff15170" /></td>
   </tr>
-    <td><img src="https://github.com/user-attachments/assets/a6e08d37-b8b6-45b8-b87b-b8f948e9d6a4" /></td>
+    <td><img src="https://github.com/user-attachments/assets/4787c62f-49d9-4221-a236-c59d34ad1590" /></td>
   <tr>
   </tr>
 </table>
