@@ -14,6 +14,7 @@
 #include "harp_wm.h"
 #include "harp_draw.h"
 #include "harp_input.h"
+#include "../nk_widgets/stb_image.h"
 
 extern char _binary_default_sfn_start;
 extern char _binary_default_sfn_end;
@@ -280,14 +281,64 @@ static uint32_t *tga_load(const char *path, int *out_w, int *out_h)
     return px;
 }
 
+static uint32_t *image_load(const char *path, int *out_w, int *out_h)
+{
+    const char *ext = strrchr(path, '.');
+    if (ext && (!strcmp(ext, ".tga") || !strcmp(ext, ".TGA")))
+        return tga_load(path, out_w, out_h);
+
+    int iw = 0;
+    int ih = 0;
+    int comp = 0;
+    uint8_t *rgba = stbi_load(path, &iw, &ih, &comp, 4);
+    if (!rgba)
+        return NULL;
+
+    int sw = (int)SCR_W;
+    int sh = (int)SCR_H;
+    int crop_w = iw < sw ? iw : sw;
+    int crop_h = ih < sh ? ih : sh;
+    int src_x0 = (iw - crop_w) / 2;
+    int src_y0 = (ih - crop_h) / 2;
+
+    uint32_t *px = (uint32_t *)malloc(crop_w * crop_h * 4);
+    if (!px) {
+        stbi_image_free(rgba);
+        return NULL;
+    }
+
+    for (int y = 0; y < crop_h; y++) {
+        const uint8_t *src = rgba + ((size_t)(src_y0 + y) * (size_t)iw + (size_t)src_x0) * 4;
+        uint32_t *dst = px + (size_t)y * (size_t)crop_w;
+        for (int x = 0; x < crop_w; x++) {
+            const uint8_t *p = src + (size_t)x * 4;
+            uint32_t a = p[3];
+            uint32_t r = p[0];
+            uint32_t g = p[1];
+            uint32_t b = p[2];
+            if (a != 255) {
+                r = (r * a) / 255;
+                g = (g * a) / 255;
+                b = (b * a) / 255;
+            }
+            dst[x] = 0xFF000000U | (r << 16) | (g << 8) | b;
+        }
+    }
+
+    stbi_image_free(rgba);
+    *out_w = crop_w;
+    *out_h = crop_h;
+    return px;
+}
+
 static void bake_bgbuf(void)
 {
     int bw = 0, bh = 0;
-    uint32_t *tga = tga_load(dir, &bw, &bh);
+    uint32_t *img = image_load(dir, &bw, &bh);
     bgbuf = (uint32_t *)malloc(SCR_W * SCR_H * 4);
-    if (!bgbuf) { if (tga) free(tga); return; }
+    if (!bgbuf) { if (img) free(img); return; }
     for (uint32_t i = 0; i < SCR_W * SCR_H; i++) bgbuf[i] = 0xFF0E0E0E;
-    if (tga) {
+    if (img) {
         int ox = ((int)SCR_W - bw) / 2, oy = ((int)SCR_H - bh) / 2;
         for (int y = 0; y < bh; y++) {
             int dy = oy + y;
@@ -295,10 +346,10 @@ static void bake_bgbuf(void)
             for (int x = 0; x < bw; x++) {
                 int dx = ox + x;
                 if (dx < 0 || (uint32_t)dx >= SCR_W) continue;
-                bgbuf[dy * SCR_W + dx] = tga[y * bw + x] | 0xFF000000;
+                bgbuf[dy * SCR_W + dx] = img[y * bw + x] | 0xFF000000;
             }
         }
-        free(tga);
+        free(img);
     }
 }
 
@@ -430,7 +481,7 @@ int main(int argc, char* argv[])
         printf("Invalid number of arguments passed.\n1 || 2 args expected.");
         return 1;
     }
-    if (argc < 2) dir = "/mnt/drv0/lib/harp/bg1.tga";
+    if (argc < 2) dir = "/mnt/drv0/lib/harp/bg.png";
     else dir = argv[1];
     if (zen_fbinfo(&fb) != 0) return 1;
     SCR_W = (uint32_t)fb.width;

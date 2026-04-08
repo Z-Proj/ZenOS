@@ -1,4 +1,4 @@
-APP      = harp
+APP      = imgview
 SYSROOT  ?= ../../sysroot
 MLIBC_SYSROOT := $(abspath $(SYSROOT))
 MLIBC_USR := $(MLIBC_SYSROOT)/usr
@@ -9,21 +9,21 @@ INSTALL_PATH ?= /bin/$(APP)
 CC  := clang
 LD  := ld.lld
 
-SRCS = harp_main.c harp_wm.c harp_draw.c harp_input.c harp_stb_image_impl.c
-OBJS = $(SRCS:.c=.o) default.o
+SRCS = imgview.c
+OBJS = $(SRCS:.c=.o)
 
 COMMON_CPPFLAGS := \
 	--sysroot=$(MLIBC_SYSROOT) \
 	-isystem $(MLIBC_USR)/include \
-	-I ../.. -I . -I ../nk_widgets
+	-I ../.. -I ../nk_widgets
 
 COMMON_CFLAGS := \
-    -m64 -O3 -fPIE -fomit-frame-pointer -flto -ffast-math \
-    -fno-stack-protector -mno-red-zone -nostdlib -finline-functions \
-    -fvisibility=hidden
+	-m64 -O2 -fno-pic -fno-pie -fomit-frame-pointer \
+	-fno-stack-protector -mno-red-zone -nostdlib \
+	-fvisibility=hidden
 
 COMMON_LDFLAGS := \
-	-m elf_x86_64 -pie -e _start -s \
+	-m elf_x86_64 -e _start \
 	-z max-page-size=0x1000 \
 	-dynamic-linker /mnt/drv0/usr/lib/ld.so \
 	-rpath /mnt/drv0/usr/lib \
@@ -47,11 +47,6 @@ install: $(APP)
 	$(FATMAN) $(VHD) mkdir /bin || true
 	$(FATMAN) $(VHD) delete $(INSTALL_PATH) || true
 	$(FATMAN) $(VHD) import $(APP) $(INSTALL_PATH)
-	$(FATMAN) $(VHD) mkdir /lib
-	$(FATMAN) $(VHD) mkdir /lib/harp
-	$(FATMAN) $(VHD) import bg.png /lib/harp/bg.png
-	$(FATMAN) $(VHD) import bg2.jpg /lib/harp/bg2.jpg
-	$(FATMAN) $(VHD) import bg3.jpg /lib/harp/bg3.jpg
 
 clean:
 	rm -f $(OBJS) $(APP)
