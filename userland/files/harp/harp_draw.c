@@ -16,7 +16,7 @@
 #define DASH_PAD     10
 #define DASH_R       10
 #define BTN_H        24
-#define BTN_W        128
+#define BTN_W        96
 #define BTN_R        6
 #define BTN_GAP       6
 #define LEFT_W      120
