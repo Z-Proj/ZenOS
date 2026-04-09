@@ -915,8 +915,6 @@ int main(int argc, char* argv[])
             reap_tick = 0;
             reap_dead_windows();
         }
-
-        zen_halt();
     }
     return 0;
 }
