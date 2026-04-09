@@ -6,10 +6,21 @@ endif
 ifeq ($(origin LD), undefined)
 LD := ld.lld
 endif
-KERNEL_OPT ?= -O2
+KERNEL_OPT ?= -O3
 
-CFLAGS = -mcmodel=kernel -m64 -ffreestanding -fno-stack-protector -Wall -Wextra -fno-pie -fno-pic -Wno-missing-braces -mno-red-zone -fomit-frame-pointer $(KERNEL_OPT) -MMD -MP
-LDFLAGS = -Wl,-T,linker.ld -fuse-ld=lld -nostdlib -no-pie
+CFLAGS = -mcmodel=kernel -m64 \
+         -march=x86-64 -mtune=generic \
+         -ffreestanding -fno-stack-protector \
+         -fno-pie -fno-pic \
+         -mno-red-zone \
+         -fomit-frame-pointer \
+         -fno-unwind-tables -fno-asynchronous-unwind-tables \
+         -Wall -Wextra -Wno-missing-braces \
+         $(KERNEL_OPT) -MMD -MP
+
+LDFLAGS = -Wl,-T,linker.ld -fuse-ld=lld \
+          -nostdlib -static -Wl,--gc-sections
+
 ASFLAGS = -f elf64
 
 SRC_DIR = src

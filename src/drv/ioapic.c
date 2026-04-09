@@ -73,8 +73,6 @@ void IoApicSetIrqMapped(int irq, int vector)
                     ((uint64_t)LocalApicGetId() << 56);
 
     IoApicSetEntry(g_ioApicAddr, (uint8_t)ioapic_irq, entry);
-    log("IOAPIC map irq=%d gsi=%d base=%u pin=%d flags=0x%x pol=%u trg=%u vec=0x%x", 1, 0,
-        irq, gsi, g_ioApicGsiBase, ioapic_irq, (unsigned)flags, polarity, trigger, vector);
 }
 
 void IoApicInit()
