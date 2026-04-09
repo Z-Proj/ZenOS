@@ -67,10 +67,10 @@ The project focuses on clean design, correctness, and real hardware interaction.
 - **Process Utils** — ps, kill
 - **System Info** — uname, time
 - **Math** — calc, primes, fibonacci, counter
-- **Text & UI** — [Harp](https://github.com/Z-Proj/ZenOS/blob/main/userland/files/harp/harp_main.c) (Custom compositor and server for Zen), terminal (PTY terminal emulator), edit (text editor), clock, beep, mouse, [FIGlet](https://github.com/cmatsuoka/figlet), [Kilo](https://github.com/antirez/kilo), [DOOM](https://github.com/ozkl/doomgeneric).
+- **Text & UI** — [Harp](https://github.com/Z-Proj/ZenOS/blob/main/userland/files/harp/harp_main.c) (Custom compositor and server for Zen), terminal (PTY terminal emulator), edit (non-harp text editor), clock, beep, mouse, [FIGlet](https://github.com/cmatsuoka/figlet), [Kilo](https://github.com/antirez/kilo), [DOOM](https://github.com/ozkl/doomgeneric).
 - **Compilers** — [TinyCC](https://github.com/TinyCC/tinycc), [SmallerC](https://github.com/alexfru/SmallerC)
 - **Scripting** — [Lua 5.5.0](https://www.lua.org/)
-- **Networking** — wget, zen package manager, nettest
+- **Networking** — wget, zen package manager
 - **Misc** — hello, init
 
 
