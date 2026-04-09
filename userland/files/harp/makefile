@@ -43,12 +43,12 @@ $(APP): $(OBJS)
 		$(OBJS) -l:libc.so -l:libm.so \
 		$(MLIBC_USR)/lib/libfont.a \
 		$(MLIBC_USR)/lib/libfreetype.a \
-		$(MLIBC_USR)/lib/crtn.o -o $@
+		$(MLIBC_USR)/lib/crtn.o -o $(APP).elf
 
 install: $(APP)
 	$(FATMAN) $(VHD) mkdir /bin || true
 	$(FATMAN) $(VHD) delete $(INSTALL_PATH) || true
-	$(FATMAN) $(VHD) import $(APP) $(INSTALL_PATH)
+	$(FATMAN) $(VHD) import $(APP).elf $(INSTALL_PATH)
 	$(FATMAN) $(VHD) mkdir /lib || true
 	$(FATMAN) $(VHD) mkdir /lib/harp || true
 	$(FATMAN) $(VHD) mkdir /lib/harp/scrshot || true
@@ -60,4 +60,4 @@ install: $(APP)
 	$(FATMAN) $(VHD) import bg3.jpg /lib/harp/bg3.jpg
 
 clean:
-	rm -f $(OBJS) $(APP)
+	rm -f $(OBJS) $(APP).elf

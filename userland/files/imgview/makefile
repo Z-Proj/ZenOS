@@ -41,12 +41,12 @@ $(APP): $(OBJS)
 	$(LD) $(COMMON_LDFLAGS) \
 		$(MLIBC_USR)/lib/crti.o $(MLIBC_USR)/lib/crt0.o \
 		$(OBJS) -l:libc.so -l:libm.so \
-		$(MLIBC_USR)/lib/crtn.o -o $@
+		$(MLIBC_USR)/lib/crtn.o -o $(APP).elf
 
 install: $(APP)
 	$(FATMAN) $(VHD) mkdir /bin || true
 	$(FATMAN) $(VHD) delete $(INSTALL_PATH) || true
-	$(FATMAN) $(VHD) import $(APP) $(INSTALL_PATH)
+	$(FATMAN) $(VHD) import $(APP).elf $(INSTALL_PATH)
 
 clean:
-	rm -f $(OBJS) $(APP)
+	rm -f $(OBJS) $(APP).elf

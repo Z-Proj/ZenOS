@@ -53,20 +53,20 @@ $(APP): $(OBJS)
 	ld.lld $(COMMON_LDFLAGS) $(LDFLAGS) \
 		$(MLIBC_USR)/lib/crti.o $(MLIBC_USR)/lib/crt0.o \
 		$(OBJS) $(LDLIBS) -l:libc.so -l:libm.so \
-		$(MLIBC_USR)/lib/crtn.o -o $(APP)
+		$(MLIBC_USR)/lib/crtn.o -o $(APP).elf
 	strip -R .comment -R .note -R .debug_info -R .debug_abbrev \
-	      -R .debug_line -R .debug_str -R .debug_ranges $(APP) 2>/dev/null || true
+	      -R .debug_line -R .debug_str -R .debug_ranges $(APP).elf 2>/dev/null || true
 
 install: $(APP)
 	$(FATMAN) $(VHD) delete $(INSTALL_PATH) || true
-	$(FATMAN) $(VHD) import $(APP) $(INSTALL_PATH)
+	$(FATMAN) $(VHD) import $(APP).elf $(INSTALL_PATH)
 	@$(INSTALL_HOOK)
 
 clean:
-	rm -f $(OBJS) $(APP)
+	rm -f $(OBJS) $(APP).elf
 
 size: $(APP)
-	@size $(APP)
+	@size $(APP).elf
 
 profile: $(APP)
 	perf record ./$(APP)

@@ -20,7 +20,7 @@ COMMON_CPPFLAGS := \
 COMMON_CFLAGS := \
 	-m64 -O3 -fPIE -fomit-frame-pointer -flto -ffast-math \
 	-fno-stack-protector -mno-red-zone -nostdlib \
-	-fvisibility=hidden \
+	-fvisibility=hidden -g0 \
 	-fmerge-all-constants \
 	-fno-unwind-tables \
 	-fno-asynchronous-unwind-tables
@@ -46,16 +46,16 @@ $(APP): $(OBJS)
 		$(OBJS) -l:libc.so -l:libm.so \
 		$(MLIBC_USR)/lib/libfont.a \
 		$(MLIBC_USR)/lib/libfreetype.a \
-		$(MLIBC_USR)/lib/crtn.o -o $@
+		$(MLIBC_USR)/lib/crtn.o -o $(APP).elf
 
 install: $(APP)
 	$(FATMAN) $(VHD) mkdir /bin || true
 	$(FATMAN) $(VHD) delete $(INSTALL_PATH) || true
-	$(FATMAN) $(VHD) import $(APP) $(INSTALL_PATH)
+	$(FATMAN) $(VHD) import $(APP).elf $(INSTALL_PATH)
 	$(FATMAN) $(VHD) mkdir /lib || true
 	$(FATMAN) $(VHD) mkdir /lib/fonts || true
 	$(FATMAN) $(VHD) delete /lib/fonts/default.ttf || true
 	$(FATMAN) $(VHD) import ../harp/default.ttf /lib/fonts/default.ttf
 
 clean:
-	rm -f $(OBJS) $(APP)
+	rm -f $(OBJS) $(APP).elf
