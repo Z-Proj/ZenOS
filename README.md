@@ -138,19 +138,7 @@ socat
 
 ## Third Party
 
-- [Limine](https://codeberg.org/Limine/Limine) — bootloader
-- [Flanterm](https://codeberg.org/mintsuki/flanterm) — early kernel terminal renderer
-- [SSFN 2](https://gitlab.com/bztsrc/scalable-font2/) — scalable screen fonts
-- [FatFs](https://elm-chan.org/fsw/ff/) — FAT32 library by CHAN
-- [mlibc](https://github.com/managarm/mlibc) — C standard library
-- [Lua](https://www.lua.org/) — lightweight scripting language
-- [Pixman](https://gitlab.freedesktop.org/pixman/pixman) — Pixel manipulation library.
-- [TinyCC](https://github.com/TinyCC/tinycc) — Tiny C Compiler, ported to ZenOS
-- [SmallerC](https://github.com/alexfru/SmallerC) — C to assembly compiler
-- [FIGlet](https://github.com/cmatsuoka/figlet) — Large ASCII text renderer
-- [Nuklear](https://github.com/Immediate-Mode-UI/Nuklear) — An Immediate-Mode UI library.
-- [Kilo](https://github.com/antirez/kilo) — A terminal text editor.
-- [DOOM](https://github.com/id-Software/DOOM), and the [generic platform layer](https://github.com/ozkl/doomgeneric) — 3D FPS action game.
+- Check **[CREDITS.md](https://github.com/Z-Proj/ZenOS/blob/main/docs/CREDITS.md)** for the list of **third party apps and libraries**.
 
 ---
 
@@ -158,15 +146,12 @@ socat
 
 <table>
   <tr>
-    <td><img src="https://github.com/user-attachments/assets/0f86c8a7-e93f-4cf4-b381-a587c025e43b" /></td>
-    <td><img src="https://github.com/user-attachments/assets/982f0dc6-9777-4b63-9346-2005f2438d4d" /></td>
+    <td><img alt="1" src="https://github.com/user-attachments/assets/58002186-1309-447e-8458-cca25bee3892" /></td>
+    <td><img alt="2" src="https://github.com/user-attachments/assets/859e58b7-56ec-42ae-8ed1-a48f8fbb70e9" /></td>
   </tr>
   <tr>
-    <td><img src="https://github.com/user-attachments/assets/5017c149-0ea5-4c09-87f2-f60e120795cf" /></td>
-    <td><img src="https://github.com/user-attachments/assets/3dfdf375-bb38-4507-84d2-7d9aeff15170" /></td>
-  </tr>
-  <tr>
-    <td><img src="https://github.com/user-attachments/assets/4787c62f-49d9-4221-a236-c59d34ad1590" /></td>
+    <td><img alt="3" src="https://github.com/user-attachments/assets/168cc50b-74b9-4515-8008-37ed2da0d0b9" /></td>
+    <td><img alt="4" src="https://github.com/user-attachments/assets/444320f9-3d0e-4b46-bafb-b275b6b882e0" /></td>
   </tr>
 </table>
 
