@@ -1,13 +1,5 @@
 #pragma once
 
-#define SSFN_MAXLINES 4096
-#define SSFN_memcmp  memcmp
-#define SSFN_memset  memset
-#define SSFN_memcpy  memcpy
-#define SSFN_realloc realloc
-#define SSFN_free    free
-#include "ssfn.h"
-
 #include <string.h>
 #include <stdlib.h>
 #include <math.h>
@@ -17,38 +9,34 @@
 #include "nuklear.h"
 
 #include "../../include/harp_api.h"
+#include "libfont.h"
 
 #define NK_FONT_SIZE 14
 #define NK_BASELINE(top) ((top) + NK_FONT_SIZE)
 
 typedef struct {
-    harp_window_t *win;
-    ssfn_t         ssfn;
-    ssfn_buf_t     canvas;
-    int            font_size;
+    harp_window_t  *win;
+    font_face_t    *font;
+    int             font_size;
     struct nk_user_font nk_font;
     struct nk_context   ctx;
-    int            close_req;
+    int             close_req;
 } nk_harp_t;
 
 static nk_harp_t *g_nh = NULL;
 
-static uint32_t nk_harp_blend_px(uint32_t dst, uint32_t src)
+static inline uint32_t nk_harp_blend_px(uint32_t dst, uint32_t src)
 {
     uint32_t a = src >> 24;
     if (a == 0) return dst;
     if (a == 255) return src;
-    uint32_t sr = (src >> 16) & 0xFF;
-    uint32_t sg = (src >> 8) & 0xFF;
-    uint32_t sb = src & 0xFF;
-    uint32_t dr = (dst >> 16) & 0xFF;
-    uint32_t dg = (dst >> 8) & 0xFF;
-    uint32_t db = dst & 0xFF;
+    uint32_t sr = (src >> 16) & 0xFF, sg = (src >> 8) & 0xFF, sb = src & 0xFF;
+    uint32_t dr = (dst >> 16) & 0xFF, dg = (dst >> 8) & 0xFF, db = dst & 0xFF;
     uint32_t ia = 255 - a;
-    uint32_t r = (sr * a + dr * ia) / 255;
-    uint32_t g = (sg * a + dg * ia) / 255;
-    uint32_t b = (sb * a + db * ia) / 255;
-    return 0xFF000000 | (r << 16) | (g << 8) | b;
+    return 0xFF000000
+        | (((sr * a + dr * ia) / 255) << 16)
+        | (((sg * a + dg * ia) / 255) << 8)
+        |  ((sb * a + db * ia) / 255);
 }
 
 static float nk_harp_text_width(nk_handle handle, float height, const char *text, int len)
@@ -56,34 +44,13 @@ static float nk_harp_text_width(nk_handle handle, float height, const char *text
     (void)handle;
     nk_harp_t *nh = g_nh;
     if (!nh || !text || len <= 0) return 0;
-
     int sz = (int)height;
     if (sz < 8) sz = 8;
-
-    ssfn_select(&nh->ssfn, SSFN_FAMILY_ANY, NULL, SSFN_STYLE_REGULAR, sz);
-
-    ssfn_buf_t d;
-    memset(&d, 0, sizeof(d));
-    d.ptr = NULL;
-    d.w   = 0x7FFF;
-    d.h   = 0x7FFF;
-    d.p   = 0x7FFE;
-    d.x   = 0;
-    d.y   = sz;
-    d.fg  = 0xFFFFFFFF;
-
     char tmp[512];
     int copy = len < 511 ? len : 511;
     memcpy(tmp, text, copy);
     tmp[copy] = '\0';
-
-    const char *s = tmp;
-    while (*s) {
-        int r = ssfn_render(&nh->ssfn, &d, s);
-        if (r <= 0) break;
-        s += r;
-    }
-    return (float)d.x;
+    return (float)font_measure(nh->font, sz, tmp);
 }
 
 static void nk_harp_fill_rect(nk_harp_t *nh, int x, int y, int w, int h, uint32_t col)
@@ -94,16 +61,13 @@ static void nk_harp_fill_rect(nk_harp_t *nh, int x, int y, int w, int h, uint32_
     int x2 = x + w > nh->win->w ? nh->win->w : x + w;
     int y2 = y + h > nh->win->h ? nh->win->h : y + h;
     if (x1 >= x2 || y1 >= y2) return;
-
     uint8_t a = (col >> 24) & 0xFF;
     for (int row = y1; row < y2; row++) {
         uint32_t *line = nh->win->buf + row * nh->win->w + x1;
         if (a == 255) {
-            for (int i = 0; i < x2 - x1; i++)
-                line[i] = col;
+            for (int i = 0; i < x2 - x1; i++) line[i] = col;
         } else {
-            for (int i = 0; i < x2 - x1; i++)
-                line[i] = nk_harp_blend_px(line[i], col);
+            for (int i = 0; i < x2 - x1; i++) line[i] = nk_harp_blend_px(line[i], col);
         }
     }
 }
@@ -114,7 +78,6 @@ static void nk_harp_fill_rrect(nk_harp_t *nh, int x, int y, int w, int h, int r,
     if (r < 1) { nk_harp_fill_rect(nh, x, y, w, h, col); return; }
     if (r > w / 2) r = w / 2;
     if (r > h / 2) r = h / 2;
-
     for (int row = 0; row < h; row++) {
         int x0 = x, x1 = x + w;
         if (row < r) {
@@ -168,9 +131,7 @@ static void nk_harp_fill_triangle(nk_harp_t *nh,
     for (int y = ymin; y <= ymax; y++) {
         int xs = nh->win->w, xe = 0;
         int pts[3][4] = {
-            {ax, ay, bx, by},
-            {bx, by, cx, cy},
-            {cx, cy, ax, ay}
+            {ax, ay, bx, by}, {bx, by, cx, cy}, {cx, cy, ax, ay}
         };
         for (int e = 0; e < 3; e++) {
             int x0 = pts[e][0], y0 = pts[e][1];
@@ -193,27 +154,16 @@ static void nk_harp_draw_text(nk_harp_t *nh,
 {
     (void)w; (void)h;
     if (!text || len <= 0) return;
-
     int sz = (int)font_height;
     if (sz < 8) sz = 8;
-
     char tmp[512];
     int copy = len < 511 ? len : 511;
     memcpy(tmp, text, copy);
     tmp[copy] = '\0';
-
-    ssfn_select(&nh->ssfn, SSFN_FAMILY_ANY, NULL, SSFN_STYLE_REGULAR, sz);
-    nh->canvas.x  = x;
-    nh->canvas.y  = y + sz;
-    nh->canvas.fg = fg | 0xFF000000;
-    nh->canvas.bg = bg;
-
-    const char *s = tmp;
-    while (*s) {
-        int r = ssfn_render(&nh->ssfn, &nh->canvas, s);
-        if (r <= 0) break;
-        s += r;
-    }
+    font_draw(nh->font, nh->win->buf, nh->win->w, nh->win->h,
+              x, y + sz, sz,
+              fg | 0xFF000000, bg,
+              tmp);
 }
 
 static void nk_harp_set_scissor(nk_harp_t *nh, int x, int y, int w, int h)
@@ -221,7 +171,7 @@ static void nk_harp_set_scissor(nk_harp_t *nh, int x, int y, int w, int h)
     (void)nh; (void)x; (void)y; (void)w; (void)h;
 }
 
-static uint32_t nk_color_to_u32(struct nk_color c)
+static inline uint32_t nk_color_to_u32(struct nk_color c)
 {
     return ((uint32_t)c.a << 24) | ((uint32_t)c.r << 16) |
            ((uint32_t)c.g << 8)  |  (uint32_t)c.b;
@@ -232,8 +182,7 @@ static void nk_harp_render(nk_harp_t *nh)
     const struct nk_command *cmd;
     nk_foreach(cmd, &nh->ctx) {
         switch (cmd->type) {
-        case NK_COMMAND_NOP:
-            break;
+        case NK_COMMAND_NOP: break;
 
         case NK_COMMAND_SCISSOR: {
             const struct nk_command_scissor *s = (const struct nk_command_scissor *)cmd;
@@ -242,8 +191,7 @@ static void nk_harp_render(nk_harp_t *nh)
 
         case NK_COMMAND_LINE: {
             const struct nk_command_line *l = (const struct nk_command_line *)cmd;
-            nk_harp_stroke_line(nh,
-                l->begin.x, l->begin.y, l->end.x, l->end.y,
+            nk_harp_stroke_line(nh, l->begin.x, l->begin.y, l->end.x, l->end.y,
                 l->line_thickness, nk_color_to_u32(l->color));
         } break;
 
@@ -261,8 +209,7 @@ static void nk_harp_render(nk_harp_t *nh)
 
         case NK_COMMAND_CIRCLE_FILLED: {
             const struct nk_command_circle_filled *c = (const struct nk_command_circle_filled *)cmd;
-            nk_harp_fill_circle(nh,
-                c->x + c->w / 2, c->y + c->h / 2,
+            nk_harp_fill_circle(nh, c->x + c->w / 2, c->y + c->h / 2,
                 c->w / 2, nk_color_to_u32(c->color));
         } break;
 
@@ -272,13 +219,12 @@ static void nk_harp_render(nk_harp_t *nh)
             uint32_t col = nk_color_to_u32(c->color);
             int t = c->line_thickness;
             for (int i = 0; i < 64; i++) {
-                float a0 = (float)i * 3.14159f * 2.0f / 64.0f;
+                float a0 = (float)i       * 3.14159f * 2.0f / 64.0f;
                 float a1 = (float)(i + 1) * 3.14159f * 2.0f / 64.0f;
-                int x0 = cx + (int)(cosf(a0) * r);
-                int y0 = cy + (int)(sinf(a0) * r);
-                int x1 = cx + (int)(cosf(a1) * r);
-                int y1 = cy + (int)(sinf(a1) * r);
-                nk_harp_stroke_line(nh, x0, y0, x1, y1, t, col);
+                nk_harp_stroke_line(nh,
+                    cx + (int)(cosf(a0) * r), cy + (int)(sinf(a0) * r),
+                    cx + (int)(cosf(a1) * r), cy + (int)(sinf(a1) * r),
+                    t, col);
             }
         } break;
 
@@ -300,23 +246,20 @@ static void nk_harp_render(nk_harp_t *nh)
 
         case NK_COMMAND_TEXT: {
             const struct nk_command_text *t = (const struct nk_command_text *)cmd;
-            nk_harp_draw_text(nh,
-                t->x, t->y, t->w, t->h,
-                t->string, t->length,
-                t->height,
+            nk_harp_draw_text(nh, t->x, t->y, t->w, t->h,
+                t->string, t->length, t->height,
                 nk_color_to_u32(t->foreground),
                 nk_color_to_u32(t->background));
         } break;
 
-        default:
-            break;
+        default: break;
         }
     }
     nk_clear(&nh->ctx);
 }
 
 static nk_harp_t *nk_harp_init(const char *title, int x, int y, int w, int h,
-                                const void *sfn_data)
+                                const char *font_path)
 {
     nk_harp_t *nh = (nk_harp_t *)calloc(1, sizeof(nk_harp_t));
     if (!nh) return NULL;
@@ -324,18 +267,12 @@ static nk_harp_t *nk_harp_init(const char *title, int x, int y, int w, int h,
     nh->win = harp_open(title, x, y, w, h);
     if (!nh->win) { free(nh); return NULL; }
 
-    memset(&nh->ssfn, 0, sizeof(nh->ssfn));
-    if (ssfn_load(&nh->ssfn, sfn_data) != SSFN_OK) {
-        harp_close(nh->win); free(nh); return NULL;
-    }
+    nh->font = font_load(font_path);
+    if (!nh->font) { harp_close(nh->win); free(nh); return NULL; }
 
-    nh->canvas.ptr = (uint8_t *)nh->win->buf;
-    nh->canvas.w   = w;
-    nh->canvas.h   = h;
-    nh->canvas.p   = w * 4;
-    nh->font_size  = NK_FONT_SIZE;
-
+    nh->font_size = NK_FONT_SIZE;
     g_nh = nh;
+
     nh->nk_font.userdata = nk_handle_ptr(nh);
     nh->nk_font.height   = (float)NK_FONT_SIZE;
     nh->nk_font.width    = nk_harp_text_width;
@@ -412,24 +349,16 @@ static void nk_harp_feed_events(nk_harp_t *nh)
             nk_input_motion(&nh->ctx, ev.x, ev.y);
         } else if (ev.type == HARP_EVENT_MOUSE_BUTTON) {
             int down = (ev.value != 0);
-            if (ev.code == BTN_LEFT)
-                nk_input_button(&nh->ctx, NK_BUTTON_LEFT, ev.x, ev.y, down);
-            else if (ev.code == BTN_RIGHT)
-                nk_input_button(&nh->ctx, NK_BUTTON_RIGHT, ev.x, ev.y, down);
-            else if (ev.code == BTN_MIDDLE)
-                nk_input_button(&nh->ctx, NK_BUTTON_MIDDLE, ev.x, ev.y, down);
+            if      (ev.code == BTN_LEFT)   nk_input_button(&nh->ctx, NK_BUTTON_LEFT,   ev.x, ev.y, down);
+            else if (ev.code == BTN_RIGHT)  nk_input_button(&nh->ctx, NK_BUTTON_RIGHT,  ev.x, ev.y, down);
+            else if (ev.code == BTN_MIDDLE) nk_input_button(&nh->ctx, NK_BUTTON_MIDDLE, ev.x, ev.y, down);
         } else if (ev.type == HARP_EVENT_KEY && ev.value != 0 && ev.key != 0) {
             int k = ev.key;
-            if (k == '\b')
-                nk_input_key(&nh->ctx, NK_KEY_BACKSPACE, 1);
-            else if (k == '\n' || k == '\r')
-                nk_input_key(&nh->ctx, NK_KEY_ENTER, 1);
-            else if (k == KEY_ARROW_LEFT)
-                nk_input_key(&nh->ctx, NK_KEY_LEFT, 1);
-            else if (k == KEY_ARROW_RIGHT)
-                nk_input_key(&nh->ctx, NK_KEY_RIGHT, 1);
-            else if (k >= 0x20 && k < 0x7F)
-                nk_input_char(&nh->ctx, (char)k);
+            if      (k == '\b')           nk_input_key(&nh->ctx, NK_KEY_BACKSPACE, 1);
+            else if (k == '\n' || k == '\r') nk_input_key(&nh->ctx, NK_KEY_ENTER, 1);
+            else if (k == KEY_ARROW_LEFT) nk_input_key(&nh->ctx, NK_KEY_LEFT, 1);
+            else if (k == KEY_ARROW_RIGHT)nk_input_key(&nh->ctx, NK_KEY_RIGHT, 1);
+            else if (k >= 0x20 && k < 0x7F) nk_input_char(&nh->ctx, (char)k);
         }
     }
     nk_input_end(&nh->ctx);
@@ -439,7 +368,7 @@ static void nk_harp_free(nk_harp_t *nh)
 {
     if (!nh) return;
     nk_free(&nh->ctx);
-    ssfn_free(&nh->ssfn);
+    font_free(nh->font);
     harp_close(nh->win);
     free(nh);
     g_nh = NULL;

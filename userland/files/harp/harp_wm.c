@@ -68,6 +68,49 @@ void send_window_event(window_t *w, const harp_event_t *ev)
     socket_write(w->evsock, ev, sizeof(*ev));
 }
 
+void mark_window_dirty(window_t *w, int x, int y, int w_dirty, int h_dirty)
+{
+    if (!w || !w->active || w_dirty <= 0 || h_dirty <= 0)
+        return;
+
+    if (x < 0) {
+        w_dirty += x;
+        x = 0;
+    }
+    if (y < 0) {
+        h_dirty += y;
+        y = 0;
+    }
+    if (x + w_dirty > w->w)
+        w_dirty = w->w - x;
+    if (y + h_dirty > w->h)
+        h_dirty = w->h - y;
+    if (w_dirty <= 0 || h_dirty <= 0)
+        return;
+
+    if (!w->dirty_valid) {
+        w->dirty_valid = 1;
+        w->dirty_x = x;
+        w->dirty_y = y;
+        w->dirty_w = w_dirty;
+        w->dirty_h = h_dirty;
+        return;
+    }
+
+    int x0 = w->dirty_x < x ? w->dirty_x : x;
+    int y0 = w->dirty_y < y ? w->dirty_y : y;
+    int x1 = w->dirty_x + w->dirty_w;
+    int y1 = w->dirty_y + w->dirty_h;
+    int nx1 = x + w_dirty;
+    int ny1 = y + h_dirty;
+    if (nx1 > x1) x1 = nx1;
+    if (ny1 > y1) y1 = ny1;
+    w->dirty_x = x0;
+    w->dirty_y = y0;
+    w->dirty_w = x1 - x0;
+    w->dirty_h = y1 - y0;
+}
+
 void set_focused_window(int idx)
 {
     if (idx >= 0 && (!windows[idx].active || windows[idx].minimized))
@@ -96,13 +139,28 @@ int dash_area_top(void)
     return (int)SCR_H - DASH_MARGIN - DASH_H;
 }
 
+int screenshot_dash_layout(int *x, int *y, int *w)
+{
+    int width = LAUNCH_PAD * 2 + LAUNCH_ICON;
+    if (x)
+        *x = DASH_MARGIN + LEFT_W + DASH_GAP;
+    if (y)
+        *y = dash_area_top();
+    if (w)
+        *w = width;
+    return 1;
+}
+
 int launcher_dash_layout(int *x, int *y, int *w)
 {
     if (launcher_app_count <= 0)
         return 0;
     int width = LAUNCH_PAD * 2 + launcher_app_count * LAUNCH_ICON + (launcher_app_count - 1) * LAUNCH_GAP;
+    int shot_x = 0;
+    int shot_w = 0;
+    screenshot_dash_layout(&shot_x, NULL, &shot_w);
     if (x)
-        *x = DASH_MARGIN + LEFT_W + DASH_GAP;
+        *x = shot_x + shot_w + DASH_GAP;
     if (y)
         *y = dash_area_top();
     if (w)
@@ -129,9 +187,13 @@ int running_dash_layout(int *x, int *y, int *w, int *visible_count)
         return 0;
     }
 
+    int shot_x = 0;
+    int shot_w = 0;
     int launcher_x = 0;
     int launcher_w = 0;
     int left_limit = DASH_MARGIN + LEFT_W + DASH_MARGIN;
+    if (screenshot_dash_layout(&shot_x, NULL, &shot_w))
+        left_limit = shot_x + shot_w + DASH_GAP;
     if (launcher_dash_layout(&launcher_x, NULL, &launcher_w))
         left_limit = launcher_x + launcher_w + DASH_GAP;
 
@@ -272,6 +334,7 @@ void wm_close_window(int idx)
     socket_delete(w->evname);
     zen_shm_close(w->shmname);
     w->active  = 0;
+    w->dirty_valid = 0;
     w->shmbuf  = NULL;
     if (drag_win == idx) { drag_win = -1; dragging = 0; }
     if (focused_win == idx) focused_win = -1;
@@ -321,4 +384,18 @@ int launcher_btn_at(int x, int y)
         ix += LAUNCH_ICON + LAUNCH_GAP;
     }
     return -1;
+}
+
+int screenshot_btn_at(int x, int y)
+{
+    int sx = 0;
+    int sy = 0;
+    int sw = 0;
+    if (!screenshot_dash_layout(&sx, &sy, &sw))
+        return -1;
+    if (x < sx || x >= sx + sw || y < sy || y >= sy + DASH_H)
+        return -1;
+    int ix = sx + LAUNCH_PAD;
+    int iy = sy + (DASH_H - LAUNCH_ICON) / 2;
+    return (x >= ix && x < ix + LAUNCH_ICON && y >= iy && y < iy + LAUNCH_ICON) ? 0 : -1;
 }

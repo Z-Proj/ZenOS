@@ -5,7 +5,6 @@
 
 #include "nk_harp.h"
 
-extern char _binary_FreeSansB_sfn_start;
 
 #define WIN_W 620
 #define WIN_H 700
@@ -138,7 +137,7 @@ int main(void)
     memset(edit_buf, 0, sizeof(edit_buf));
 
     nk_harp_t *nh = nk_harp_init("Nuklear Demo", 80, 60, WIN_W, WIN_H,
-                                  &_binary_FreeSansB_sfn_start);
+                                  "/mnt/drv0/lib/fonts/default.ttf");
     if (!nh) return 1;
 
     float   prev_r     = slider_r, prev_g = slider_g, prev_b = slider_b;

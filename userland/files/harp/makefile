@@ -9,8 +9,8 @@ INSTALL_PATH ?= /bin/$(APP)
 CC  := clang
 LD  := ld.lld
 
-SRCS = harp_main.c harp_wm.c harp_draw.c harp_input.c harp_stb_image_impl.c
-OBJS = $(SRCS:.c=.o) default.o
+SRCS = harp_main.c harp_wm.c harp_draw.c harp_input.c harp_stb_image_impl.c harp_stb_image_write_impl.c
+OBJS = $(SRCS:.c=.o)
 
 COMMON_CPPFLAGS := \
 	--sysroot=$(MLIBC_SYSROOT) \
@@ -18,9 +18,12 @@ COMMON_CPPFLAGS := \
 	-I ../.. -I . -I ../nk_widgets
 
 COMMON_CFLAGS := \
-    -m64 -O3 -fPIE -fomit-frame-pointer -flto -ffast-math \
-    -fno-stack-protector -mno-red-zone -nostdlib -finline-functions \
-    -fvisibility=hidden
+	-m64 -O3 -fPIE -fomit-frame-pointer -flto -ffast-math \
+	-fno-stack-protector -mno-red-zone -nostdlib -finline-functions \
+	-fvisibility=hidden \
+	-fmerge-all-constants \
+	-fno-unwind-tables \
+	-fno-asynchronous-unwind-tables
 
 COMMON_LDFLAGS := \
 	-m elf_x86_64 -pie -e _start -s \
@@ -34,21 +37,24 @@ all: $(APP)
 %.o: %.c
 	$(CC) $(COMMON_CPPFLAGS) $(COMMON_CFLAGS) -c $< -o $@
 
-%.o: %.sfn
-	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 $< $@
-
 $(APP): $(OBJS)
 	$(LD) $(COMMON_LDFLAGS) \
 		$(MLIBC_USR)/lib/crti.o $(MLIBC_USR)/lib/crt0.o \
 		$(OBJS) -l:libc.so -l:libm.so \
+		$(MLIBC_USR)/lib/libfont.a \
+		$(MLIBC_USR)/lib/libfreetype.a \
 		$(MLIBC_USR)/lib/crtn.o -o $@
 
 install: $(APP)
 	$(FATMAN) $(VHD) mkdir /bin || true
 	$(FATMAN) $(VHD) delete $(INSTALL_PATH) || true
 	$(FATMAN) $(VHD) import $(APP) $(INSTALL_PATH)
-	$(FATMAN) $(VHD) mkdir /lib
-	$(FATMAN) $(VHD) mkdir /lib/harp
+	$(FATMAN) $(VHD) mkdir /lib || true
+	$(FATMAN) $(VHD) mkdir /lib/harp || true
+	$(FATMAN) $(VHD) mkdir /lib/harp/scrshot || true
+	$(FATMAN) $(VHD) mkdir /lib/fonts || true
+	$(FATMAN) $(VHD) delete /lib/fonts/default.ttf || true
+	$(FATMAN) $(VHD) import default.ttf /lib/fonts/default.ttf
 	$(FATMAN) $(VHD) import bg.png /lib/harp/bg.png
 	$(FATMAN) $(VHD) import bg2.jpg /lib/harp/bg2.jpg
 	$(FATMAN) $(VHD) import bg3.jpg /lib/harp/bg3.jpg

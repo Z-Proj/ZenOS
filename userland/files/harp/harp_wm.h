@@ -18,8 +18,10 @@ typedef struct {
 typedef struct {
     int      active;
     int      minimized;
+    int      dirty_valid;
     uint32_t pid;
     int32_t  x, y, w, h;
+    int32_t  dirty_x, dirty_y, dirty_w, dirty_h;
     char     title[64];
     char     shmname[32];
     char     evname[32];
@@ -50,12 +52,15 @@ int  client_window_at(int x, int y);
 int  titlebar_at(int idx, int x, int y);
 int  close_btn_at(int idx, int x, int y);
 void send_window_event(window_t *w, const harp_event_t *ev);
+void mark_window_dirty(window_t *w, int x, int y, int w_dirty, int h_dirty);
 void send_mouse_event(int idx, uint16_t type, uint16_t code, int32_t value, int x, int y, uint32_t mods);
 void send_key_event(int idx, uint16_t code, int32_t value, uint32_t mods, int key);
 void send_close_req(int idx);
 void wm_close_window(int idx);
 int  dash_area_top(void);
+int  screenshot_dash_layout(int *x, int *y, int *w);
 int  launcher_dash_layout(int *x, int *y, int *w);
 int  running_dash_layout(int *x, int *y, int *w, int *visible_count);
+int  screenshot_btn_at(int x, int y);
 int  launcher_btn_at(int x, int y);
 int  dash_btn_at(int x, int y);

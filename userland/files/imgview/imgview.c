@@ -11,7 +11,7 @@
 #include "../../include/harp_api.h"
 #include "stb_image.h"
 #include "stb_image_resize2.h"
-#include "stb_image_write.h"
+#include "../harp/stb_image_write.h"
 
 #define VIEW_W 640
 #define MAX_FILES 256

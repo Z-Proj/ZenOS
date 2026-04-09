@@ -9,17 +9,17 @@
 #include <sys/wait.h>
 #include <linux/input.h>
 
-#define SSFN_IMPLEMENTATION
+
 
 #include "../../userlib.h"
 #include "harp_proto.h"
 #include "harp_wm.h"
+#include "libfont.h"
 #include "harp_draw.h"
 #include "harp_input.h"
 #include "../nk_widgets/stb_image.h"
+#include "stb_image_write.h"
 
-extern char _binary_default_sfn_start;
-extern char _binary_default_sfn_end;
 
 #define FONT_SIZE 14
 #define BASELINE(top) ((top) + FONT_SIZE)
@@ -30,7 +30,7 @@ extern char _binary_default_sfn_end;
 #define DASH_MARGIN 8
 #define TITLEBAR_H 28
 
-static ssfn_t     ssfn;
+static font_face_t *s_font;
 static uint32_t  *backbuf      = NULL;
 static uint32_t  *bgbuf        = NULL;
 static uint32_t  *dash_backdrop = NULL;
@@ -44,6 +44,8 @@ static int        pending_dash_redraw = 0;
 static char* dir;
 static char       drive_root[32];
 static char       launcher_cfg_path[64];
+static char       font_path[64];
+static char       screenshot_dir[80];
 
 #define TASK_SNAPSHOT_MAX 128
 
@@ -175,10 +177,63 @@ static void ensure_launcher_cfg(void)
     fp = fopen(launcher_cfg_path, "w");
     if (!fp)
         return;
-    fprintf(fp, "%s/bin/terminal; 0x010101; TRM\n", drive_root);
-    fprintf(fp, "%s/bin/nk_widgets; 0x35063E; APP\n", drive_root);
-    fprintf(fp, "%s/bin/doom; 0xFF0000; GUN\n", drive_root);
+    fprintf(fp, "%s/bin/terminal; 0xF0F0F0; TRM\n", drive_root);
+    fprintf(fp, "%s/bin/imgview; 0x88C0D0; IMG\n", drive_root);
+    fprintf(fp, "%s/bin/doom; 0xD08770; DUM\n", drive_root);
     fclose(fp);
+}
+
+static void build_font_path(void)
+{
+    snprintf(font_path, sizeof(font_path), "%s/lib/fonts/default.ttf", drive_root);
+}
+
+static void build_screenshot_dir(void)
+{
+    snprintf(screenshot_dir, sizeof(screenshot_dir), "%s/lib/harp/scrshot", drive_root);
+}
+
+static void ensure_screenshot_dir(void)
+{
+    char lib_dir[48];
+    char harp_dir[64];
+    snprintf(lib_dir, sizeof(lib_dir), "%s/lib", drive_root);
+    snprintf(harp_dir, sizeof(harp_dir), "%s/lib/harp", drive_root);
+    mkdir(lib_dir, 0755);
+    mkdir(harp_dir, 0755);
+    mkdir(screenshot_dir, 0755);
+}
+
+static int save_screenshot(void)
+{
+    ensure_screenshot_dir();
+
+    char path[112];
+    struct stat st;
+    int slot = 1;
+    do {
+        snprintf(path, sizeof(path), "%s/scrshot%d.png", screenshot_dir, slot++);
+    } while (slot < 100000 && stat(path, &st) == 0);
+
+    uint8_t *rgba = (uint8_t *)malloc((size_t)fb.width * (size_t)fb.height * 4);
+    if (!rgba)
+        return 0;
+
+    for (uint32_t y = 0; y < fb.height; y++) {
+        const uint32_t *src = (const uint32_t *)((const uint8_t *)(uintptr_t)fb.addr + (size_t)y * fb.pitch);
+        uint8_t *dst = rgba + (size_t)y * (size_t)fb.width * 4;
+        for (uint32_t x = 0; x < fb.width; x++) {
+            uint32_t p = src[x];
+            dst[x * 4 + 0] = (uint8_t)((p >> 16) & 0xFF);
+            dst[x * 4 + 1] = (uint8_t)((p >> 8) & 0xFF);
+            dst[x * 4 + 2] = (uint8_t)(p & 0xFF);
+            dst[x * 4 + 3] = (uint8_t)((p >> 24) & 0xFF);
+        }
+    }
+
+    int ok = stbi_write_png(path, (int)fb.width, (int)fb.height, 4, rgba, (int)fb.width * 4);
+    free(rgba);
+    return ok;
 }
 
 static void load_launcher_cfg(void)
@@ -247,7 +302,7 @@ static void full_redraw(void)
     draw_desktop();
     for (int i = 0; i < zcount; i++) {
         if (dragging && zstack[i] == drag_win) continue;
-        draw_window(zstack[i]);
+        draw_window(zstack[i], 1);
     }
     if (dragging) draw_drag_outline();
     draw_dash();
@@ -293,7 +348,7 @@ static void flush_pending_redraw(uint32_t mx, uint32_t my)
     if (pending_from_z >= zcount)
         return;
     for (int i = pending_from_z; i < zcount; i++)
-        draw_window(zstack[i]);
+        draw_window(zstack[i], i != pending_from_z);
     if (pending_dash_redraw)
         draw_dash();
     push_to_fb((uint32_t *)(uintptr_t)fb.addr, mx, my, fb.pitch);
@@ -604,6 +659,7 @@ static void poll_ipc(void)
                 si.size >= (uint64_t)(msg.w * msg.h * 4))
                 w->shmbuf = (uint8_t *)si.addr;
             socket_open(w->evname, &w->evsock);
+            w->dirty_valid = 0;
             clamp_window(w);
             z_raise(slot);
             set_focused_window(slot);
@@ -612,6 +668,7 @@ static void poll_ipc(void)
         } else if (msg.type == WM_MSG_DIRTY) {
             for (int i = 0; i < MAX_WINDOWS; i++) {
                 if (!windows[i].active || windows[i].pid != msg.pid) continue;
+                mark_window_dirty(&windows[i], msg.x, msg.y, msg.w, msg.h);
                 request_window_redraw(i, 0);
                 break;
             }
@@ -621,7 +678,7 @@ static void poll_ipc(void)
                 if (!windows[i].active || windows[i].pid != msg.pid) continue;
                 strncpy(windows[i].title, msg.title, 63);
                 windows[i].title[63] = 0;
-                request_window_redraw(i, 1);
+                request_full_redraw();
                 break;
             }
 
@@ -686,6 +743,8 @@ int main(int argc, char* argv[])
     if (argc < 2) dir = "/mnt/drv0/lib/harp/bg.png";
     else dir = argv[1];
     get_drive_root_from_cwd();
+    build_font_path();
+    build_screenshot_dir();
     ensure_launcher_cfg();
     load_launcher_cfg();
     if (zen_fbinfo(&fb) != 0) return 1;
@@ -708,14 +767,19 @@ int main(int argc, char* argv[])
     bake_bgbuf();
     bake_dash_backdrop();
 
-    memset(&ssfn, 0, sizeof(ssfn));
-    if (ssfn_load(&ssfn,  (const void *)&_binary_default_sfn_start) != SSFN_OK) {
+    s_font = font_load(font_path);
+    if (!s_font && strcmp(font_path, "/mnt/drv0/lib/fonts/default.ttf") != 0)
+        s_font = font_load("/mnt/drv0/lib/fonts/default.ttf");
+    if (!s_font) {
+        fprintf(stderr, "harp: failed to load font: %s\n", font_path);
         socket_close(ev_sock); socket_delete(WM_SOCK); free(backbuf);
         return 1;
     }
+    font_prime_ascii(s_font, 11);
+    font_prime_ascii(s_font, 16);
 
     draw_init(backbuf, bgbuf, dash_backdrop,
-              dash_bd_y, dash_bd_w, &ssfn);
+              dash_bd_y, dash_bd_w, s_font);
 
     int kbd_fd   = open("/dev/input/event0", O_RDONLY);
     int mouse_fd = open("/dev/input/event1", O_RDONLY);
@@ -762,10 +826,13 @@ int main(int argc, char* argv[])
         if ((btn & 1) && !(prev_btn & 1)) {
             drag_win = -1;
             int clicked = win_at((int)mx, (int)my);
+            int sb = screenshot_btn_at((int)mx, (int)my);
             int lb = launcher_btn_at((int)mx, (int)my);
             int db = dash_btn_at((int)mx, (int)my);
 
-            if (lb >= 0) {
+            if (sb >= 0) {
+                save_screenshot();
+            } else if (lb >= 0) {
                 launch_launcher_app(lb);
             } else if (db >= 0) {
                 if (db == focused_win) {
@@ -805,7 +872,7 @@ int main(int argc, char* argv[])
             dirty_all();
             draw_desktop();
             for (int i = 0; i < zcount; i++)
-                if (zstack[i] != drag_win) draw_window(zstack[i]);
+                if (zstack[i] != drag_win) draw_window(zstack[i], 1);
             draw_drag_outline();
             draw_dash();
             push_to_fb((uint32_t *)(uintptr_t)fb.addr, mx, my, fb.pitch);

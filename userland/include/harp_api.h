@@ -60,6 +60,8 @@ typedef struct {
     int        focused;
 } harp_window_t;
 
+static inline void harp_flush_rect(harp_window_t *gw, int x, int y, int w, int h);
+
 static inline harp_window_t *harp_open(const char *title, int x, int y, int w, int h)
 {
     for (int retry = 0; retry < 3000; retry++) {
@@ -125,11 +127,22 @@ static inline int harp_poll_event(harp_window_t *gw, harp_event_t *ev)
 
 static inline void harp_flush(harp_window_t *gw)
 {
+    if (!gw) return;
+    harp_flush_rect(gw, 0, 0, gw->w, gw->h);
+}
+
+static inline void harp_flush_rect(harp_window_t *gw, int x, int y, int w, int h)
+{
     if (!gw || !gw->sock) return;
+    if (w <= 0 || h <= 0) return;
     wm_msg_t msg;
     memset(&msg, 0, sizeof(msg));
     msg.type = WM_MSG_DIRTY;
     msg.pid  = gw->pid;
+    msg.x    = x;
+    msg.y    = y;
+    msg.w    = w;
+    msg.h    = h;
     socket_write(gw->sock, &msg, sizeof(msg));
 }
 

@@ -6,24 +6,12 @@
 #include <sys/wait.h>
 #include <termios.h>
 
-#define SSFN_IMPLEMENTATION
-#define SSFN_MAXLINES 4096
-#define SSFN_memcmp  memcmp
-#define SSFN_memset  memset
-#define SSFN_memcpy  memcpy
-#define SSFN_realloc realloc
-#define SSFN_free    free
-#include "ssfn.h"
 #include "../../include/harp_api.h"
+#include "libfont.h"
 
-extern char _binary_mono_sfn_start;
-
-#define WIN_W     800
-#define WIN_H     500
-#define CELL_W    8
-#define CELL_H    18
-#define TERM_COLS (WIN_W / CELL_W)
-#define TERM_ROWS (WIN_H / CELL_H)
+#define WIN_W     600
+#define WIN_H     400
+#define FONT_SIZE 12
 
 #define C_BG     0xFF0D1117
 #define C_FG     0xFFCDD6F4
@@ -52,12 +40,18 @@ static const uint32_t ansi_pal[16] = {
     0xFF89B4FA, 0xFFCBA6F7, 0xFF94E2D5, 0xFFCDD6F4,
 };
 
-static ssfn_t     sctx;
-static ssfn_buf_t sbuf;
-static harp_window_t *win;
-
 typedef struct { char ch; uint32_t fg; uint32_t bg; } cell_t;
-static cell_t screen[TERM_ROWS][TERM_COLS];
+
+static harp_window_t *win;
+static font_face_t   *font;
+static cell_t        *screen;
+
+static int term_cols;
+static int term_rows;
+static int cell_w;
+static int cell_h;
+static int cell_baseline;
+static int glyph_pad_x;
 
 static int32_t  cur_row, cur_col;
 static uint32_t cur_fg, cur_bg;
@@ -69,6 +63,10 @@ static int shell_pid  = -1;
 static int ctrl_down  = 0;
 static int shift_down = 0;
 static int alt_down   = 0;
+static char font_path[64];
+
+static int dirty_valid;
+static int dirty_x0, dirty_y0, dirty_x1, dirty_y1;
 
 #define ESC_NONE 0
 #define ESC_ESC  1
@@ -76,6 +74,71 @@ static int alt_down   = 0;
 static int  esc_state;
 static char esc_buf[64];
 static int  esc_len;
+
+static void get_drive_root(char out[32])
+{
+    char cwd[256];
+    if (!getcwd(cwd, sizeof(cwd))) {
+        strcpy(out, "/mnt/drv0");
+        return;
+    }
+    if (strncmp(cwd, "/mnt/drv", 8) != 0) {
+        strcpy(out, "/mnt/drv0");
+        return;
+    }
+    char *slash = cwd + 8;
+    while (*slash && *slash != '/')
+        slash++;
+    size_t len = (size_t)(slash - cwd);
+    if (len == 0 || len >= 32) {
+        strcpy(out, "/mnt/drv0");
+        return;
+    }
+    memcpy(out, cwd, len);
+    out[len] = 0;
+}
+
+static inline cell_t *cell_at(int row, int col)
+{
+    return &screen[row * term_cols + col];
+}
+
+static inline void mark_dirty_rect(int x, int y, int w, int h)
+{
+    if (w <= 0 || h <= 0)
+        return;
+    int x0 = x < 0 ? 0 : x;
+    int y0 = y < 0 ? 0 : y;
+    int x1 = x + w > WIN_W ? WIN_W : x + w;
+    int y1 = y + h > WIN_H ? WIN_H : y + h;
+    if (x0 >= x1 || y0 >= y1)
+        return;
+    if (!dirty_valid) {
+        dirty_valid = 1;
+        dirty_x0 = x0;
+        dirty_y0 = y0;
+        dirty_x1 = x1;
+        dirty_y1 = y1;
+        return;
+    }
+    if (x0 < dirty_x0) dirty_x0 = x0;
+    if (y0 < dirty_y0) dirty_y0 = y0;
+    if (x1 > dirty_x1) dirty_x1 = x1;
+    if (y1 > dirty_y1) dirty_y1 = y1;
+}
+
+static inline void mark_dirty_cell(int row, int col)
+{
+    mark_dirty_rect(col * cell_w, row * cell_h, cell_w, cell_h);
+}
+
+static void flush_dirty(void)
+{
+    if (!dirty_valid)
+        return;
+    harp_flush_rect(win, dirty_x0, dirty_y0, dirty_x1 - dirty_x0, dirty_y1 - dirty_y0);
+    dirty_valid = 0;
+}
 
 static inline void buf_fill_rect(int x, int y, int w, int h, uint32_t c)
 {
@@ -86,77 +149,93 @@ static inline void buf_fill_rect(int x, int y, int w, int h, uint32_t c)
     uint32_t px = c | 0xFF000000;
     for (int row = y1; row < y2; row++) {
         uint32_t *line = win->buf + row * WIN_W;
-        for (int col = x1; col < x2; col++) line[col] = px;
+        for (int col = x1; col < x2; col++)
+            line[col] = px;
     }
 }
 
 static void render_cell(int row, int col)
 {
-    cell_t *c = &screen[row][col];
-    int x = col * CELL_W, y = row * CELL_H;
-    buf_fill_rect(x, y, CELL_W, CELL_H, c->bg);
-    if (c->ch >= 32 && c->ch < 127) {
-        sbuf.x  = x;
-        sbuf.y  = y + 16;
-        sbuf.fg = c->fg | 0xFF000000;
-        sbuf.bg = c->bg | 0xFF000000;
-        char s[2] = {c->ch, 0};
-        ssfn_render(&sctx, &sbuf, s);
+    cell_t *c = cell_at(row, col);
+    int x = col * cell_w;
+    int y = row * cell_h;
+    buf_fill_rect(x, y, cell_w, cell_h, c->bg);
+    if ((unsigned char)c->ch >= 32 && (unsigned char)c->ch < 127) {
+        font_draw_codepoint(font, win->buf, WIN_W, WIN_H,
+                            x + glyph_pad_x, y + cell_baseline, FONT_SIZE,
+                            c->fg, c->bg, (uint32_t)(unsigned char)c->ch);
     }
+    mark_dirty_cell(row, col);
 }
 
 static void cursor_show(int vis)
 {
-    if (cursor_vis == vis) return;
+    if (cursor_vis == vis)
+        return;
     cursor_vis = vis;
-    int x = cur_col * CELL_W;
-    int y = cur_row * CELL_H + CELL_H - 3;
-    uint32_t c = vis ? C_CURSOR : screen[cur_row][cur_col].bg;
-    buf_fill_rect(x, y, CELL_W, 3, c);
+    int x = cur_col * cell_w;
+    int y = cur_row * cell_h + cell_h - 3;
+    uint32_t c = vis ? C_CURSOR : cell_at(cur_row, cur_col)->bg;
+    buf_fill_rect(x, y, cell_w, 3, c);
+    mark_dirty_rect(x, y, cell_w, 3);
 }
 
 static void scroll_up(void)
 {
-    memmove(win->buf, win->buf + CELL_H * WIN_W,
-            (WIN_H - CELL_H) * WIN_W * sizeof(uint32_t));
-    buf_fill_rect(0, WIN_H - CELL_H, WIN_W, CELL_H, C_BG);
-    memmove(&screen[0], &screen[1], (TERM_ROWS - 1) * sizeof(screen[0]));
-    for (int c = 0; c < TERM_COLS; c++)
-        screen[TERM_ROWS - 1][c] = (cell_t){' ', cur_fg, C_BG};
+    size_t scroll_px = (size_t)cell_h * (size_t)WIN_W;
+    memmove(win->buf, win->buf + scroll_px,
+            (WIN_H - cell_h) * WIN_W * sizeof(uint32_t));
+    buf_fill_rect(0, WIN_H - cell_h, WIN_W, cell_h, C_BG);
+    memmove(screen, screen + term_cols,
+            (size_t)(term_rows - 1) * (size_t)term_cols * sizeof(*screen));
+    for (int c = 0; c < term_cols; c++)
+        *cell_at(term_rows - 1, c) = (cell_t){' ', cur_fg, C_BG};
+    mark_dirty_rect(0, 0, WIN_W, WIN_H);
 }
 
 static void clear_screen(void)
 {
     buf_fill_rect(0, 0, WIN_W, WIN_H, C_BG);
-    for (int r = 0; r < TERM_ROWS; r++)
-        for (int c = 0; c < TERM_COLS; c++)
-            screen[r][c] = (cell_t){' ', C_FG, C_BG};
-    cur_row = 0; cur_col = 0;
+    for (int r = 0; r < term_rows; r++)
+        for (int c = 0; c < term_cols; c++)
+            *cell_at(r, c) = (cell_t){' ', C_FG, C_BG};
+    cur_row = 0;
+    cur_col = 0;
+    mark_dirty_rect(0, 0, WIN_W, WIN_H);
 }
 
 static void clear_eol(void)
 {
-    for (int c = cur_col; c < TERM_COLS; c++) {
-        screen[cur_row][c] = (cell_t){' ', cur_fg, C_BG};
-        render_cell(cur_row, c);
+    for (int c = cur_col; c < term_cols; c++) {
+        cell_t next = {' ', cur_fg, C_BG};
+        if (memcmp(cell_at(cur_row, c), &next, sizeof(next)) != 0) {
+            *cell_at(cur_row, c) = next;
+            render_cell(cur_row, c);
+        }
     }
 }
 
 static void clear_eos(void)
 {
     clear_eol();
-    for (int r = cur_row + 1; r < TERM_ROWS; r++)
-        for (int c = 0; c < TERM_COLS; c++) {
-            screen[r][c] = (cell_t){' ', C_FG, C_BG};
-            render_cell(r, c);
+    for (int r = cur_row + 1; r < term_rows; r++)
+        for (int c = 0; c < term_cols; c++) {
+            cell_t next = {' ', C_FG, C_BG};
+            if (memcmp(cell_at(r, c), &next, sizeof(next)) != 0) {
+                *cell_at(r, c) = next;
+                render_cell(r, c);
+            }
         }
 }
 
 static void clear_sol(void)
 {
     for (int c = 0; c <= cur_col; c++) {
-        screen[cur_row][c] = (cell_t){' ', cur_fg, C_BG};
-        render_cell(cur_row, c);
+        cell_t next = {' ', cur_fg, C_BG};
+        if (memcmp(cell_at(cur_row, c), &next, sizeof(next)) != 0) {
+            *cell_at(cur_row, c) = next;
+            render_cell(cur_row, c);
+        }
     }
 }
 
@@ -167,10 +246,10 @@ static void apply_sgr(int *p, int n)
         int v = p[i];
         if (v == 0)                    { cur_fg = C_FG; cur_bg = C_BG; }
         else if (v >= 30 && v <= 37)   cur_fg = ansi_pal[v - 30];
-        else if (v == 38 && i + 2 < n && p[i+1] == 5) { cur_fg = ansi_pal[p[i+2] & 15]; i += 2; }
+        else if (v == 38 && i + 2 < n && p[i + 1] == 5) { cur_fg = ansi_pal[p[i + 2] & 15]; i += 2; }
         else if (v == 39)              cur_fg = C_FG;
         else if (v >= 40 && v <= 47)   cur_bg = ansi_pal[v - 40];
-        else if (v == 48 && i + 2 < n && p[i+1] == 5) { cur_bg = ansi_pal[p[i+2] & 15]; i += 2; }
+        else if (v == 48 && i + 2 < n && p[i + 1] == 5) { cur_bg = ansi_pal[p[i + 2] & 15]; i += 2; }
         else if (v == 49)              cur_bg = C_BG;
         else if (v >= 90 && v <= 97)   cur_fg = ansi_pal[v - 90 + 8];
         else if (v >= 100 && v <= 107) cur_bg = ansi_pal[v - 100 + 8];
@@ -179,7 +258,8 @@ static void apply_sgr(int *p, int n)
 
 static void dispatch_csi(char cmd)
 {
-    int params[16] = {0}; int np = 0;
+    int params[16] = {0};
+    int np = 0;
     int acc = 0, any = 0;
     for (int i = 0; i < esc_len && np < 16; i++) {
         char c = esc_buf[i];
@@ -192,16 +272,22 @@ static void dispatch_csi(char cmd)
 
     switch (cmd) {
     case 'A': cur_row -= p0 ? p0 : 1; if (cur_row < 0) cur_row = 0; break;
-    case 'B': cur_row += p0 ? p0 : 1; if (cur_row >= TERM_ROWS) cur_row = TERM_ROWS-1; break;
-    case 'C': cur_col += p0 ? p0 : 1; if (cur_col >= TERM_COLS) cur_col = TERM_COLS-1; break;
+    case 'B': cur_row += p0 ? p0 : 1; if (cur_row >= term_rows) cur_row = term_rows - 1; break;
+    case 'C': cur_col += p0 ? p0 : 1; if (cur_col >= term_cols) cur_col = term_cols - 1; break;
     case 'D': cur_col -= p0 ? p0 : 1; if (cur_col < 0) cur_col = 0; break;
-    case 'G': cur_col = (p0 ? p0 : 1) - 1;
-              if (cur_col < 0) cur_col = 0;
-              if (cur_col >= TERM_COLS) cur_col = TERM_COLS-1; break;
-    case 'H': case 'f':
-        cur_row = (p0 ? p0 : 1) - 1; cur_col = (p1 ? p1 : 1) - 1;
-        if (cur_row < 0) cur_row = 0; if (cur_row >= TERM_ROWS) cur_row = TERM_ROWS-1;
-        if (cur_col < 0) cur_col = 0; if (cur_col >= TERM_COLS) cur_col = TERM_COLS-1;
+    case 'G':
+        cur_col = (p0 ? p0 : 1) - 1;
+        if (cur_col < 0) cur_col = 0;
+        if (cur_col >= term_cols) cur_col = term_cols - 1;
+        break;
+    case 'H':
+    case 'f':
+        cur_row = (p0 ? p0 : 1) - 1;
+        cur_col = (p1 ? p1 : 1) - 1;
+        if (cur_row < 0) cur_row = 0;
+        if (cur_row >= term_rows) cur_row = term_rows - 1;
+        if (cur_col < 0) cur_col = 0;
+        if (cur_col >= term_cols) cur_col = term_cols - 1;
         break;
     case 'J':
         if (p0 == 0) clear_eos();
@@ -212,27 +298,38 @@ static void dispatch_csi(char cmd)
         if (p0 == 0) clear_eol();
         else if (p0 == 1) clear_sol();
         else if (p0 == 2) {
-            for (int c = 0; c < TERM_COLS; c++) {
-                screen[cur_row][c] = (cell_t){' ', cur_fg, C_BG};
+            for (int c = 0; c < term_cols; c++) {
+                *cell_at(cur_row, c) = (cell_t){' ', cur_fg, C_BG};
                 render_cell(cur_row, c);
             }
         }
         break;
     case 'P': {
         int n = p0 ? p0 : 1;
-        for (int c = cur_col; c < TERM_COLS - n; c++) {
-            screen[cur_row][c] = screen[cur_row][c + n];
+        if (n > term_cols - cur_col)
+            n = term_cols - cur_col;
+        for (int c = cur_col; c < term_cols - n; c++) {
+            *cell_at(cur_row, c) = *cell_at(cur_row, c + n);
             render_cell(cur_row, c);
         }
-        for (int c = TERM_COLS - n; c < TERM_COLS; c++) {
-            screen[cur_row][c] = (cell_t){' ', cur_fg, C_BG};
+        for (int c = term_cols - n; c < term_cols; c++) {
+            *cell_at(cur_row, c) = (cell_t){' ', cur_fg, C_BG};
             render_cell(cur_row, c);
         }
         break;
     }
-    case 'm': apply_sgr(params, np); break;
-    case 'l': case 'h': case 'r': case 's': case 'u': case 'n': break;
-    default: break;
+    case 'm':
+        apply_sgr(params, np);
+        break;
+    case 'l':
+    case 'h':
+    case 'r':
+    case 's':
+    case 'u':
+    case 'n':
+        break;
+    default:
+        break;
     }
 }
 
@@ -245,32 +342,39 @@ static void put_raw(char c)
         if (c == '\r')   { cur_col = 0; break; }
         if (c == '\n') {
             cur_row++;
-            if (cur_row >= TERM_ROWS) { cur_row = TERM_ROWS-1; scroll_up(); }
+            if (cur_row >= term_rows) { cur_row = term_rows - 1; scroll_up(); }
             break;
         }
         if (c == '\b') {
             if (cur_col > 0) cur_col--;
-            screen[cur_row][cur_col] = (cell_t){' ', cur_fg, C_BG};
+            *cell_at(cur_row, cur_col) = (cell_t){' ', cur_fg, C_BG};
             render_cell(cur_row, cur_col);
             break;
         }
         if (c == '\t') {
             int next = (cur_col + 8) & ~7;
-            if (next >= TERM_COLS) next = TERM_COLS - 1;
+            if (next >= term_cols) next = term_cols - 1;
             for (; cur_col < next; cur_col++) {
-                screen[cur_row][cur_col] = (cell_t){' ', cur_fg, cur_bg};
-                render_cell(cur_row, cur_col);
+                cell_t next_cell = {' ', cur_fg, cur_bg};
+                if (memcmp(cell_at(cur_row, cur_col), &next_cell, sizeof(next_cell)) != 0) {
+                    *cell_at(cur_row, cur_col) = next_cell;
+                    render_cell(cur_row, cur_col);
+                }
             }
             break;
         }
         if (c == '\a') break;
         if ((unsigned char)c >= 32 && (unsigned char)c < 128) {
-            if (cur_col >= TERM_COLS) {
-                cur_col = 0; cur_row++;
-                if (cur_row >= TERM_ROWS) { cur_row = TERM_ROWS-1; scroll_up(); }
+            if (cur_col >= term_cols) {
+                cur_col = 0;
+                cur_row++;
+                if (cur_row >= term_rows) { cur_row = term_rows - 1; scroll_up(); }
             }
-            screen[cur_row][cur_col] = (cell_t){c, cur_fg, cur_bg};
-            render_cell(cur_row, cur_col);
+            cell_t next_cell = {c, cur_fg, cur_bg};
+            if (memcmp(cell_at(cur_row, cur_col), &next_cell, sizeof(next_cell)) != 0) {
+                *cell_at(cur_row, cur_col) = next_cell;
+                render_cell(cur_row, cur_col);
+            }
             cur_col++;
         }
         break;
@@ -305,10 +409,11 @@ static void drain_master(void)
         int want = avail > (int)sizeof(buf) ? (int)sizeof(buf) : avail;
         int n = read(master_fd, buf, want);
         if (n <= 0) break;
-        for (int i = 0; i < n; i++) put_raw(buf[i]);
+        for (int i = 0; i < n; i++)
+            put_raw(buf[i]);
     }
     cursor_show(1);
-    harp_flush(win);
+    flush_dirty();
 }
 
 static void send_bytes(const char *s, size_t n)
@@ -445,12 +550,9 @@ static void send_key_event(const harp_event_t *ev)
         return;
 
     uint32_t mods = ev->modifiers;
-    if (shift_down)
-        mods |= HARP_MOD_SHIFT;
-    if (ctrl_down)
-        mods |= HARP_MOD_CTRL;
-    if (alt_down)
-        mods |= HARP_MOD_ALT;
+    if (shift_down) mods |= HARP_MOD_SHIFT;
+    if (ctrl_down)  mods |= HARP_MOD_CTRL;
+    if (alt_down)   mods |= HARP_MOD_ALT;
 
     if (mods & HARP_MOD_CTRL) {
         int ctrl_code = -1;
@@ -523,43 +625,96 @@ static int pump_window_events(void)
     return handled;
 }
 
+static void cleanup_terminal(void)
+{
+    free(screen);
+    screen = NULL;
+    if (font) {
+        font_free(font);
+        font = NULL;
+    }
+    if (win) {
+        harp_close(win);
+        win = NULL;
+    }
+}
+
 int main(void)
 {
     win = harp_open("Terminal", 60, 60, WIN_W, WIN_H);
-    if (!win) { zen_log("terminal: harp not available", 2, 1); return 1; }
-
-    memset(&sctx, 0, sizeof(sctx));
-    if (ssfn_load(&sctx, &_binary_mono_sfn_start) != SSFN_OK) {
-        zen_log("terminal: font load failed", 2, 1);
-        harp_close(win); return 1;
+    if (!win) {
+        zen_log("terminal: harp not available", 2, 1);
+        return 1;
     }
-    ssfn_select(&sctx, SSFN_FAMILY_MONOSPACE, NULL, SSFN_STYLE_REGULAR, 16);
 
-    sbuf.ptr = (uint8_t *)win->buf;
-    sbuf.w   = WIN_W; sbuf.h = WIN_H; sbuf.p = WIN_W * 4;
+    char drive_root[32];
+    get_drive_root(drive_root);
+    snprintf(font_path, sizeof(font_path), "%s/lib/fonts/monospace.ttf", drive_root);
+    font = font_load(font_path);
+    if (!font && strcmp(font_path, "/mnt/drv0/lib/fonts/monospace.ttf") != 0)
+        font = font_load("/mnt/drv0/lib/fonts/monospace.ttf");
+    if (!font)
+        font = font_load("/mnt/drv0/lib/fonts/default.ttf");
+    if (!font) {
+        zen_log("terminal: font load failed", 2, 1);
+        cleanup_terminal();
+        return 1;
+    }
+    font_prime_ascii(font, FONT_SIZE);
 
-    cur_row = 0; cur_col = 0;
-    cur_fg  = C_FG; cur_bg = C_BG;
-    cursor_vis = 0; esc_state = ESC_NONE; esc_len = 0;
+    font_metrics_t metrics;
+    if (!font_get_metrics(font, FONT_SIZE, &metrics)) {
+        zen_log("terminal: font metrics failed", 2, 1);
+        cleanup_terminal();
+        return 1;
+    }
 
-    for (int r = 0; r < TERM_ROWS; r++)
-        for (int c = 0; c < TERM_COLS; c++)
-            screen[r][c] = (cell_t){' ', C_FG, C_BG};
-    buf_fill_rect(0, 0, WIN_W, WIN_H, C_BG);
+    cell_w = metrics.max_advance - 1;
+    if (cell_w < 8) cell_w = 8;
+    cell_h = metrics.line_height + 2;
+    if (cell_h < FONT_SIZE + 1) cell_h = FONT_SIZE + 1;
+    glyph_pad_x = 1;
+    cell_baseline = 1 + metrics.ascent;
+    term_cols = WIN_W / cell_w;
+    term_rows = WIN_H / cell_h;
+    if (term_cols <= 0 || term_rows <= 0) {
+        zen_log("terminal: invalid grid metrics", 2, 1);
+        cleanup_terminal();
+        return 1;
+    }
+
+    screen = (cell_t *)calloc((size_t)term_rows * (size_t)term_cols, sizeof(*screen));
+    if (!screen) {
+        zen_log("terminal: screen alloc failed", 2, 1);
+        cleanup_terminal();
+        return 1;
+    }
+
+    cur_row = 0;
+    cur_col = 0;
+    cur_fg  = C_FG;
+    cur_bg  = C_BG;
+    cursor_vis = 0;
+    esc_state = ESC_NONE;
+    esc_len = 0;
+    dirty_valid = 0;
+
+    clear_screen();
     cursor_show(1);
-    harp_flush(win);
+    flush_dirty();
 
     int slave_fd = -1;
     master_fd = zen_pty_open(&slave_fd);
     if (master_fd < 0) {
         const char *msg = "pty_open failed\n";
         for (const char *p = msg; *p; p++) put_raw(*p);
-        harp_flush(win);
-        for (;;) zen_halt();
+        flush_dirty();
+        for (;;)
+            zen_halt();
     }
 
     zen_winsize_t ws = {
-        (uint16_t)TERM_ROWS, (uint16_t)TERM_COLS,
+        (uint16_t)term_rows, (uint16_t)term_cols,
         (uint16_t)WIN_W,     (uint16_t)WIN_H
     };
     zen_ioctl(master_fd, ZEN_TIOCSWINSZ, &ws);
@@ -571,17 +726,19 @@ int main(void)
         tios.c_oflag = OPOST | ONLCR;
         tios.c_cflag = CREAD | CS8;
         tios.c_lflag = ISIG | ICANON | ECHO | ECHOE | ECHOK | IEXTEN;
-        tios.c_cc[VINTR]  = 3;  tios.c_cc[VQUIT]  = 28;
-        tios.c_cc[VERASE] = 127; tios.c_cc[VKILL] = 21;
-        tios.c_cc[VEOF]   = 4;  tios.c_cc[VTIME]  = 0;
-        tios.c_cc[VMIN]   = 1;  tios.c_cc[VSTART] = 17;
-        tios.c_cc[VSTOP]  = 19; tios.c_cc[VSUSP]  = 26;
+        tios.c_cc[VINTR]  = 3;   tios.c_cc[VQUIT]  = 28;
+        tios.c_cc[VERASE] = 127; tios.c_cc[VKILL]  = 21;
+        tios.c_cc[VEOF]   = 4;   tios.c_cc[VTIME]  = 0;
+        tios.c_cc[VMIN]   = 1;   tios.c_cc[VSTART] = 17;
+        tios.c_cc[VSTOP]  = 19;  tios.c_cc[VSUSP]  = 26;
         tcsetattr(slave_fd, TCSANOW, &tios);
     }
 
     shell_pid = fork();
     if (shell_pid == 0) {
-        dup2(slave_fd, 0); dup2(slave_fd, 1); dup2(slave_fd, 2);
+        dup2(slave_fd, 0);
+        dup2(slave_fd, 1);
+        dup2(slave_fd, 2);
         if (slave_fd > 2) close(slave_fd);
         if (master_fd > 2) close(master_fd);
         execv("/mnt/drv0/bin/shell", (char *[]){"/mnt/drv0/bin/shell", NULL});
@@ -589,12 +746,14 @@ int main(void)
         write(1, "shell not found\n", 16);
         _exit(1);
     }
-    if (slave_fd >= 0) close(slave_fd);
+    if (slave_fd >= 0)
+        close(slave_fd);
 
     while (1) {
         if (close_requested) {
-            if (shell_pid > 0) zen_kill(shell_pid, 15);
-            harp_close(win);
+            if (shell_pid > 0)
+                zen_kill(shell_pid, 15);
+            cleanup_terminal();
             return 0;
         }
 
@@ -607,8 +766,8 @@ int main(void)
             for (const char *p = msg; *p; p++) put_raw(*p);
             cur_fg = old_fg;
             cursor_show(1);
-            harp_flush(win);
-            harp_close(win);
+            flush_dirty();
+            cleanup_terminal();
             return 0;
         }
 
@@ -617,7 +776,7 @@ int main(void)
         int did_work = 0;
         if (avail > 0) { drain_master(); did_work = 1; }
         if (pump_window_events()) did_work = 1;
-        if (!did_work) zen_halt();
+        if (!did_work)
+            zen_halt();
     }
-    return 0;
 }

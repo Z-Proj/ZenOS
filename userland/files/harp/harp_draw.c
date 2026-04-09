@@ -23,7 +23,7 @@
 #define LAUNCH_R      7
 #define BTN_H        24
 #define BTN_W        96
-#define BTN_R        6
+#define BTN_R         6
 #define BTN_GAP       6
 #define LEFT_W      120
 
@@ -42,15 +42,15 @@
 #define C_CLOCK      0xFFAAAAAA
 #define C_DRAG       0xFF3A3A3A
 #define C_WHITE      0xFFFFFFFF
+#define C_SHOT       0xFF646B76
 #define TILE_ALPHA   120
 
-static uint32_t *s_backbuf;
-static uint32_t *s_bgbuf;
-static uint32_t *s_dash_backdrop;
-static int       s_dash_backdrop_y;
-static int       s_dash_backdrop_w;
-static ssfn_t   *s_ssfn;
-static ssfn_buf_t s_ssfn_buf;
+static uint32_t    *s_backbuf;
+static uint32_t    *s_bgbuf;
+static uint32_t    *s_dash_backdrop;
+static int          s_dash_backdrop_y;
+static int          s_dash_backdrop_w;
+static font_face_t *s_font;
 
 uint8_t dirty[MAX_DTY][MAX_DTX];
 int     dtx_count, dty_count;
@@ -71,24 +71,19 @@ void dirty_mark(int x, int y, int w, int h)
 void dirty_all(void) { dirty_full = 1; }
 
 void draw_init(uint32_t *backbuf, uint32_t *bgbuf, uint32_t *dash_backdrop,
-               int dash_backdrop_y, int dash_backdrop_w, void *ssfn_ctx)
+               int dash_backdrop_y, int dash_backdrop_w, font_face_t *font)
 {
-    s_backbuf          = backbuf;
-    s_bgbuf            = bgbuf;
-    s_dash_backdrop    = dash_backdrop;
-    s_dash_backdrop_y  = dash_backdrop_y;
-    s_dash_backdrop_w  = dash_backdrop_w;
-    s_ssfn             = (ssfn_t *)ssfn_ctx;
+    s_backbuf         = backbuf;
+    s_bgbuf           = bgbuf;
+    s_dash_backdrop   = dash_backdrop;
+    s_dash_backdrop_y = dash_backdrop_y;
+    s_dash_backdrop_w = dash_backdrop_w;
+    s_font            = font;
 
     dtx_count = ((int)SCR_W + DTILE - 1) / DTILE;
     if (dtx_count > MAX_DTX) dtx_count = MAX_DTX;
     dty_count = ((int)SCR_H + DTILE - 1) / DTILE;
     if (dty_count > MAX_DTY) dty_count = MAX_DTY;
-
-    s_ssfn_buf.ptr = (uint8_t *)s_backbuf;
-    s_ssfn_buf.w   = (int)SCR_W;
-    s_ssfn_buf.h   = (int)SCR_H;
-    s_ssfn_buf.p   = (int)(SCR_W * 4);
 }
 
 static inline void bb_px(int x, int y, uint32_t c)
@@ -100,38 +95,31 @@ static inline void bb_px(int x, int y, uint32_t c)
 static inline uint32_t blend_px(uint32_t dst, uint32_t src)
 {
     uint32_t a = src >> 24;
-    if (a == 0)
-        return dst;
-    if (a == 255)
-        return src;
+    if (a == 0) return dst;
+    if (a == 255) return src;
     uint32_t sr = (src >> 16) & 0xFF;
-    uint32_t sg = (src >> 8) & 0xFF;
-    uint32_t sb = src & 0xFF;
+    uint32_t sg = (src >> 8)  & 0xFF;
+    uint32_t sb =  src        & 0xFF;
     uint32_t dr = (dst >> 16) & 0xFF;
-    uint32_t dg = (dst >> 8) & 0xFF;
-    uint32_t db = dst & 0xFF;
+    uint32_t dg = (dst >> 8)  & 0xFF;
+    uint32_t db =  dst        & 0xFF;
     uint32_t ia = 255 - a;
-    uint32_t r = (sr * a + dr * ia) / 255;
-    uint32_t g = (sg * a + dg * ia) / 255;
-    uint32_t b = (sb * a + db * ia) / 255;
-    return 0xFF000000 | (r << 16) | (g << 8) | b;
+    return 0xFF000000
+        | (((sr * a + dr * ia) / 255) << 16)
+        | (((sg * a + dg * ia) / 255) << 8)
+        |  ((sb * a + db * ia) / 255);
 }
 
 static inline void fill_span(uint32_t *dst, int count, uint32_t c)
 {
-    for (int i = 0; i < count; i++)
-        dst[i] = c;
+    for (int i = 0; i < count; i++) dst[i] = c;
 }
 
 static inline void blend_span(uint32_t *dst, int count, uint32_t src)
 {
     uint32_t a = src >> 24;
-    if (a == 255) {
-        fill_span(dst, count, src);
-        return;
-    }
-    for (int i = 0; i < count; i++)
-        dst[i] = blend_px(dst[i], src);
+    if (a == 255) { fill_span(dst, count, src); return; }
+    for (int i = 0; i < count; i++) dst[i] = blend_px(dst[i], src);
 }
 
 void bb_rect(int x, int y, int w, int h, uint32_t c)
@@ -189,7 +177,6 @@ void bb_rrect_alpha(int x, int y, int w, int h, int r, uint32_t c, uint32_t a)
     if (r > w / 2) r = w / 2;
     if (r > h / 2) r = h / 2;
     uint32_t src_color = (a << 24) | (c & 0x00FFFFFF);
-
     for (int row = 0; row < h; row++) {
         int ay = y + row;
         if (ay < 0 || (uint32_t)ay >= SCR_H) continue;
@@ -248,82 +235,46 @@ static void draw_x(int cx, int cy, int sz, uint32_t c)
     }
 }
 
+static void draw_plus_icon(int x, int y, int sz)
+{
+    int arm = sz / 3;
+    int thick = sz / 7;
+    if (thick < 2) thick = 2;
+    int cx = x + sz / 2;
+    int cy = y + sz / 2;
+    bb_rrect_alpha(x, y, sz, sz, LAUNCH_R, C_SHOT, 208);
+    bb_rect(cx - thick / 2, y + (sz - arm) / 2, thick, arm, C_WHITE);
+    bb_rect(x + (sz - arm) / 2, cy - thick / 2, arm, thick, C_WHITE);
+}
+
 void bb_text(int x, int y, uint32_t fg, uint32_t bg, const char *str)
 {
     if (!str || !*str) return;
-    ssfn_select(s_ssfn, SSFN_FAMILY_ANY, NULL, SSFN_STYLE_REGULAR, FONT_SIZE);
-    s_ssfn_buf.x  = x;
-    s_ssfn_buf.y  = y;
-    s_ssfn_buf.fg = fg;
-    s_ssfn_buf.bg = bg;
-    const char *s = str;
-    while (*s && s_ssfn_buf.x < (int)SCR_W) {
-        int r = ssfn_render(s_ssfn, &s_ssfn_buf, s);
-        if (r <= 0) break;
-        s += r;
-    }
+    font_draw(s_font, s_backbuf, (int)SCR_W, (int)SCR_H,
+              x, y, FONT_SIZE, fg, bg, str);
 }
 
 static void bb_text_sz(int x, int y, int size, uint32_t fg, uint32_t bg, const char *str)
 {
     if (!str || !*str) return;
-    ssfn_select(s_ssfn, SSFN_FAMILY_ANY, NULL, SSFN_STYLE_REGULAR, size);
-    s_ssfn_buf.x  = x;
-    s_ssfn_buf.y  = y;
-    s_ssfn_buf.fg = fg;
-    s_ssfn_buf.bg = bg;
-    const char *s = str;
-    while (*s && s_ssfn_buf.x < (int)SCR_W) {
-        int r = ssfn_render(s_ssfn, &s_ssfn_buf, s);
-        if (r <= 0) break;
-        s += r;
-    }
+    font_draw(s_font, s_backbuf, (int)SCR_W, (int)SCR_H,
+              x, y, size, fg, bg, str);
 }
 
 int text_w(const char *str)
 {
-    ssfn_select(s_ssfn, SSFN_FAMILY_ANY, NULL, SSFN_STYLE_REGULAR, FONT_SIZE);
-    ssfn_buf_t d;
-    memset(&d, 0, sizeof(d));
-    d.ptr = NULL; d.w = 0x7FFF; d.h = 0x7FFF; d.p = 0x7FFE;
-    d.x = 0; d.y = FONT_SIZE; d.fg = 0xFFFFFFFF;
-    const char *s = str;
-    while (*s) {
-        int r = ssfn_render(s_ssfn, &d, s);
-        if (r <= 0) break;
-        s += r;
-    }
-    return d.x;
+    return font_measure(s_font, FONT_SIZE, str);
 }
 
 static int text_w_sz(const char *str, int size)
 {
-    ssfn_select(s_ssfn, SSFN_FAMILY_ANY, NULL, SSFN_STYLE_REGULAR, size);
-    ssfn_buf_t d;
-    memset(&d, 0, sizeof(d));
-    d.ptr = NULL;
-    d.w = 0x7FFF;
-    d.h = 0x7FFF;
-    d.p = 0x7FFE;
-    d.x = 0;
-    d.y = size;
-    d.fg = 0xFFFFFFFF;
-    const char *s = str;
-    while (*s) {
-        int r = ssfn_render(s_ssfn, &d, s);
-        if (r <= 0) break;
-        s += r;
-    }
-    return d.x;
+    return font_measure(s_font, size, str);
 }
 
 static void fit_text(char *dst, size_t dst_sz, const char *src, int max_w)
 {
     if (!dst || dst_sz == 0) return;
-    if (!src) {
-        dst[0] = 0;
-        return;
-    }
+    if (!src) { dst[0] = 0; return; }
     size_t n = strlen(src);
     if (n >= dst_sz) n = dst_sz - 1;
     memcpy(dst, src, n);
@@ -371,8 +322,7 @@ static void bb_round_clip_bottom(int x, int y, int w, int h, int r)
     for (int row = h - r; row < h; row++) {
         int ay = y + row;
         if (ay < 0 || (uint32_t)ay >= SCR_H) continue;
-        int dy = row - (h - r);
-        int dx = 0;
+        int dy = row - (h - r), dx = 0;
         while (dx * dx + dy * dy < r * r) dx++;
         int cut = r - dx;
         for (int i = 0; i < cut; i++) {
@@ -432,13 +382,44 @@ static void draw_close_btn(int cx, int cy, int r, uint32_t fill, int focused)
     }
 }
 
-void draw_window(int idx)
+void draw_window(int idx, int full_frame)
 {
     window_t *w = &windows[idx];
     if (!w->active || w->minimized || w->w <= 0 || w->h <= 0) return;
 
     int fx = w->x, fy = w->y, fw = w->w, fh = w->h + TITLEBAR_H;
     if (fx >= (int)SCR_W || fy >= (int)SCR_H || fx + fw <= 0 || fy + fh <= 0) return;
+
+    int use_partial = !full_frame && w->dirty_valid;
+    if (use_partial && !w->shmbuf)
+        use_partial = 0;
+
+    if (use_partial) {
+        int client_y = fy + TITLEBAR_H;
+        int dst_x0 = fx + w->dirty_x;
+        int dst_y0 = client_y + w->dirty_y;
+        int dst_x1 = dst_x0 + w->dirty_w;
+        int dst_y1 = dst_y0 + w->dirty_h;
+        if (dst_x0 < 0) dst_x0 = 0;
+        if (dst_y0 < 0) dst_y0 = 0;
+        if (dst_x1 > (int)SCR_W) dst_x1 = (int)SCR_W;
+        if (dst_y1 > (int)SCR_H) dst_y1 = (int)SCR_H;
+        if (dst_x0 < dst_x1 && dst_y0 < dst_y1) {
+            int src_x0 = dst_x0 - fx;
+            int src_y0 = dst_y0 - client_y;
+            for (int row = dst_y0; row < dst_y1; row++) {
+                memcpy(s_backbuf + row * SCR_W + dst_x0,
+                       (uint32_t *)w->shmbuf + (src_y0 + row - dst_y0) * w->w + src_x0,
+                       (dst_x1 - dst_x0) * 4);
+            }
+            bb_round_clip_bottom(fx, fy + TITLEBAR_H, fw, w->h, WIN_R);
+            dirty_mark(dst_x0, dst_y0, dst_x1 - dst_x0, dst_y1 - dst_y0);
+            if (w->dirty_y + w->dirty_h > w->h - WIN_R)
+                dirty_mark(fx, fy + TITLEBAR_H + w->h - WIN_R, fw, WIN_R);
+        }
+        w->dirty_valid = 0;
+        return;
+    }
 
     int focused = (idx == focused_win);
     uint32_t tc = focused ? C_TITLEBAR_F : C_TITLEBAR;
@@ -466,11 +447,10 @@ void draw_window(int idx)
         int src_x0 = dst_x0 - fx;
         int src_y0 = dst_y0 - (fy + TITLEBAR_H);
         if (dst_x0 < dst_x1 && dst_y0 < dst_y1)
-            for (int row = dst_y0; row < dst_y1; row++) {
+            for (int row = dst_y0; row < dst_y1; row++)
                 memcpy(s_backbuf + row * SCR_W + dst_x0,
                        (uint32_t *)w->shmbuf + (src_y0 + row - dst_y0) * w->w + src_x0,
                        (dst_x1 - dst_x0) * 4);
-            }
         bb_round_clip_bottom(fx, fy + TITLEBAR_H, fw, w->h, WIN_R);
     } else {
         bb_rect(fx, fy + TITLEBAR_H, fw, w->h, 0xFF0D0D0D);
@@ -503,6 +483,7 @@ void draw_window(int idx)
     int bcy = fy + TITLEBAR_H / 2;
     draw_close_btn(bcx, bcy, br, focused ? C_CLOSE_F : C_CLOSE, focused);
 
+    w->dirty_valid = 0;
     dirty_mark(fx, fy, fw, fh);
 }
 
@@ -553,9 +534,17 @@ void draw_dash(void)
 
     dirty_mark(lx, ly, LEFT_W, DASH_H);
 
-    int launch_x = 0;
-    int launch_y = 0;
-    int launch_w = 0;
+    int shot_x = 0, shot_y = 0, shot_w = 0;
+    if (screenshot_dash_layout(&shot_x, &shot_y, &shot_w)) {
+        dash_blit_backdrop(shot_x, shot_w);
+        bb_rrect_alpha(shot_x, shot_y, shot_w, DASH_H, DASH_R, C_DASH, TILE_ALPHA);
+        int ix = shot_x + LAUNCH_PAD;
+        int iy = shot_y + (DASH_H - LAUNCH_ICON) / 2;
+        draw_plus_icon(ix, iy, LAUNCH_ICON);
+        dirty_mark(shot_x, shot_y, shot_w, DASH_H);
+    }
+
+    int launch_x = 0, launch_y = 0, launch_w = 0;
     if (launcher_dash_layout(&launch_x, &launch_y, &launch_w)) {
         dash_blit_backdrop(launch_x, launch_w);
         bb_rrect_alpha(launch_x, launch_y, launch_w, DASH_H, DASH_R, C_DASH, TILE_ALPHA);
@@ -573,10 +562,7 @@ void draw_dash(void)
         dirty_mark(launch_x, launch_y, launch_w, DASH_H);
     }
 
-    int rx = 0;
-    int ry = 0;
-    int total_w = 0;
-    int visible = 0;
+    int rx = 0, ry = 0, total_w = 0, visible = 0;
     if (!running_dash_layout(&rx, &ry, &total_w, &visible)) return;
 
     dash_blit_backdrop(rx, total_w);
@@ -652,7 +638,7 @@ static void cursor_stamp(uint32_t *fb_addr, int mx, int my, uint32_t pitch)
             if (fx < 0 || (uint32_t)fx >= SCR_W) continue;
             uint8_t s = cursor_shape[cy][cx];
             if (!s) continue;
-            *((uint32_t*)((uint8_t*)fb_addr + fy * pitch) + fx) =  (s == 1) ? 0xFF000000 : 0xFFFFFFFF;
+            *((uint32_t*)((uint8_t*)fb_addr + fy * pitch) + fx) = (s == 1) ? 0xFF000000 : 0xFFFFFFFF;
         }
     }
 }
@@ -671,17 +657,42 @@ static void blit_region(uint32_t *fb_addr, uint32_t pitch, int x, int y, int w, 
     }
 }
 
+static int dirty_overlaps_rect(int x, int y, int w, int h)
+{
+    if (dirty_full)
+        return 1;
+    if (w <= 0 || h <= 0)
+        return 0;
+    int tx0 = x / DTILE; if (tx0 < 0) tx0 = 0;
+    int ty0 = y / DTILE; if (ty0 < 0) ty0 = 0;
+    int tx1 = (x + w - 1) / DTILE; if (tx1 >= dtx_count) tx1 = dtx_count - 1;
+    int ty1 = (y + h - 1) / DTILE; if (ty1 >= dty_count) ty1 = dty_count - 1;
+    for (int ty = ty0; ty <= ty1; ty++)
+        for (int tx = tx0; tx <= tx1; tx++)
+            if (dirty[ty][tx])
+                return 1;
+    return 0;
+}
+
 void push_to_fb(uint32_t *fb_addr, uint32_t ptr_x, uint32_t ptr_y, uint32_t pitch)
 {
+    int new_cur_x = (int)ptr_x;
+    int new_cur_y = (int)ptr_y;
+    int moved = (prev_cur_x != new_cur_x || prev_cur_y != new_cur_y);
+    int cursor_hit = dirty_overlaps_rect(new_cur_x, new_cur_y, CUR_W, CUR_H);
+
     if (dirty_full) {
         for (int y = 0; y < (int)SCR_H; y++)
             memcpy((uint8_t*)fb_addr + y * pitch, s_backbuf + y * SCR_W, SCR_W * 4);
         dirty_full = 0;
         memset(dirty, 0, sizeof(dirty));
+        prev_cur_x = new_cur_x;
+        prev_cur_y = new_cur_y;
+        cursor_stamp(fb_addr, new_cur_x, new_cur_y, pitch);
+        return;
     } else {
-        if (prev_cur_x >= 0)
+        if (moved && prev_cur_x >= 0)
             blit_region(fb_addr, pitch, prev_cur_x, prev_cur_y, CUR_W, CUR_H);
-
         for (int ty = 0; ty < dty_count; ty++) {
             for (int tx = 0; tx < dtx_count; tx++) {
                 if (!dirty[ty][tx]) continue;
@@ -697,7 +708,8 @@ void push_to_fb(uint32_t *fb_addr, uint32_t ptr_x, uint32_t ptr_y, uint32_t pitc
             }
         }
     }
-    prev_cur_x = (int)ptr_x;
-    prev_cur_y = (int)ptr_y;
-    cursor_stamp(fb_addr, (int)ptr_x, (int)ptr_y, pitch);
+    if (moved || prev_cur_x < 0 || cursor_hit)
+        cursor_stamp(fb_addr, new_cur_x, new_cur_y, pitch);
+    prev_cur_x = new_cur_x;
+    prev_cur_y = new_cur_y;
 }

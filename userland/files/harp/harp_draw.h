@@ -1,18 +1,12 @@
 #pragma once
 #include <stdint.h>
 #include "harp_wm.h"
-#define SSFN_MAXLINES 4096
-#define SSFN_memcmp memcmp
-#define SSFN_memset memset
-#define SSFN_memcpy memcpy
-#define SSFN_realloc realloc
-#define SSFN_free free
-#include "ssfn.h"
+#include "libfont.h"
 
 void draw_init(uint32_t *backbuf, uint32_t *bgbuf, uint32_t *dash_backdrop,
-               int dash_backdrop_y, int dash_backdrop_w, void *ssfn_ctx);
+               int dash_backdrop_y, int dash_backdrop_w, font_face_t *font);
 void draw_desktop(void);
-void draw_window(int idx);
+void draw_window(int idx, int full_frame);
 void draw_dash(void);
 void draw_drag_outline(void);
 void push_to_fb(uint32_t *fb_addr, uint32_t ptr_x, uint32_t ptr_y, uint32_t pitch);
