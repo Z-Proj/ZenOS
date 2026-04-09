@@ -175,9 +175,9 @@ static void ensure_launcher_cfg(void)
     fp = fopen(launcher_cfg_path, "w");
     if (!fp)
         return;
-    fprintf(fp, "%s/bin/terminal; 0xF0F0F0; TRM\n", drive_root);
-    fprintf(fp, "%s/bin/imgview; 0x88C0D0; IMG\n", drive_root);
-    fprintf(fp, "%s/bin/doom; 0xD08770; DUM\n", drive_root);
+    fprintf(fp, "%s/bin/terminal; 0x010101; TRM\n", drive_root);
+    fprintf(fp, "%s/bin/nk_widgets; 0x35063E; APP\n", drive_root);
+    fprintf(fp, "%s/bin/doom; 0xFF0000; GUN\n", drive_root);
     fclose(fp);
 }
 
