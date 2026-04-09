@@ -60,7 +60,7 @@ init:
 	@printf "# ZenOS Init Execution Procedure File\n# It is unrecommended to modify this file. But you can modify it however you want.\n# Zen is pretty stable enough for handling mostly anything on this file.\n\n# /mnt/drv0/sys/init.run (VHD location: /sys/init.run)\n\n# ---------------------------------\n#            ZenOS Shell          \n# ---------------------------------\n#/mnt/drv0/bin/shell\n\n\n# ---------------------------------        \n#      ZenOS Compositor : Harp\n# Uncomment the shell line above and \n# comment the line below to disable\n# GUI and use only the shell.\n# --------------------------------- \n\n/mnt/drv0/bin/harp" > init.run
 	./fat_man ZenOS.vhd mkdir /sys
 	./fat_man ZenOS.vhd import init.run /sys/init.run
-	# @rm init.run
+	@rm init.run
 	@echo "init.run imported successfully."
 
 help:
