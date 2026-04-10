@@ -1,3 +1,21 @@
+# 
+# @file : /userland/mlibc_app.mk
+# @brief : Userspace build template for mlibc dynamic app.
+# 
+# This file is a part of the Zen (ZenOS)
+# Operating System build process, and is
+# released under the terms of the MIT
+# Licensing : Read LICENSE at the root of
+# the repository.
+# 
+# @copyright (c) 2026
+# @author : Rishies2010
+# 
+
+APP ?=
+SRCS ?= $(APP).c
+...
+
 APP ?=
 SRCS ?= $(APP).c
 OBJS ?= $(SRCS:.c=.o)

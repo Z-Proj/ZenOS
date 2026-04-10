@@ -1,4 +1,19 @@
 /**
+ * 
+ * @file : /src/cpu/idt.c
+ * @brief : Sets up the 64-bit IDT with handlers for all CPU exceptions and IRQs.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
+/**
  * 64-bit Interrupt Descriptor Table setup
  */
 

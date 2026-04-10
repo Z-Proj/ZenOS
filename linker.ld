@@ -1,3 +1,19 @@
+/*
+ * 
+ * @file : /linker.ld
+ * @brief : Kernel linker script - maps text, rodata, data, and bss at -2GB.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System build process, and is
+ * released under the terms of the MIT
+ * Licensing : Read LICENSE at the root of
+ * the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 OUTPUT_FORMAT(elf64-x86-64)
 ENTRY(_start)
 

@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/libk/core/unix_sock.h
+ * @brief : Unix domain sockets - stream/dgram, bind, listen, accept, and socketpairs.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #ifndef UNIX_SOCK_H
 #define UNIX_SOCK_H
 

@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/libk/core/elf.h
+ * @brief : ELF loader - parses and loads executables, handles interpreters and stack setup.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #ifndef ELF_H
 #define ELF_H
 

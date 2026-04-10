@@ -1,4 +1,17 @@
-
+/**
+ * 
+ * @file : /src/drv/net/net.c
+ * @brief : Network stack with ARP, IP, UDP, TCP, and DNS resolution support.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
 
 #include "net.h"
 #include "e1000.h"

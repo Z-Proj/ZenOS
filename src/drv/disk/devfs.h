@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/drv/disk/devfs.h
+ * @brief : Simple device filesystem for /dev with null, zero, random, and console.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #ifndef DEVFS_H
 #define DEVFS_H
 

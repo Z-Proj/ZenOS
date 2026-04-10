@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/drv/rtc.c
+ * @brief : RTC driver - reads CMOS clock and tracks system uptime ticks.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #include "../drv/rtc.h"
 #include "../libk/ports.h"
 #include "../libk/debug/log.h"

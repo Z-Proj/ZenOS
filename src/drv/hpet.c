@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/drv/hpet.c
+ * @brief : HPET timer - sleeps, monotonic time, and periodic ticks.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #include <stdint.h>
 #include "../cpu/isr.h"
 #include "../drv/local_apic.h"

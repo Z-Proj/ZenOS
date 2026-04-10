@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/cpu/gdt.c
+ * @brief : GDT/TSS setup per CPU - kernel/user segments and task state segments.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #include "gdt.h"
 #include "../libk/debug/log.h"
 #include "../libk/string.h"

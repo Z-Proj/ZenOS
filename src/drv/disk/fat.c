@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/drv/disk/fat.c
+ * @brief : FAT32 filesystem integration to FatFs with VFS integration and caching.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #include "fat.h"
 #include "fatfs/ff.h"
 #include "../../libk/string.h"

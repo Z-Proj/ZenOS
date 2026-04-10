@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/kernel/signal.h
+ * @brief : Signal definitions and sigaction struct for userspace signal handling.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #ifndef SIGNAL_H
 #define SIGNAL_H
 

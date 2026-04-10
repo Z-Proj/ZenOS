@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/drv/disk/fatfs_ops.c
+ * @brief : VFS glue layer mapping FAT filesystem operations to VFS.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #include "fatfs_ops.h"
 #include "fat.h"
 #include "../../libk/string.h"

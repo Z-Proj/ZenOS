@@ -1,10 +1,20 @@
-/*
- * fat_man.c - ZenOS FAT32 disk image manager (host-side)
- * Supports raw images and fixed/dynamic VHD files.
- *
- * Build:
- *   clang fat_man.c src/drv/disk/fatfs/ff.c src/drv/disk/fatfs/ffunicode.c \
- *         -Isrc/drv/disk/fatfs -o fat_man
+/**
+ * 
+ * @file : /fat_man.c
+ * @brief : Host-side FAT32 disk image manager with raw and VHD support.
+ * 
+ * Build: clang fat_man.c src/drv/disk/fatfs/ff.c src/drv/disk/fatfs/ffunicode.c \
+ *        -Isrc/drv/disk/fatfs -o fat_man
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System build process, and is
+ * released under the terms of the MIT
+ * Licensing : Read LICENSE at the root of
+ * the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
  */
 
 #include <stdio.h>

@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/drv/net/pci.c
+ * @brief : PCI bus enumeration, device discovery, and MSI/MSI-X configuration.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #include "pci.h"
 #include "../../libk/core/mem.h"
 #include "../../libk/debug/log.h"

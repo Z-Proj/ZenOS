@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/drv/disk/vfs_mount.c
+ * @brief : VFS mount point management - register, unregister, and lookup filesystems.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #include "vfs_mount.h"
 #include "../../libk/string.h"
 #include "../../libk/core/mem.h"

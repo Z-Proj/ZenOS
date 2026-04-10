@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/drv/disk/ata.h
+ * @brief : ATA/IDE driver with PIO and DMA modes, plus simple sector cache.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #ifndef ATA_H
 #define ATA_H
 

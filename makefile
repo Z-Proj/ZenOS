@@ -1,4 +1,16 @@
-# ZenOS Makefile
+# 
+# @file : /makefile
+# @brief : ZenOS build system - compiles kernel, userspace, mlibc, and creates bootable ISO.
+# 
+# This file is a part of the Zen (ZenOS)
+# Operating System build process, and is
+# released under the terms of the MIT
+# Licensing : Read LICENSE at the root of
+# the repository.
+# 
+# @copyright (c) 2026
+# @author : Rishies2010
+# 
 
 ifeq ($(origin CC), default)
 CC := clang

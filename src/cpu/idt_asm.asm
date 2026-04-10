@@ -1,3 +1,16 @@
+; 
+; @file : /src/cpu/idt_asm.asm
+; @brief : IDT loading and ISR/IRQ stubs for interrupt handling in long mode.
+; 
+; This file is a part of the Zen (ZenOS)
+; Operating System, and is released under
+; the terms of the MIT Licensing : Read
+; LICENSE at the root of the repository.
+; 
+; @copyright (c) 2026
+; @author : Rishies2010
+;
+
 [bits 64]
 
 section .text

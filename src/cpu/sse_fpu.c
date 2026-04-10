@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/cpu/sse_fpu.c
+ * @brief : Enables SSE and FPU by setting CR0/CR4 bits and initializing FPU state.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #include <stdint.h>
 #include "sse_fpu.h"
 #include "../libk/debug/log.h"

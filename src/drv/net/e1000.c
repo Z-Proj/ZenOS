@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/drv/net/e1000.c
+ * @brief : Intel E1000 network driver with MSI/Legacy interrupts and DMA ring buffers.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #include "e1000.h"
 #include "net.h"
 #include "pci.h"

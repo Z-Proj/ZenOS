@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/cpu/id/cpuid.c
+ * @brief : CPUID queries for processor info, cache layout, and instruction set detection.
+ *  
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #include "../../libk/debug/log.h"
 #include <stdint.h>
 #include "../../libk/string.h"

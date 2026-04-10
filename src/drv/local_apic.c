@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/drv/local_apic.c
+ * @brief : Local APIC setup - timer calibration, IPIs, etc.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #include "local_apic.h"
 #include "../cpu/idt.h"
 #include "../cpu/isr.h"

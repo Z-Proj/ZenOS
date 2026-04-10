@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/cpu/isr.c
+ * @brief : Exception and IRQ handlers with register dumps and userspace fault handling.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #include "isr.h"
 #include "idt.h"
 #include "../drv/local_apic.h"

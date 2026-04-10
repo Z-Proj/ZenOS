@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/drv/mouse.h
+ * @brief : PS/2 mouse driver.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #ifndef MOUSE_H
 #define MOUSE_H
 

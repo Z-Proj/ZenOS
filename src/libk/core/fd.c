@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/libk/core/fd.c
+ * @brief : File descriptor table management - alloc, clone, close, and refcounting.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #include "fd.h"
 #include "mem.h"
 #include "../../drv/disk/fat.h"

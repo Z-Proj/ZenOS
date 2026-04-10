@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/cpu/smp.c
+ * @brief : SMP initialization - brings up APs, sets up per-CPU GDT/IDT, tracks core count.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #include "smp.h"
 #include "../libk/debug/log.h"
 #include "../drv/local_apic.h"

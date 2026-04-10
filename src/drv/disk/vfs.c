@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/drv/disk/vfs.c
+ * @brief : Virtual filesystem layer - path resolution, mount management, file/dir operations.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #include "vfs.h"
 #include "vfs_mount.h"
 #include "fatfs_ops.h"

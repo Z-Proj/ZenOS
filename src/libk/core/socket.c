@@ -1,3 +1,18 @@
+/**
+ * 
+ * @file : /src/libk/core/socket.c
+ * @brief : Named socket IPC - ring buffer based message passing between tasks.
+ * 
+ * This file is a part of the Zen (ZenOS)
+ * Operating System, and is released under
+ * the terms of the MIT Licensing : Read
+ * LICENSE at the root of the repository.
+ * 
+ * @copyright (c) 2026
+ * @author : Rishies2010
+ * 
+ */
+
 #include "socket.h"
 #include "mem.h"
 #include "string.h"

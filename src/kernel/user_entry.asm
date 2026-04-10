@@ -1,3 +1,16 @@
+; 
+; @file : /src/kernel/user_entry.asm
+; @brief : Jumps from kernel to userspace - sets up segments and IRETQ to user mode.
+; 
+; This file is a part of the Zen (ZenOS)
+; Operating System, and is released under
+; the terms of the MIT Licensing : Read
+; LICENSE at the root of the repository.
+; 
+; @copyright (c) 2026
+; @author : Rishies2010
+; 
+
 [BITS 64]
 section .text
 global exec_enter_user
