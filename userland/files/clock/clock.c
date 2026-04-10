@@ -52,7 +52,6 @@ int main(int argc, char *argv[]) {
 
         char k = 0;
         if (read(STDIN_FILENO, &k, 1) > 0) break;
-        zen_halt();
     }
 
     if (have_termios)

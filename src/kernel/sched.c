@@ -1,5 +1,4 @@
 #include "sched.h"
-#include "../drv/vga.h"
 #include "../libk/core/mem.h"
 #include "../libk/string.h"
 #include "../libk/debug/log.h"
@@ -377,7 +376,6 @@ void sched_start(void)
     spinlock_release(&sched_lock);
 
     log("Scheduler enabled.", 4, 0);
-    ft_run(false);
     scheduler_enabled = 1;
     sched_yield();
 }

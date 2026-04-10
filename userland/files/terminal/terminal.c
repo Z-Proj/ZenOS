@@ -710,7 +710,7 @@ int main(void)
         for (const char *p = msg; *p; p++) put_raw(*p);
         flush_dirty();
         for (;;)
-            zen_halt();
+            sched_yield();
     }
 
     zen_winsize_t ws = {
@@ -776,7 +776,7 @@ int main(void)
         int did_work = 0;
         if (avail > 0) { drain_master(); did_work = 1; }
         if (pump_window_events()) did_work = 1;
-        if (!did_work)
-            zen_halt();
+        while (!did_work)
+            sched_yield();
     }
 }

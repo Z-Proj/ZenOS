@@ -13,16 +13,10 @@ int main(int argc, char *argv[]) {
                     fputs(" ", stdout);
             }
             fputs("\n", stdout);
-            zen_halt();
-            zen_halt();
-            zen_halt();
         }
     } else {
         while (1) {
-            fputs("yes\n", stdout);
-            zen_halt();
-            zen_halt();
-            zen_halt();
+            fputs("y\n", stdout);
         }
     }
     return 0;

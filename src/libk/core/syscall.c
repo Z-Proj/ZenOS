@@ -2117,7 +2117,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_HALT:
     {
-        __asm__ __volatile__("sti; hlt; cli");
+        sched_yield();
         return 0;
     }
 

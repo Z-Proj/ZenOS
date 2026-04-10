@@ -31,7 +31,6 @@ int main(int argc, char *argv[]) {
         print_int(count);
         fputs("\033[0m\n", stdout);
         zen_sleep_ms(100);
-        zen_halt();
     }
 
     fputs("\033[32m[Counter ", stdout);

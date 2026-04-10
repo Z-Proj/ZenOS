@@ -49,7 +49,6 @@ int main(int argc, char *argv[]) {
             fputs("  ", stdout);
             count++;
             if (count % 10 == 0) fputs("\n", stdout);
-            zen_halt();
         }
     }
 
