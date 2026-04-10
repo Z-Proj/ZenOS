@@ -76,7 +76,7 @@
 #define C_CLOCK      0xFFAAAAAA
 #define C_DRAG       0xFF3A3A3A
 #define C_WHITE      0xFFFFFFFF
-#define C_SHOT       0xFF646B76
+#define C_SHOT       0x0F0F0F0F
 #define TILE_ALPHA   120
 
 static uint32_t    *s_backbuf;
@@ -271,14 +271,18 @@ static void draw_x(int cx, int cy, int sz, uint32_t c)
 
 static void draw_plus_icon(int x, int y, int sz)
 {
-    int arm = sz / 3;
+    int arm = sz / 3 + 2;
     int thick = sz / 7;
     if (thick < 2) thick = 2;
+    if (!(arm % 2))   arm++;  
+    if (!(thick % 2)) thick++;
+
     int cx = x + sz / 2;
     int cy = y + sz / 2;
+
     bb_rrect_alpha(x, y, sz, sz, LAUNCH_R, C_SHOT, 208);
-    bb_rect(cx - thick / 2, y + (sz - arm) / 2, thick, arm, C_WHITE);
-    bb_rect(x + (sz - arm) / 2, cy - thick / 2, arm, thick, C_WHITE);
+    bb_rect(cx - thick/2, cy - arm/2, thick, arm, C_WHITE);
+    bb_rect(cx - arm/2,   cy - thick/2, arm, thick, C_WHITE);
 }
 
 void bb_text(int x, int y, uint32_t fg, uint32_t bg, const char *str)

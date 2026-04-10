@@ -808,7 +808,7 @@ int main(void)
         int did_work = 0;
         if (avail > 0) { drain_master(); did_work = 1; }
         if (pump_window_events()) did_work = 1;
-        while (!did_work)
+        if (!did_work)
             sched_yield();
     }
 }
