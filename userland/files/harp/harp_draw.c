@@ -292,7 +292,7 @@ static void draw_power_icon(int x, int y, int sz)
     int cx = x + sz / 2;
     int cy = y + sz / 2 + 2;
     float radius = sz / 3.2f;
-    float thick = 2.2f;
+    float thick = 3.0f;
 
     bb_rrect_alpha(x, y, sz, sz, LAUNCH_R, C_POWER_BG, 232);
     bb_rect(cx - 1, y + 5, 3, radius + 1, C_POWER_RED);
@@ -300,6 +300,8 @@ static void draw_power_icon(int x, int y, int sz)
     float r_outer = (float)radius;
     float r_inner = (float)(radius - thick);
 
+    int y_offset = -3;
+    
     for (int yy = -radius - 1; yy <= radius + 1; yy++) {
         for (int xx = -radius - 1; xx <= radius + 1; xx++) {
 
@@ -320,7 +322,7 @@ static void draw_power_icon(int x, int y, int sz)
                 alpha = 1.0f;
 
             int px = cx + xx;
-            int py = cy + yy;
+            int py = cy + yy + y_offset;
 
             if ((uint32_t)px >= SCR_W || (uint32_t)py >= SCR_H)
                 continue;
