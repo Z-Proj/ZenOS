@@ -154,6 +154,24 @@ static void draw_boot_fallback(const char *status)
         0xfff5f7fa
     );
     draw_text_at(
+        "ZenOS",
+        box_x + 33,
+        box_y + 34,
+        0xfff5f7fa
+    );
+    draw_text_at(
+        "ZenOS",
+        box_x + 32,
+        box_y + 35,
+        0xfff5f7fa
+    );
+    draw_text_at(
+        "ZenOS",
+        box_x + 33,
+        box_y + 35,
+        0xfff5f7fa
+    );
+    draw_text_at(
         status ? status : "Booting system...",
         box_x + 32,
         box_y + 74,
