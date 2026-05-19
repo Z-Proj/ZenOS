@@ -77,6 +77,8 @@
 #define C_DRAG       0xFF3A3A3A
 #define C_WHITE      0xFFFFFFFF
 #define C_SHOT       0x0F0F0F0F
+#define C_POWER_BG   0xFF000000
+#define C_POWER_RED  0xFFFF2A2A
 #define TILE_ALPHA   120
 
 static uint32_t    *s_backbuf;
@@ -283,6 +285,69 @@ static void draw_plus_icon(int x, int y, int sz)
     bb_rrect_alpha(x, y, sz, sz, LAUNCH_R, C_SHOT, 208);
     bb_rect(cx - thick/2, cy - arm/2, thick, arm, C_WHITE);
     bb_rect(cx - arm/2,   cy - thick/2, arm, thick, C_WHITE);
+}
+
+static void draw_power_icon(int x, int y, int sz)
+{
+    int cx = x + sz / 2;
+    int cy = y + sz / 2 + 2;
+    float radius = sz / 3.2f;
+    float thick = 2.2f;
+
+    bb_rrect_alpha(x, y, sz, sz, LAUNCH_R, C_POWER_BG, 232);
+    bb_rect(cx - 1, y + 5, 3, radius + 1, C_POWER_RED);
+
+    float r_outer = (float)radius;
+    float r_inner = (float)(radius - thick);
+
+    for (int yy = -radius - 1; yy <= radius + 1; yy++) {
+        for (int xx = -radius - 1; xx <= radius + 1; xx++) {
+
+            if (yy < -radius / 2 && xx > -4 && xx < 4)
+                continue;
+
+            float dist = __builtin_sqrtf((float)(xx * xx + yy * yy));
+
+            float outer = r_outer - dist;
+            float inner = dist - r_inner;
+
+            float alpha = outer < inner ? outer : inner;
+
+            if (alpha <= 0.0f)
+                continue;
+
+            if (alpha > 1.0f)
+                alpha = 1.0f;
+
+            int px = cx + xx;
+            int py = cy + yy;
+
+            if ((uint32_t)px >= SCR_W || (uint32_t)py >= SCR_H)
+                continue;
+
+            uint32_t bg = s_backbuf[py * SCR_W + px];
+
+            uint32_t br = (bg >> 16) & 0xFF;
+            uint32_t bgc = (bg >> 8) & 0xFF;
+            uint32_t bb = bg & 0xFF;
+
+            uint32_t rr = (C_POWER_RED >> 16) & 0xFF;
+            uint32_t rg = (C_POWER_RED >> 8) & 0xFF;
+            uint32_t rb = C_POWER_RED & 0xFF;
+
+            uint32_t a = (uint32_t)(alpha * 255.0f);
+
+            uint32_t orr = (rr * a + br * (255 - a)) / 255;
+            uint32_t org = (rg * a + bgc * (255 - a)) / 255;
+            uint32_t orb = (rb * a + bb * (255 - a)) / 255;
+
+            s_backbuf[py * SCR_W + px] =
+                0xFF000000 |
+                (orr << 16) |
+                (org << 8) |
+                orb;
+        }
+    }
 }
 
 void bb_text(int x, int y, uint32_t fg, uint32_t bg, const char *str)
@@ -580,6 +645,16 @@ void draw_dash(void)
         int iy = shot_y + (DASH_H - LAUNCH_ICON) / 2;
         draw_plus_icon(ix, iy, LAUNCH_ICON);
         dirty_mark(shot_x, shot_y, shot_w, DASH_H);
+    }
+
+    int power_x = 0, power_y = 0, power_w = 0;
+    if (power_dash_layout(&power_x, &power_y, &power_w)) {
+        dash_blit_backdrop(power_x, power_w);
+        bb_rrect_alpha(power_x, power_y, power_w, DASH_H, DASH_R, C_DASH, TILE_ALPHA);
+        int ix = power_x + LAUNCH_PAD;
+        int iy = power_y + (DASH_H - LAUNCH_ICON) / 2;
+        draw_power_icon(ix, iy, LAUNCH_ICON);
+        dirty_mark(power_x, power_y, power_w, DASH_H);
     }
 
     int launch_x = 0, launch_y = 0, launch_w = 0;

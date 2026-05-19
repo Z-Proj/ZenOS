@@ -859,11 +859,14 @@ int main(int argc, char* argv[])
             drag_win = -1;
             int clicked = win_at((int)mx, (int)my);
             int sb = screenshot_btn_at((int)mx, (int)my);
+            int pb = power_btn_at((int)mx, (int)my);
             int lb = launcher_btn_at((int)mx, (int)my);
             int db = dash_btn_at((int)mx, (int)my);
 
             if (sb >= 0) {
                 save_screenshot();
+            } else if (pb >= 0) {
+                zen_shutdown();
             } else if (lb >= 0) {
                 launch_launcher_app(lb);
             } else if (db >= 0) {

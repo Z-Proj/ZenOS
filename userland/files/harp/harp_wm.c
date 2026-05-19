@@ -183,6 +183,18 @@ int screenshot_dash_layout(int *x, int *y, int *w)
     return 1;
 }
 
+int power_dash_layout(int *x, int *y, int *w)
+{
+    int width = LAUNCH_PAD * 2 + LAUNCH_ICON;
+    if (x)
+        *x = (int)SCR_W - DASH_MARGIN - width;
+    if (y)
+        *y = dash_area_top();
+    if (w)
+        *w = width;
+    return 1;
+}
+
 int launcher_dash_layout(int *x, int *y, int *w)
 {
     if (launcher_app_count <= 0)
@@ -209,16 +221,6 @@ int running_dash_layout(int *x, int *y, int *w, int *visible_count)
 
     if (y)
         *y = dash_area_top();
-    if (active_count == 0) {
-        if (x)
-            *x = (int)SCR_W - DASH_MARGIN;
-        if (w)
-            *w = 0;
-        if (visible_count)
-            *visible_count = 0;
-        return 0;
-    }
-
     int shot_x = 0;
     int shot_w = 0;
     int launcher_x = 0;
@@ -229,10 +231,25 @@ int running_dash_layout(int *x, int *y, int *w, int *visible_count)
     if (launcher_dash_layout(&launcher_x, NULL, &launcher_w))
         left_limit = launcher_x + launcher_w + DASH_GAP;
 
-    int available = (int)SCR_W - DASH_MARGIN - left_limit;
+    int power_x = (int)SCR_W - DASH_MARGIN;
+    int power_w = 0;
+    if (power_dash_layout(&power_x, NULL, &power_w))
+        power_x -= DASH_GAP;
+
+    if (active_count == 0) {
+        if (x)
+            *x = power_x;
+        if (w)
+            *w = 0;
+        if (visible_count)
+            *visible_count = 0;
+        return 0;
+    }
+
+    int available = power_x - left_limit;
     if (available < DASH_PAD * 2 + BTN_W) {
         if (x)
-            *x = (int)SCR_W - DASH_MARGIN;
+            *x = power_x;
         if (w)
             *w = 0;
         if (visible_count)
@@ -247,7 +264,7 @@ int running_dash_layout(int *x, int *y, int *w, int *visible_count)
         max_visible = active_count;
 
     int total_w = DASH_PAD * 2 + max_visible * BTN_W + (max_visible - 1) * BTN_GAP;
-    int rx = (int)SCR_W - DASH_MARGIN - total_w;
+    int rx = power_x - total_w;
     if (rx < left_limit)
         rx = left_limit;
 
@@ -429,5 +446,19 @@ int screenshot_btn_at(int x, int y)
         return -1;
     int ix = sx + LAUNCH_PAD;
     int iy = sy + (DASH_H - LAUNCH_ICON) / 2;
+    return (x >= ix && x < ix + LAUNCH_ICON && y >= iy && y < iy + LAUNCH_ICON) ? 0 : -1;
+}
+
+int power_btn_at(int x, int y)
+{
+    int px = 0;
+    int py = 0;
+    int pw = 0;
+    if (!power_dash_layout(&px, &py, &pw))
+        return -1;
+    if (x < px || x >= px + pw || y < py || y >= py + DASH_H)
+        return -1;
+    int ix = px + LAUNCH_PAD;
+    int iy = py + (DASH_H - LAUNCH_ICON) / 2;
     return (x >= ix && x < ix + LAUNCH_ICON && y >= iy && y < iy + LAUNCH_ICON) ? 0 : -1;
 }
