@@ -183,22 +183,29 @@ static int cmd_list(void)
     int blen;
     if (http_get(path, &body, &blen) < 0)
         return 1;
-
-    puts("Available packages:\n");
+    
     int i = 0;
     while (i < blen)
     {
         int j = i;
         while (j < blen && body[j] != '\n' && body[j] != '\r')
             j++;
+        
         if (j > i)
         {
-            body[j] = '\0';
-            printf("  %s\n", body + i);
+            for (int k = i; k < j; k++)
+            {
+                putchar(body[k]);
+            }
+            putchar('\n');
         }
-        while (j < blen && (body[j] == '\n' || body[j] == '\r'))
-            j++;
+        else
+        {
+            putchar('\n');
+        }
         i = j;
+        while (i < blen && (body[i] == '\n' || body[i] == '\r'))
+            i++;
     }
     return 0;
 }

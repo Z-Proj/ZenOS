@@ -1,7 +1,7 @@
 #
 # Automatically generated make config: don't edit
 # Busybox version: 1.37.0
-# Tue May 19 21:32:43 2026
+# Tue May 19 21:32:49 2026
 #
 CONFIG_HAVE_DOT_CONFIG=y
 
@@ -206,8 +206,16 @@ CONFIG_FEATURE_VERBOSE=y
 #
 # Common options for date and touch
 #
-CONFIG_FEATURE_TIMEZONE=y
+# CONFIG_FEATURE_TIMEZONE is not set
+
+#
+# Common options for cp and mv
+#
 CONFIG_FEATURE_PRESERVE_HARDLINKS=y
+
+#
+# Common options for df, du, ls
+#
 CONFIG_FEATURE_HUMAN_READABLE=y
 CONFIG_BASENAME=y
 CONFIG_CAT=y
