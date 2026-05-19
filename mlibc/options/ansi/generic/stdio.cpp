@@ -1429,9 +1429,6 @@ size_t fwrite_unlocked(const void *buffer, size_t size, size_t count, FILE *file
 			size_t chunk;
 			if(file->write((const char *)buffer + progress,
 					count - progress, &chunk)) {
-				// TODO: Handle I/O errors.
-				mlibc::infoLogger() << "mlibc: fwrite() I/O errors are not handled"
-						<< frg::endlog;
 				break;
 			}else if(!chunk) {
 				// TODO: Handle eof.
@@ -1449,9 +1446,6 @@ size_t fwrite_unlocked(const void *buffer, size_t size, size_t count, FILE *file
 				size_t chunk;
 				if(file->write((const char *)buffer + i * size + progress,
 						size - progress, &chunk)) {
-					// TODO: Handle I/O errors.
-					mlibc::infoLogger() << "mlibc: fwrite() I/O errors are not handled"
-							<< frg::endlog;
 					break;
 				}else if(!chunk) {
 					// TODO: Handle eof.
