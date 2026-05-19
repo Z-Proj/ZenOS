@@ -16,6 +16,7 @@
 
 typedef struct {
     harp_window_t  *win;
+    uint32_t       *backbuf;        /* off-screen render target */
     font_face_t    *font;
     int             font_size;
     struct nk_user_font nk_font;
@@ -63,7 +64,7 @@ static void nk_harp_fill_rect(nk_harp_t *nh, int x, int y, int w, int h, uint32_
     if (x1 >= x2 || y1 >= y2) return;
     uint8_t a = (col >> 24) & 0xFF;
     for (int row = y1; row < y2; row++) {
-        uint32_t *line = nh->win->buf + row * nh->win->w + x1;
+        uint32_t *line = nh->backbuf + row * nh->win->w + x1;
         if (a == 255) {
             for (int i = 0; i < x2 - x1; i++) line[i] = col;
         } else {
@@ -160,7 +161,7 @@ static void nk_harp_draw_text(nk_harp_t *nh,
     int copy = len < 511 ? len : 511;
     memcpy(tmp, text, copy);
     tmp[copy] = '\0';
-    font_draw(nh->font, nh->win->buf, nh->win->w, nh->win->h,
+    font_draw(nh->font, nh->backbuf, nh->win->w, nh->win->h,
               x, y + sz, sz,
               fg | 0xFF000000, bg,
               tmp);
@@ -179,6 +180,9 @@ static inline uint32_t nk_color_to_u32(struct nk_color c)
 
 static void nk_harp_render(nk_harp_t *nh)
 {
+    /* clear backbuf once — full frame drawn before anything hits win->buf */
+    memset(nh->backbuf, 0, (size_t)nh->win->w * nh->win->h * sizeof(uint32_t));
+
     const struct nk_command *cmd;
     nk_foreach(cmd, &nh->ctx) {
         switch (cmd->type) {
@@ -256,6 +260,9 @@ static void nk_harp_render(nk_harp_t *nh)
         }
     }
     nk_clear(&nh->ctx);
+
+    /* blit the completed backbuffer to the window buffer in one shot */
+    memcpy(nh->win->buf, nh->backbuf, (size_t)nh->win->w * nh->win->h * sizeof(uint32_t));
 }
 
 static nk_harp_t *nk_harp_init(const char *title, int x, int y, int w, int h,
@@ -266,6 +273,9 @@ static nk_harp_t *nk_harp_init(const char *title, int x, int y, int w, int h,
 
     nh->win = harp_open(title, x, y, w, h);
     if (!nh->win) { free(nh); return NULL; }
+
+    nh->backbuf = (uint32_t *)calloc((size_t)w * h, sizeof(uint32_t));
+    if (!nh->backbuf) { harp_close(nh->win); free(nh); return NULL; }
 
     nh->font = font_load(font_path);
     if (!nh->font) { harp_close(nh->win); free(nh); return NULL; }
@@ -370,6 +380,7 @@ static void nk_harp_free(nk_harp_t *nh)
     nk_free(&nh->ctx);
     font_free(nh->font);
     harp_close(nh->win);
+    free(nh->backbuf);
     free(nh);
     g_nh = NULL;
 }
