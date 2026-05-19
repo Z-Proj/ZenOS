@@ -47,6 +47,7 @@ int      vfs_chdir  (const char *path);
 void     vfs_getcwd (char *buf, size_t size);
 int      vfs_list   (char *buf, size_t buf_size);
 int      vfs_stat   (const char *path);
+int      vfs_statfs (const char *path, vfs_statfs_t *out);
 
 int      vfs_open (const char *path, int write);
 int      vfs_read (int fd, void *buf, uint32_t size, uint32_t *bytes_read);

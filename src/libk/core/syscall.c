@@ -44,6 +44,14 @@ extern void syscall_entry(void);
 #define USER_MMAP_START 0x0000200000000000ULL
 #define USER_MMAP_END   SHM_VIRT_BASE
 
+#define ZEN_PR_SET_NAME          15
+#define ZEN_PR_GET_NAME          16
+#define ZEN_PR_CAPBSET_READ      23
+#define ZEN_PR_CAPBSET_DROP      24
+#define ZEN_PR_SET_NO_NEW_PRIVS  38
+#define ZEN_PR_GET_NO_NEW_PRIVS  39
+#define ZEN_PR_CAP_AMBIENT       47
+
 typedef struct {
     char     name[SHM_NAME_MAX];
     uint64_t phys;
@@ -68,10 +76,22 @@ static shm_region_t shm_table[SHM_MAX];
 #define UNIX_SOCK_NONBLOCK  04000
 #define UNIX_SOCK_CLOEXEC   02000000
 
+#define ZEN_POLLIN          0x0001
+#define ZEN_POLLOUT         0x0004
+#define ZEN_POLLERR         0x0008
+#define ZEN_POLLHUP         0x0010
+#define ZEN_POLLNVAL        0x0020
+
 typedef struct {
     uint16_t family;
     char path[108];
 } sa_un_t;
+
+typedef struct {
+    int fd;
+    int16_t events;
+    int16_t revents;
+} pollfd_t;
 
 static inline void write_msr64(uint32_t msr, uint64_t value)
 {
@@ -246,6 +266,108 @@ static int map_user_page_checked(page_table_t *pml4, uint64_t virt, uint64_t phy
         return -1;
 
     return 0;
+}
+
+static int poll_entry_once(task_t *task, pollfd_t *pfd)
+{
+    if (!pfd)
+        return 0;
+
+    pfd->revents = 0;
+    if (pfd->fd < 0)
+        return 0;
+
+    if (pfd->fd < 3) {
+        pfd->revents = pfd->events & (ZEN_POLLIN | ZEN_POLLOUT);
+        return pfd->revents != 0;
+    }
+
+    if (!task || !task->fd_table || pfd->fd >= TASK_MAX_FDS ||
+        !task->fd_table->entries[pfd->fd].used) {
+        pfd->revents = ZEN_POLLNVAL;
+        return 1;
+    }
+
+    fd_entry_t *e = &task->fd_table->entries[pfd->fd];
+    switch (e->type) {
+    case FD_FILE:
+        pfd->revents = pfd->events & (ZEN_POLLIN | ZEN_POLLOUT);
+        break;
+    case FD_DIR:
+        pfd->revents = pfd->events & ZEN_POLLIN;
+        break;
+    case FD_DEV:
+        pfd->revents = pfd->events & (ZEN_POLLIN | ZEN_POLLOUT);
+        break;
+    case FD_STDIO:
+        pfd->revents = pfd->events & (ZEN_POLLIN | ZEN_POLLOUT);
+        break;
+    case FD_PIPE_READ: {
+        uint64_t flags = spinlock_acquire_irqsave(&e->pipe->lock);
+        if ((pfd->events & ZEN_POLLIN) && (e->pipe->count > 0 || e->pipe->write_closed))
+            pfd->revents |= ZEN_POLLIN;
+        if (e->pipe->write_closed)
+            pfd->revents |= ZEN_POLLHUP;
+        spinlock_release_irqrestore(&e->pipe->lock, flags);
+        break;
+    }
+    case FD_PIPE_WRITE: {
+        uint64_t flags = spinlock_acquire_irqsave(&e->pipe->lock);
+        if (e->pipe->read_closed)
+            pfd->revents |= ZEN_POLLERR;
+        else if ((pfd->events & ZEN_POLLOUT) && e->pipe->count < 4096)
+            pfd->revents |= ZEN_POLLOUT;
+        spinlock_release_irqrestore(&e->pipe->lock, flags);
+        break;
+    }
+    case FD_PTY_MASTER: {
+        uint64_t flags = spinlock_acquire_irqsave(&e->pty->lock);
+        if ((pfd->events & ZEN_POLLIN) && e->pty->s2m_count > 0)
+            pfd->revents |= ZEN_POLLIN;
+        if ((pfd->events & ZEN_POLLOUT) && e->pty->slave_open)
+            pfd->revents |= ZEN_POLLOUT;
+        if (!e->pty->slave_open)
+            pfd->revents |= ZEN_POLLHUP;
+        spinlock_release_irqrestore(&e->pty->lock, flags);
+        break;
+    }
+    case FD_PTY_SLAVE: {
+        uint64_t flags = spinlock_acquire_irqsave(&e->pty->lock);
+        if ((pfd->events & ZEN_POLLIN) && (e->pty->m2s_count > 0 || e->pty->eof_pending))
+            pfd->revents |= ZEN_POLLIN;
+        if ((pfd->events & ZEN_POLLOUT) && e->pty->master_open)
+            pfd->revents |= ZEN_POLLOUT;
+        if (!e->pty->master_open)
+            pfd->revents |= ZEN_POLLHUP;
+        spinlock_release_irqrestore(&e->pty->lock, flags);
+        break;
+    }
+    case FD_UNIX_SOCK: {
+        uint64_t flags = spinlock_acquire_irqsave(&e->usock->lock);
+        if ((pfd->events & ZEN_POLLIN) && (e->usock->rcount > 0 || e->usock->read_closed))
+            pfd->revents |= ZEN_POLLIN;
+        if ((pfd->events & ZEN_POLLOUT) && e->usock->peer && !e->usock->peer->read_closed)
+            pfd->revents |= ZEN_POLLOUT;
+        if (e->usock->write_closed || e->usock->state == US_CLOSED)
+            pfd->revents |= ZEN_POLLHUP;
+        spinlock_release_irqrestore(&e->usock->lock, flags);
+        break;
+    }
+    default:
+        pfd->revents = ZEN_POLLNVAL;
+        break;
+    }
+
+    return pfd->revents != 0;
+}
+
+static int poll_fds_once(pollfd_t *fds, size_t count)
+{
+    task_t *task = sched_current_task();
+    int ready = 0;
+    for (size_t i = 0; i < count; i++)
+        ready += poll_entry_once(task, &fds[i]);
+    return ready;
 }
 
 void init_syscalls(void)
@@ -935,6 +1057,14 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         return current ? current->pid : 0;
     }
 
+    case SYSCALL_GETPPID:
+    {
+        task_t *current = sched_current_task();
+        if (!current || current->parent_pid == TASK_NO_PARENT)
+            return 1;
+        return current->parent_pid;
+    }
+
     case SYSCALL_YIELD:
     {
         sched_yield();
@@ -988,10 +1118,28 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         const char *filename = (const char *)arg1;
         int flags = (int)arg2;
         if (!filename)
-            return -1;
+            return -22;
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table)
-            return -1;
+            return -9;
+
+        if (flags & 0200000)
+        {
+            if (vfs_stat(filename) < 0)
+                return -2;
+            int fd = fd_alloc(cur->fd_table);
+            if (fd < 0)
+                return -24;
+            fd_entry_t *e = &cur->fd_table->entries[fd];
+            if (vfs_opendir_entry(filename, e) < 0)
+                return -20;
+            return fd;
+        }
+
+        int exists = vfs_stat(filename) == 0;
+        if ((flags & 0x40) && (flags & 0x80) && exists)
+            return -17;
+
         int write_mode = 0;
         if (flags & 0x01)
             write_mode = 1;
@@ -999,14 +1147,27 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             write_mode = 1;
         if (flags & 0x200)
             write_mode = 2;
-        if (flags & 0x40)
-            vfs_create(filename);
+        if ((flags & 0x40) && !exists)
+        {
+            if (vfs_create(filename) < 0)
+                return -2;
+            exists = 1;
+        }
+        if (!exists)
+            return -2;
         int fd = fd_alloc(cur->fd_table);
         if (fd < 0)
-            return -1;
+            return -24;
         fd_entry_t *e = &cur->fd_table->entries[fd];
-        if (vfs_open_entry(filename, write_mode, e) < 0)
-            return -1;
+        if (vfs_open_entry(filename, write_mode, e) < 0) {
+            fd_entry_t dir_tmp;
+            memset(&dir_tmp, 0, sizeof(dir_tmp));
+            if (vfs_opendir_entry(filename, &dir_tmp) == 0) {
+                vfs_closedir_entry(&dir_tmp);
+                return -21;
+            }
+            return -2;
+        }
         return fd;
     }
 
@@ -1016,7 +1177,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         void *buffer = (void *)arg2;
         uint32_t size = (uint32_t)arg3;
         if (!buffer)
-            return -1;
+            return -22;
         task_t *cur = sched_current_task();
         fd_entry_t *e = NULL;
         if (cur && cur->fd_table && fd >= 0 && fd < TASK_MAX_FDS)
@@ -1028,7 +1189,13 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (fd == 0 && !e)
             return console_read_fallback(buffer, size);
         if (!e)
-            return -1;
+            return -9;
+        if (e->type == FD_STDIO)
+        {
+            if (e->stdio_fd == 0)
+                return console_read_fallback(buffer, size);
+            return -9;
+        }
         if (e->type == FD_PTY_SLAVE)
         {
             return pty_slave_read(e->pty, (uint8_t *)buffer, size);
@@ -1074,7 +1241,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                 return 0;
             uint8_t *kbuf = (uint8_t *)kmalloc(4096);
             if (!kbuf)
-                return -1;
+                return -12;
             uint32_t total = 0;
             while (total < size)
             {
@@ -1092,13 +1259,13 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return (int64_t)total;
         }
         if (e->type != FD_FILE)
-            return -1;
+            return e->type == FD_DIR ? -21 : -9;
         if (size == 0)
             return 0;
         uint8_t *ubuf = (uint8_t *)buffer;
         uint8_t *kbuf = (uint8_t *)kmalloc(4096);
         if (!kbuf)
-            return -1;
+            return -12;
         uint32_t total = 0;
         while (total < size)
         {
@@ -1110,7 +1277,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             if (ret < 0)
             {
                 kfree(kbuf);
-                return (total > 0) ? (int64_t)total : -1;
+                return (total > 0) ? (int64_t)total : -5;
             }
             if (bytes_read == 0)
                 break;
@@ -1129,7 +1296,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         const void *buffer = (const void *)arg2;
         uint32_t size = (uint32_t)arg3;
         if (!buffer)
-            return -1;
+            return -22;
         task_t *cur = sched_current_task();
         fd_entry_t *e = NULL;
         if (cur && cur->fd_table && fd >= 0 && fd < TASK_MAX_FDS)
@@ -1148,7 +1315,18 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return (int64_t)size;
         }
         if (!e)
-            return -1;
+            return -9;
+        if (e->type == FD_STDIO)
+        {
+            if (e->stdio_fd == 1 || e->stdio_fd == 2)
+            {
+                const char *p = (const char *)buffer;
+                for (uint32_t i = 0; i < size; i++)
+                    printc(p[i]);
+                return (int64_t)size;
+            }
+            return -9;
+        }
         if (e->type == FD_PTY_SLAVE)
         {
             return pty_slave_write(e->pty, (const uint8_t *)buffer, size);
@@ -1192,19 +1370,19 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         {
             struct dev_entry *d = e->dev_ops;
             if (!d || !d->write)
-                return -1;
+                return -9;
             if (d->write(buffer, size) < 0)
-                return -1;
+                return -5;
             return (int64_t)size;
         }
         if (e->type != FD_FILE)
-            return -1;
+            return e->type == FD_DIR ? -21 : -9;
         if (size == 0)
             return 0;
         const uint8_t *ubuf = (const uint8_t *)buffer;
         uint8_t *kbuf = (uint8_t *)kmalloc(4096);
         if (!kbuf)
-            return -1;
+            return -12;
         uint32_t total = 0;
         while (total < size)
         {
@@ -1216,7 +1394,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             if (ret < 0)
             {
                 kfree(kbuf);
-                return (total > 0) ? (int64_t)total : -1;
+                return (total > 0) ? (int64_t)total : -5;
             }
             total += chunk;
         }
@@ -1229,11 +1407,13 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         int fd = (int)arg1;
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table)
-            return -1;
+            return -9;
         if (fd < 0 || fd >= TASK_MAX_FDS)
-            return -1;
+            return -9;
         if (fd < 3 && !cur->fd_table->entries[fd].used)
             return 0;
+        if (!cur->fd_table->entries[fd].used)
+            return -9;
         return fd_close(cur->fd_table, fd);
     }
 
@@ -1244,14 +1424,14 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         int whence = (int)arg3;
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table)
-            return -1;
+            return -9;
         if (fd < 0 || fd >= TASK_MAX_FDS)
-            return -1;
+            return -9;
         if (fd == 0 || fd == 1 || fd == 2)
             return -29;
         fd_entry_t *e = &cur->fd_table->entries[fd];
         if (!e->used)
-            return -1;
+            return -9;
         if (e->type != FD_FILE)
             return -29;
         return vfs_lseek_entry(e, offset, whence);
@@ -1261,16 +1441,27 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     {
         const char *filename = (const char *)arg1;
         if (!filename)
-            return -1;
-        return vfs_create(filename);
+            return -22;
+        if (vfs_stat(filename) == 0)
+            return -17;
+        return vfs_create(filename) < 0 ? -2 : 0;
     }
 
     case SYSCALL_DELETE:
     {
         const char *filename = (const char *)arg1;
         if (!filename)
-            return -1;
-        return vfs_delete(filename);
+            return -22;
+        int ret = vfs_delete(filename);
+        if (ret == 0)
+            return 0;
+        fd_entry_t tmp;
+        memset(&tmp, 0, sizeof(tmp));
+        if (vfs_opendir_entry(filename, &tmp) == 0) {
+            vfs_closedir_entry(&tmp);
+            return -21;
+        }
+        return -2;
     }
 
     case SYSCALL_RENAME:
@@ -1278,8 +1469,11 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         const char *old_path = (const char *)arg1;
         const char *new_path = (const char *)arg2;
         if (!old_path || !new_path)
-            return -1;
-        return vfs_rename(old_path, new_path);
+            return -22;
+        int ret = vfs_rename(old_path, new_path);
+        if (ret == 0 || ret < -1)
+            return ret;
+        return vfs_stat(old_path) < 0 ? -2 : -5;
     }
 
     case SYSCALL_FTRUNCATE:
@@ -1288,13 +1482,13 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         uint32_t size = (uint32_t)arg2;
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table)
-            return -1;
+            return -9;
         if (fd < 0 || fd >= TASK_MAX_FDS)
-            return -1;
+            return -9;
         fd_entry_t *e = &cur->fd_table->entries[fd];
         if (!e->used || e->type != FD_FILE)
-            return -1;
-        return vfs_truncate_entry(e, size);
+            return -9;
+        return vfs_truncate_entry(e, size) < 0 ? -5 : 0;
     }
 
     case SYSCALL_FSYNC:
@@ -1302,27 +1496,204 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         int fd = (int)arg1;
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table)
-            return -1;
+            return -9;
         if (fd < 0 || fd >= TASK_MAX_FDS)
-            return -1;
+            return -9;
         fd_entry_t *e = &cur->fd_table->entries[fd];
         if (!e->used || e->type != FD_FILE)
-            return -1;
-        return vfs_sync_entry(e);
+            return -9;
+        return vfs_sync_entry(e) < 0 ? -5 : 0;
     }
+
+    case SYSCALL_STATFS:
+    {
+        const char *path = (const char *)arg1;
+        statfs_t *buf = (statfs_t *)arg2;
+        if (!path || !buf)
+            return -22;
+
+        vfs_statfs_t st;
+        memset(&st, 0, sizeof(st));
+        if (vfs_statfs(path, &st) < 0)
+            return -2;
+
+        memset(buf, 0, sizeof(*buf));
+        buf->f_type = st.f_type;
+        buf->f_bsize = st.f_bsize;
+        buf->f_blocks = st.f_blocks;
+        buf->f_bfree = st.f_bfree;
+        buf->f_bavail = st.f_bavail;
+        buf->f_files = st.f_files;
+        buf->f_ffree = st.f_ffree;
+        buf->f_fsid = st.f_fsid;
+        buf->f_namelen = st.f_namelen;
+        buf->f_frsize = st.f_frsize;
+        buf->f_flags = st.f_flags;
+        return 0;
+    }
+
+    case SYSCALL_FSTATFS:
+    {
+        int fd = (int)arg1;
+        statfs_t *buf = (statfs_t *)arg2;
+        if (!buf)
+            return -22;
+
+        task_t *cur = sched_current_task();
+        if (!cur || !cur->fd_table || fd < 0 || fd >= TASK_MAX_FDS)
+            return -9;
+        fd_entry_t *e = &cur->fd_table->entries[fd];
+        if (!e->used)
+            return -9;
+
+        memset(buf, 0, sizeof(*buf));
+        if (e->type == FD_FILE || e->type == FD_DIR)
+        {
+            uint64_t bsize = 0, blocks = 0, free_blocks = 0;
+            if (fat_statfs_vol(0, &bsize, &blocks, &free_blocks) < 0)
+                return -5;
+            buf->f_type = 0x4D44;
+            buf->f_bsize = bsize;
+            buf->f_frsize = bsize;
+            buf->f_blocks = blocks;
+            buf->f_bfree = free_blocks;
+            buf->f_bavail = free_blocks;
+            buf->f_fsid = 0;
+            buf->f_namelen = 255;
+            return 0;
+        }
+        if (e->type == FD_DEV || e->type == FD_PTY_MASTER || e->type == FD_PTY_SLAVE)
+        {
+            buf->f_type = 0xDEAF;
+            buf->f_bsize = 4096;
+            buf->f_frsize = 4096;
+            buf->f_namelen = 255;
+            return 0;
+        }
+        return -95;
+    }
+
+    case SYSCALL_PRCTL:
+    {
+        int option = (int)arg1;
+        task_t *cur = sched_current_task();
+        if (!cur)
+            return -3;
+
+        switch (option)
+        {
+        case ZEN_PR_GET_NAME:
+        {
+            char *name = (char *)arg2;
+            if (!name)
+                return -22;
+            strncpy(name, cur->name, 15);
+            name[15] = '\0';
+            return 0;
+        }
+        case ZEN_PR_SET_NAME:
+        {
+            const char *name = (const char *)arg2;
+            if (!name)
+                return -22;
+            strncpy(cur->name, name, sizeof(cur->name) - 1);
+            cur->name[sizeof(cur->name) - 1] = '\0';
+            return 0;
+        }
+        case ZEN_PR_GET_NO_NEW_PRIVS:
+            return 0;
+        case ZEN_PR_SET_NO_NEW_PRIVS:
+            return 0;
+        case ZEN_PR_CAPBSET_READ:
+        case ZEN_PR_CAPBSET_DROP:
+        case ZEN_PR_CAP_AMBIENT:
+            return 0;
+        default:
+            return -38;
+        }
+    }
+
+    case SYSCALL_SYSINFO:
+    {
+        sysinfo_t *info = (sysinfo_t *)arg1;
+        if (!info)
+            return -22;
+        memset(info, 0, sizeof(*info));
+        info->uptime = (int64_t)(hpet_monotonic_ns() / 1000000000ULL);
+        info->totalram = get_total_memory();
+        info->freeram = get_free_memory();
+        info->mem_unit = 1;
+        task_info_t tasks[64];
+        info->procs = (uint16_t)sched_list_tasks(tasks, 64);
+        return 0;
+    }
+
+    case SYSCALL_SCHED_GETAFFINITY:
+    {
+        pid_t pid = (pid_t)arg1;
+        size_t cpusetsize = (size_t)arg2;
+        uint8_t *mask = (uint8_t *)arg3;
+        if (!mask || cpusetsize == 0 || cpusetsize > 128)
+            return -22;
+        if (pid < 0)
+            return -3;
+        memset(mask, 0, cpusetsize);
+        uint32_t cpu_count = smp_cpu_count();
+        if (cpu_count == 0)
+            cpu_count = 1;
+        size_t max_bits = cpusetsize * 8;
+        for (uint32_t i = 0; i < cpu_count && i < max_bits; i++)
+            mask[i / 8] |= (uint8_t)(1U << (i % 8));
+        return 0;
+    }
+
+    case SYSCALL_SCHED_SETAFFINITY:
+    {
+        pid_t pid = (pid_t)arg1;
+        size_t cpusetsize = (size_t)arg2;
+        const uint8_t *mask = (const uint8_t *)arg3;
+        task_t *cur = sched_current_task();
+        if (!cur || !mask || cpusetsize == 0 || cpusetsize > 128)
+            return -22;
+        if (pid != 0 && (uint64_t)pid != cur->pid)
+            return -38;
+
+        uint32_t cpu_count = smp_cpu_count();
+        if (cpu_count == 0)
+            cpu_count = 1;
+        int32_t selected = -1;
+        for (uint32_t i = 0; i < cpu_count && i < cpusetsize * 8; i++)
+        {
+            if (mask[i / 8] & (uint8_t)(1U << (i % 8)))
+            {
+                selected = (int32_t)i;
+                break;
+            }
+        }
+        if (selected < 0)
+            return -22;
+        cur->pinned_cpu = selected;
+        return 0;
+    }
+
+    case SYSCALL_GETUID:
+    case SYSCALL_GETGID:
+    case SYSCALL_GETEUID:
+    case SYSCALL_GETEGID:
+        return 0;
 
     case SYSCALL_STAT:
     {
         const char *path = (const char *)arg1;
-        uint8_t *buf = (uint8_t *)arg2;
-        if (!path || !buf)
-            return -1;
+        stat_t *st = (stat_t *)arg2;
+        if (!path || !st)
+            return -22;
         if (unix_sock_path_exists(path))
         {
-            memset(buf, 0, 88);
-            *(uint32_t *)(buf + 16) = 0140666;
-            *(uint32_t *)(buf + 20) = 1;
-            *(uint64_t *)(buf + 48) = 512;
+            memset(st, 0, sizeof(*st));
+            st->st_mode = 0140666;
+            st->st_nlink = 1;
+            st->st_blksize = 512;
             return 0;
         }
         fd_entry_t tmp;
@@ -1331,7 +1702,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (vfs_open_entry(path, 0, &tmp) < 0)
         {
             if (vfs_opendir_entry(path, &tmp) < 0)
-                return -1;
+                return -2;
             is_dir = 1;
         }
         uint32_t sz = is_dir ? 0 : vfs_size_entry(&tmp);
@@ -1339,66 +1710,75 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (is_dir) vfs_closedir_entry(&tmp);
         else        vfs_close_entry(&tmp);
        
-        memset(buf, 0, 88);
-        *(uint32_t *)(buf + 16) = is_dir ? 0040755 : 0100644;
-        *(uint32_t *)(buf + 20) = 1;                          
-        *(int64_t  *)(buf + 40) = (int64_t)sz;                
-        *(uint64_t *)(buf + 48) = 512;                        
-        *(int64_t  *)(buf + 56) = (int64_t)((sz + 511) / 512);
-        *(int64_t  *)(buf + 64) = mt;                          
-        *(int64_t  *)(buf + 72) = mt;                          
-        *(int64_t  *)(buf + 80) = mt;                          
+        memset(st, 0, sizeof(*st));
+        st->st_mode = is_dir ? 0040755 : 0100644;
+        st->st_nlink = 1;
+        st->st_size = sz;
+        st->st_blksize = 512;
+        st->st_blocks = (sz + 511) / 512;
+        st->st_atime = mt;
+        st->st_mtime = mt;
+        st->st_ctime = mt;
         return 0;
     }
 
     case SYSCALL_FSTAT:
     {
         int fd = (int)arg1;
-        uint8_t *buf = (uint8_t *)arg2;
-        if (!buf)
-            return -1;
-        memset(buf, 0, 88);
+        stat_t *st = (stat_t *)arg2;
+        if (!st)
+            return -22;
+        memset(st, 0, sizeof(*st));
         if (fd == 0 || fd == 1 || fd == 2)
         {
-            *(uint32_t *)(buf + 16) = 0020666;
+            st->st_mode = 0020666;
+            st->st_nlink = 1;
+            st->st_blksize = 512;
             return 0;
         }
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table)
-            return -1;
+            return -9;
         if (fd < 3 || fd >= TASK_MAX_FDS)
-            return -1;
+            return -9;
         fd_entry_t *e = &cur->fd_table->entries[fd];
         if (!e->used)
-            return -1;
+            return -9;
         if (e->type == FD_PTY_MASTER || e->type == FD_PTY_SLAVE ||
             e->type == FD_PIPE_READ || e->type == FD_PIPE_WRITE ||
-            e->type == FD_DEV)
+            e->type == FD_DEV || e->type == FD_STDIO)
         {
-            *(uint32_t *)(buf + 16) = 0020666;
-            *(uint32_t *)(buf + 20) = 1;
+            st->st_mode = 0020666;
+            st->st_nlink = 1;
+            st->st_blksize = 512;
             return 0;
         }
         if (e->type == FD_UNIX_SOCK)
         {
-            *(uint32_t *)(buf + 16) = 0140666;
-            *(uint32_t *)(buf + 20) = 1;
+            st->st_mode = 0140666;
+            st->st_nlink = 1;
+            st->st_blksize = 512;
             return 0;
         }
         if (e->type == FD_DIR)
         {
-            *(uint32_t *)(buf + 16) = 0040755;
-            *(uint32_t *)(buf + 20) = 1;
+            st->st_mode = 0040755;
+            st->st_nlink = 1;
+            st->st_blksize = 512;
             return 0;
         }
         if (e->type != FD_FILE)
-            return -1;
+            return -9;
         uint32_t sz = vfs_size_entry(e);
-        *(uint32_t *)(buf + 16) = 0100644;
-        *(uint32_t *)(buf + 20) = 1;
-        *(int64_t  *)(buf + 40) = (int64_t)sz;
-        *(uint64_t *)(buf + 48) = 512;
-        *(int64_t  *)(buf + 56) = (int64_t)((sz + 511) / 512);
+        int64_t mt = vfs_mtime_entry(e);
+        st->st_mode = 0100644;
+        st->st_nlink = 1;
+        st->st_size = sz;
+        st->st_blksize = 512;
+        st->st_blocks = (sz + 511) / 512;
+        st->st_atime = mt;
+        st->st_mtime = mt;
+        st->st_ctime = mt;
         return 0;
     }
 
@@ -1406,16 +1786,18 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     {
         const char *path = (const char *)arg1;
         if (!path)
-            return -1;
-        return vfs_chdir(path);
+            return -22;
+        if (vfs_chdir(path) == 0)
+            return 0;
+        return vfs_stat(path) < 0 ? -2 : -20;
     }
 
     case SYSCALL_GETCWD:
     {
         char *buffer = (char *)arg1;
         size_t size = (size_t)arg2;
-        if (!buffer)
-            return -1;
+        if (!buffer || size == 0)
+            return -22;
         vfs_getcwd(buffer, size);
         return 0;
     }
@@ -1424,16 +1806,28 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     {
         const char *path = (const char *)arg1;
         if (!path)
-            return -1;
-        return vfs_mkdir(path);
+            return -22;
+        if (vfs_mkdir(path) == 0)
+            return 0;
+        return vfs_stat(path) == 0 ? -17 : -2;
     }
 
     case SYSCALL_RMDIR:
     {
         const char *path = (const char *)arg1;
         if (!path)
-            return -1;
-        return vfs_rmdir(path);
+            return -22;
+        if (vfs_rmdir(path) == 0)
+            return 0;
+        if (vfs_stat(path) < 0)
+            return -2;
+        fd_entry_t tmp;
+        memset(&tmp, 0, sizeof(tmp));
+        if (vfs_open_entry(path, 0, &tmp) == 0) {
+            vfs_close_entry(&tmp);
+            return -20;
+        }
+        return -39;
     }
 
     case SYSCALL_BRK:
@@ -1974,19 +2368,32 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     case SYSCALL_DUP:
     {
         int oldfd = (int)arg1;
+        int minfd = (int)arg2;
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table)
-            return -1;
+            return -9;
+        if (minfd < 0)
+            return -22;
         if (oldfd < 0 || oldfd >= TASK_MAX_FDS)
-            return -1;
+            return -9;
         fd_entry_t *src = &cur->fd_table->entries[oldfd];
-        if (!src->used)
-            return -1;
-        int nfd = fd_alloc(cur->fd_table);
+        if (!src->used && oldfd >= 3)
+            return -9;
+        int nfd = fd_alloc_from(cur->fd_table, minfd);
         if (nfd < 0)
-            return -1;
-        if (fd_entry_clone(&cur->fd_table->entries[nfd], src, 0) < 0)
-            return -1;
+            return -24;
+        if (!src->used)
+        {
+            fd_entry_t *dst = &cur->fd_table->entries[nfd];
+            memset(dst, 0, sizeof(*dst));
+            dst->type = FD_STDIO;
+            dst->used = 1;
+            dst->stdio_fd = oldfd;
+        }
+        else if (fd_entry_clone(&cur->fd_table->entries[nfd], src, 0) < 0)
+        {
+            return -9;
+        }
         return nfd;
     }
 
@@ -1996,21 +2403,30 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         int newfd = (int)arg2;
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table)
-            return -1;
+            return -9;
         if (oldfd < 0 || oldfd >= TASK_MAX_FDS)
-            return -1;
+            return -9;
         if (newfd < 0 || newfd >= TASK_MAX_FDS)
-            return -1;
+            return -9;
         fd_entry_t *src = &cur->fd_table->entries[oldfd];
-        if (!src->used)
-            return -1;
+        if (!src->used && oldfd >= 3)
+            return -9;
         if (oldfd == newfd)
             return newfd;
         fd_entry_t *dst = &cur->fd_table->entries[newfd];
         if (dst->used)
             fd_close(cur->fd_table, newfd);
-        if (fd_entry_clone(dst, src, 0) < 0)
-            return -1;
+        if (!src->used)
+        {
+            memset(dst, 0, sizeof(*dst));
+            dst->type = FD_STDIO;
+            dst->used = 1;
+            dst->stdio_fd = oldfd;
+        }
+        else if (fd_entry_clone(dst, src, 0) < 0)
+        {
+            return -9;
+        }
         return newfd;
     }
 
@@ -2018,16 +2434,18 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     {
         const char *path = (const char *)arg1;
         if (!path)
-            return -1;
+            return -22;
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table)
-            return -1;
+            return -9;
+        if (vfs_stat(path) < 0)
+            return -2;
         int fd = fd_alloc(cur->fd_table);
         if (fd < 0)
-            return -1;
+            return -24;
         fd_entry_t *e = &cur->fd_table->entries[fd];
         if (vfs_opendir_entry(path, e) < 0)
-            return -1;
+            return -20;
         return fd;
     }
 
@@ -2036,15 +2454,15 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         int fd = (int)arg1;
         zen_dirent_t *dent = (zen_dirent_t *)arg2;
         if (!dent)
-            return -1;
+            return -22;
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table)
-            return -1;
+            return -9;
         if (fd < 3 || fd >= TASK_MAX_FDS)
-            return -1;
+            return -9;
         fd_entry_t *e = &cur->fd_table->entries[fd];
         if (!e->used || e->type != FD_DIR)
-            return -1;
+            return -20;
         int is_dir = 0;
         int ret = vfs_readdir_entry(e, dent->d_name, &is_dir);
         if (ret <= 0)
@@ -2058,13 +2476,13 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     {
         int fd = (int)arg1;
         if (fd < 3 || fd >= TASK_MAX_FDS)
-            return -1;
+            return -9;
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table)
-            return -1;
+            return -9;
         fd_entry_t *e = &cur->fd_table->entries[fd];
         if (!e->used || e->type != FD_DIR)
-            return -1;
+            return -20;
         vfs_closedir_entry(e);
         memset(e, 0, sizeof(fd_entry_t));
         return 0;
@@ -2175,6 +2593,28 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     {
         net_poll();
         return 0;
+    }
+
+    case SYSCALL_POLL:
+    {
+        pollfd_t *fds = (pollfd_t *)arg1;
+        size_t count = (size_t)arg2;
+        int timeout = (int)arg3;
+        if (!fds && count)
+            return -22;
+        if (count > 1024)
+            return -22;
+
+        int ready = poll_fds_once(fds, count);
+        if (ready || timeout == 0)
+            return ready;
+
+        if (timeout > 0)
+            sleep_ms((uint32_t)(timeout > 10 ? 10 : timeout));
+        else
+            sched_yield();
+
+        return poll_fds_once(fds, count);
     }
 
     case SYSCALL_DNS_RESOLVE:

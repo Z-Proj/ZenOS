@@ -110,6 +110,18 @@
 #define SYSCALL_RENAME           88
 #define SYSCALL_FTRUNCATE        89
 #define SYSCALL_FSYNC            90
+#define SYSCALL_STATFS           91
+#define SYSCALL_FSTATFS          92
+#define SYSCALL_PRCTL            93
+#define SYSCALL_SYSINFO          94
+#define SYSCALL_SCHED_GETAFFINITY 95
+#define SYSCALL_SCHED_SETAFFINITY 96
+#define SYSCALL_GETUID           97
+#define SYSCALL_GETGID           98
+#define SYSCALL_GETEUID          99
+#define SYSCALL_GETEGID          100
+#define SYSCALL_GETPPID          101
+#define SYSCALL_POLL            102
 #define ZEN_TIOCGWINSZ  0x5413  
 #define ZEN_TIOCSWINSZ  0x5414  
 #define ZEN_TIOCSPTYGID 0x5420  
@@ -200,6 +212,35 @@ typedef struct {
     uint64_t st_mtime;      
     uint64_t st_ctime;      
 } stat_t;
+
+typedef struct {
+    uint64_t f_type;
+    uint64_t f_bsize;
+    uint64_t f_blocks;
+    uint64_t f_bfree;
+    uint64_t f_bavail;
+    uint64_t f_files;
+    uint64_t f_ffree;
+    uint64_t f_fsid;
+    uint64_t f_namelen;
+    uint64_t f_frsize;
+    uint64_t f_flags;
+} statfs_t;
+
+typedef struct {
+    int64_t uptime;
+    uint64_t loads[3];
+    uint64_t totalram;
+    uint64_t freeram;
+    uint64_t sharedram;
+    uint64_t bufferram;
+    uint64_t totalswap;
+    uint64_t freeswap;
+    uint16_t procs;
+    uint64_t totalhigh;
+    uint64_t freehigh;
+    uint32_t mem_unit;
+} sysinfo_t;
 
 typedef struct {
     uint64_t addr;

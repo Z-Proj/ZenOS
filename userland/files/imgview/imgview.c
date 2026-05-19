@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <limits.h>
+#include <fcntl.h>
 #include <unistd.h>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -97,11 +99,70 @@ static int save_ext_supported(const char *ext)
            str_ieq(ext, "jpg") || str_ieq(ext, "jpeg") || str_ieq(ext, "hdr");
 }
 
-static uint8_t *load_rgba_file(const char *path, int *w, int *h)
+static int path_is_hdr(const char *path)
 {
+    const char *ext = path_ext(path);
+    return ext && str_ieq(ext, "hdr");
+}
+
+static uint8_t *read_file_bytes(const char *path, size_t *out_size)
+{
+    int fd = open(path, O_RDONLY);
+    if (fd < 0)
+        return NULL;
+
+    size_t cap = 4096;
+    size_t len = 0;
+    uint8_t *buf = (uint8_t *)malloc(cap);
+    if (!buf) {
+        close(fd);
+        return NULL;
+    }
+
+    for (;;) {
+        if (len == cap) {
+            size_t next = cap * 2;
+            if (next <= cap) {
+                free(buf);
+                close(fd);
+                return NULL;
+            }
+            uint8_t *bigger = (uint8_t *)realloc(buf, next);
+            if (!bigger) {
+                free(buf);
+                close(fd);
+                return NULL;
+            }
+            buf = bigger;
+            cap = next;
+        }
+
+        ssize_t n = read(fd, buf + len, cap - len);
+        if (n < 0) {
+            free(buf);
+            close(fd);
+            return NULL;
+        }
+        if (n == 0)
+            break;
+        len += (size_t)n;
+    }
+
+    close(fd);
+    if (out_size)
+        *out_size = len;
+    return buf;
+}
+
+static uint8_t *decode_rgba_bytes(const char *path, const uint8_t *data, size_t size, int *w, int *h)
+{
+    if (!data || size == 0 || size > INT_MAX)
+        return NULL;
+
     int comp = 0;
-    if (stbi_is_hdr(path)) {
-        float *hdr = stbi_loadf(path, w, h, &comp, 4);
+    int len = (int)size;
+    if (path_is_hdr(path)) {
+        float *hdr = stbi_loadf_from_memory(data, len, w, h, &comp, 4);
         if (!hdr)
             return NULL;
         size_t count = (size_t)(*w) * (size_t)(*h);
@@ -127,21 +188,44 @@ static uint8_t *load_rgba_file(const char *path, int *w, int *h)
         stbi_image_free(hdr);
         return rgba;
     }
-    return stbi_load(path, w, h, &comp, 4);
+
+    return stbi_load_from_memory(data, len, w, h, &comp, 4);
+}
+
+static uint8_t *load_rgba_file(const char *path, int *w, int *h)
+{
+    size_t size = 0;
+    uint8_t *data = read_file_bytes(path, &size);
+    if (!data)
+        return NULL;
+
+    uint8_t *rgba = decode_rgba_bytes(path, data, size, w, h);
+    free(data);
+    return rgba;
 }
 
 static int load_image_dims(const char *path, int *w, int *h)
 {
-    int comp = 0;
-    if (stbi_info(path, w, h, &comp))
-        return 1;
-    if (stbi_is_hdr(path)) {
-        float *hdr = stbi_loadf(path, w, h, &comp, 0);
-        if (!hdr)
-            return 0;
-        stbi_image_free(hdr);
-        return 1;
+    size_t size = 0;
+    uint8_t *data = read_file_bytes(path, &size);
+    if (!data || size == 0 || size > INT_MAX) {
+        free(data);
+        return 0;
     }
+
+    int comp = 0;
+    int ok = stbi_info_from_memory(data, (int)size, w, h, &comp);
+    if (!ok && path_is_hdr(path)) {
+        float *hdr = stbi_loadf_from_memory(data, (int)size, w, h, &comp, 0);
+        if (hdr) {
+            ok = 1;
+            stbi_image_free(hdr);
+        }
+    }
+
+    free(data);
+    if (ok)
+        return 1;
     return 0;
 }
 

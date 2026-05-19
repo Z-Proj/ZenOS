@@ -56,10 +56,12 @@ static int alloc_fd(void) {
 }
 
 void make_fatpath_vol(const char *path, int vol, char *out, size_t outsz) {
-    if (path[0] == '/')
+    if (!path || !path[0] || strcmp(path, "/") == 0)
+        snprintf(out, outsz, "%d:/", vol);
+    else if (path[0] == '/')
         snprintf(out, outsz, "%d:%s", vol, path);
     else
-        snprintf(out, outsz, "%s", path);
+        snprintf(out, outsz, "%d:/%s", vol, path);
 }
 
 uint8_t fat_get_drive(void)    { return fat_drive; }
@@ -383,6 +385,32 @@ void fat_print_stats(char *buf, size_t buf_size) {
     DWORD free_kb = free_clust * fsp->csize / 2;
     snprintf(buf, buf_size, "FAT32 stats:\n  Total: %lu KB\n  Free:  %lu KB\n  Used:  %lu KB\n",
              (unsigned long)total, (unsigned long)free_kb, (unsigned long)(total - free_kb));
+}
+
+int fat_statfs_vol(int vol, uint64_t *block_size, uint64_t *blocks, uint64_t *free_blocks)
+{
+    if (!initialized || vol < 0 || vol >= FAT_MAX_VOLS || !vol_mounted[vol])
+        return -1;
+
+    char volpath[4];
+    snprintf(volpath, sizeof(volpath), "%d:", vol);
+
+    DWORD free_clust = 0;
+    FATFS *fsp = NULL;
+    fat_lock();
+    FRESULT fr = f_getfree(volpath, &free_clust, &fsp);
+    fat_unlock();
+    if (fr != FR_OK || !fsp)
+        return -1;
+
+    uint64_t cluster_size = (uint64_t)fsp->csize * 512ULL;
+    if (block_size)
+        *block_size = cluster_size;
+    if (blocks)
+        *blocks = (uint64_t)(fsp->n_fatent - 2);
+    if (free_blocks)
+        *free_blocks = (uint64_t)free_clust;
+    return 0;
 }
 
 int fat_open_entry_vol(const char *path, int write, fd_entry_t *out, int vol) {

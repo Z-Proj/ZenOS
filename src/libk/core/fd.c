@@ -35,7 +35,18 @@ void fd_table_free(fd_table_t *t)
 
 int fd_alloc(fd_table_t *t)
 {
-    for (int i = 3; i < TASK_MAX_FDS; i++)
+    return fd_alloc_from(t, 3);
+}
+
+int fd_alloc_from(fd_table_t *t, int minfd)
+{
+    if (!t)
+        return -1;
+    if (minfd < 0)
+        return -1;
+    if (minfd < 3)
+        minfd = 3;
+    for (int i = minfd; i < TASK_MAX_FDS; i++)
         if (!t->entries[i].used)
             return i;
     return -1;
@@ -138,6 +149,8 @@ int fd_entry_clone(fd_entry_t *dst, const fd_entry_t *src, int inherit_cloexec)
         unix_sock_retain(dst->usock);
     } else if (src->type == FD_DEV) {
         dst->dev_ops = src->dev_ops;
+    } else if (src->type == FD_STDIO) {
+        dst->stdio_fd = src->stdio_fd;
     }
 
     return 0;

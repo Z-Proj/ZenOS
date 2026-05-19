@@ -1,0 +1,66 @@
+#!/bin/sh
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+sysroot="$script_dir/../../sysroot"
+usr_include="$sysroot/usr/include"
+usr_lib="$sysroot/usr/lib"
+real_cc="${CC_REAL:-clang}"
+
+common_args="
+--sysroot=$sysroot
+-isystem $usr_include
+-m64
+-ffreestanding
+-mno-red-zone
+-fPIE
+-fno-exceptions
+-fno-unwind-tables
+-fno-asynchronous-unwind-tables
+"
+
+for arg in "$@"; do
+	case "$arg" in
+	-print-*|-dumpmachine|-dumpversion|-dumpfullversion|--version)
+		exec "$real_cc" "$@"
+		;;
+	esac
+done
+
+is_compile_only=0
+is_relocatable_link=0
+for arg in "$@"; do
+	case "$arg" in
+		-c|-E|-S)
+			is_compile_only=1
+			;;
+		-r|-Wl,-r)
+			is_relocatable_link=1
+			;;
+	esac
+done
+
+set -- $common_args "$@"
+
+if [ "$is_compile_only" -eq 1 ]; then
+	exec "$real_cc" "$@"
+fi
+
+if [ "$is_relocatable_link" -eq 1 ]; then
+	exec "$real_cc" "$@"
+fi
+
+exec "$real_cc" \
+	"$usr_lib/crti.o" \
+	"$usr_lib/crt0.o" \
+	"$@" \
+	-fuse-ld=lld \
+	-nostdlib \
+	-Wl,-pie \
+	-Wl,-e,_start \
+	-Wl,-z,max-page-size=0x1000 \
+	-Wl,-dynamic-linker,/mnt/drv0/usr/lib/ld.so \
+	-Wl,-rpath,/mnt/drv0/usr/lib \
+	-L"$usr_lib" \
+	-lc \
+	"$usr_lib/crtn.o"

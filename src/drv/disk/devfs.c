@@ -296,6 +296,19 @@ static int devfs_stat(void *fs_data, const char *path)
     return devfs_find(name) ? 0 : -1;
 }
 
+static int devfs_statfs(void *fs_data, const char *path, vfs_statfs_t *out)
+{
+    (void)fs_data;
+    if (!out || devfs_stat(fs_data, path) < 0)
+        return -1;
+    memset(out, 0, sizeof(*out));
+    out->f_type = 0xDEAF;
+    out->f_bsize = 4096;
+    out->f_frsize = 4096;
+    out->f_namelen = 255;
+    return 0;
+}
+
 static int devfs_notsup(void *fs_data, const char *path)
 {
     (void)fs_data; (void)path; return -1;
@@ -308,11 +321,13 @@ static int devfs_notsup3(void *fs_data, const char *path)
 
 static fs_ops_t devfs_ops = {
     .open    = devfs_open,
+    .opendir = NULL,
     .readdir = devfs_readdir,
     .mkdir   = devfs_notsup3,
     .rmdir   = devfs_notsup3,
     .unlink  = devfs_notsup3,
     .stat    = devfs_stat,
+    .statfs  = devfs_statfs,
     .create  = devfs_notsup3,
 };
 

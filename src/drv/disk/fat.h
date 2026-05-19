@@ -58,6 +58,7 @@ int         fat_chdir(const char *path);
 void        fat_getcwd(char *buf, size_t size);
 int         fat_list(char *buf, size_t buf_size); 
 void        fat_print_stats(char *buf, size_t buf_size);
+int         fat_statfs_vol(int vol, uint64_t *block_size, uint64_t *blocks, uint64_t *free_blocks);
 
 
 #include "../../libk/core/fd.h"

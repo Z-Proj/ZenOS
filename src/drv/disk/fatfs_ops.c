@@ -24,6 +24,12 @@ static int fatfs_open(void *fs_data, const char *path, int write, fd_entry_t *ou
     return fat_open_entry_vol(path, write, out, d->vol);
 }
 
+static int fatfs_opendir(void *fs_data, const char *path, fd_entry_t *out)
+{
+    fatfs_data_t *d = (fatfs_data_t *)fs_data;
+    return fat_opendir_entry_vol(path, out, d->vol);
+}
+
 static int fatfs_readdir(void *fs_data, const char *path, char *buf, size_t bufsz)
 {
     fatfs_data_t *d = (fatfs_data_t *)fs_data;
@@ -68,6 +74,33 @@ static int fatfs_stat(void *fs_data, const char *path)
     return 0;
 }
 
+static int fatfs_statfs(void *fs_data, const char *path, vfs_statfs_t *out)
+{
+    (void)path;
+    if (!fs_data || !out)
+        return -1;
+
+    fatfs_data_t *d = (fatfs_data_t *)fs_data;
+    uint64_t bsize = 0;
+    uint64_t blocks = 0;
+    uint64_t free_blocks = 0;
+    if (fat_statfs_vol(d->vol, &bsize, &blocks, &free_blocks) < 0)
+        return -1;
+
+    memset(out, 0, sizeof(*out));
+    out->f_type = 0x4D44;
+    out->f_bsize = bsize;
+    out->f_frsize = bsize;
+    out->f_blocks = blocks;
+    out->f_bfree = free_blocks;
+    out->f_bavail = free_blocks;
+    out->f_files = 0;
+    out->f_ffree = 0;
+    out->f_fsid = (uint64_t)d->vol;
+    out->f_namelen = 255;
+    return 0;
+}
+
 static int fatfs_create(void *fs_data, const char *path)
 {
     fatfs_data_t *d = (fatfs_data_t *)fs_data;
@@ -76,12 +109,14 @@ static int fatfs_create(void *fs_data, const char *path)
 
 static fs_ops_t fatfs_ops = {
     .open    = fatfs_open,
+    .opendir = fatfs_opendir,
     .readdir = fatfs_readdir,
     .mkdir   = fatfs_mkdir,
     .rmdir   = fatfs_rmdir,
     .unlink  = fatfs_unlink,
     .rename  = fatfs_rename,
     .stat    = fatfs_stat,
+    .statfs  = fatfs_statfs,
     .create  = fatfs_create,
 };
 

@@ -56,6 +56,18 @@
 #define ZENOS_SYSCALL_RENAME 88
 #define ZENOS_SYSCALL_FTRUNCATE 89
 #define ZENOS_SYSCALL_FSYNC 90
+#define ZENOS_SYSCALL_STATFS 91
+#define ZENOS_SYSCALL_FSTATFS 92
+#define ZENOS_SYSCALL_PRCTL 93
+#define ZENOS_SYSCALL_SYSINFO 94
+#define ZENOS_SYSCALL_SCHED_GETAFFINITY 95
+#define ZENOS_SYSCALL_SCHED_SETAFFINITY 96
+#define ZENOS_SYSCALL_GETUID 97
+#define ZENOS_SYSCALL_GETGID 98
+#define ZENOS_SYSCALL_GETEUID 99
+#define ZENOS_SYSCALL_GETEGID 100
+#define ZENOS_SYSCALL_GETPPID 101
+#define ZENOS_SYSCALL_POLL 102
 
 #define ZENOS_FUTEX_WAIT 0
 #define ZENOS_FUTEX_WAKE 1
@@ -91,6 +103,35 @@ struct zenos_sigaction {
 	uint64_t handler;
 	uint64_t flags;
 	uint64_t mask;
+};
+
+struct zenos_statfs {
+	uint64_t f_type;
+	uint64_t f_bsize;
+	uint64_t f_blocks;
+	uint64_t f_bfree;
+	uint64_t f_bavail;
+	uint64_t f_files;
+	uint64_t f_ffree;
+	uint64_t f_fsid;
+	uint64_t f_namelen;
+	uint64_t f_frsize;
+	uint64_t f_flags;
+};
+
+struct zenos_sysinfo {
+	int64_t uptime;
+	uint64_t loads[3];
+	uint64_t totalram;
+	uint64_t freeram;
+	uint64_t sharedram;
+	uint64_t bufferram;
+	uint64_t totalswap;
+	uint64_t freeswap;
+	uint16_t procs;
+	uint64_t totalhigh;
+	uint64_t freehigh;
+	uint32_t mem_unit;
 };
 
 static inline long zenos_do_syscall0(long num) {

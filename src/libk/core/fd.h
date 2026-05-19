@@ -22,7 +22,7 @@
 #include "../spinlock.h"
 #include "unix_sock.h"
 
-#define TASK_MAX_FDS 32
+#define TASK_MAX_FDS 128
 #define PTY_NCCS 19
 
 typedef enum
@@ -36,6 +36,7 @@ typedef enum
     FD_PTY_MASTER,
     FD_PTY_SLAVE,
     FD_UNIX_SOCK,
+    FD_STDIO,
 } fd_type_t;
 
 #define PTY_BUF_SIZE 8192
@@ -125,6 +126,7 @@ typedef struct
         struct dev_entry *dev_ops;
         pty_buf_t *pty;
         unix_sock_t *usock;
+        int stdio_fd;
     };
 } fd_entry_t;
 
@@ -140,6 +142,7 @@ int fd_entry_clone(fd_entry_t *dst, const fd_entry_t *src, int inherit_cloexec);
 void fd_table_close_cloexec(fd_table_t *t);
 void fd_table_close_all(fd_table_t *t);
 int fd_alloc(fd_table_t *t);
+int fd_alloc_from(fd_table_t *t, int minfd);
 int fd_close(fd_table_t *t, int fd);
 
 #endif

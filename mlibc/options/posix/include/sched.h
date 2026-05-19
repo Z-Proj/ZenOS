@@ -3,6 +3,7 @@
 #define _SCHED_H
 
 #include <abi-bits/pid_t.h>
+#include <bits/cpu_set.h>
 #include <bits/threads.h>
 #include <bits/size_t.h>
 #include <mlibc-config.h>
@@ -40,6 +41,9 @@ int sched_setscheduler(pid_t __pid, int __policy, const struct sched_param *__pa
 int sched_getparam(pid_t __pid, struct sched_param *__param);
 int sched_setparam(pid_t __pid, const struct sched_param *__param);
 
+int sched_setaffinity(pid_t __pid, size_t __cpusetsize, const cpu_set_t *__mask);
+int sched_getaffinity(pid_t __pid, size_t __cpusetsize, cpu_set_t *__mask);
+
 #endif /* !__MLIBC_ABI_ONLY */
 
 #ifdef __cplusplus
@@ -47,4 +51,3 @@ int sched_setparam(pid_t __pid, const struct sched_param *__param);
 #endif
 
 #endif /* _SCHED_H */
-

@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
+#include <sched.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -13,6 +14,8 @@
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
+#include <sys/sysinfo.h>
 #include <sys/uio.h>
 #include <sys/utsname.h>
 #include <termios.h>
@@ -65,6 +68,21 @@ static void translate_stat(const zenos_stat &in, struct stat *out) {
 	out->st_atim.tv_sec = in.atime_sec;
 	out->st_mtim.tv_sec = in.mtime_sec;
 	out->st_ctim.tv_sec = in.ctime_sec;
+}
+
+static void translate_statvfs(const zenos_statfs &in, struct statvfs *out) {
+	memset(out, 0, sizeof(*out));
+	out->f_bsize = in.f_bsize;
+	out->f_frsize = in.f_frsize ? in.f_frsize : in.f_bsize;
+	out->f_blocks = in.f_blocks;
+	out->f_bfree = in.f_bfree;
+	out->f_bavail = in.f_bavail;
+	out->f_files = in.f_files;
+	out->f_ffree = in.f_ffree;
+	out->f_favail = in.f_ffree;
+	out->f_fsid = in.f_fsid;
+	out->f_flag = in.f_flags;
+	out->f_namemax = in.f_namelen;
 }
 
 static int compute_argc(char *const argv[]) {
@@ -362,9 +380,31 @@ int sys_stat(fsfd_target fsfdt, int fd, const char *path, int flags, struct stat
 	return 0;
 }
 
+int sys_statvfs(const char *path, struct statvfs *out) {
+	zenos_statfs zst{};
+	long ret = zenos_do_syscall2(ZENOS_SYSCALL_STATFS,
+			reinterpret_cast<long>(path), reinterpret_cast<long>(&zst));
+	int e = sc_error(ret);
+	if(e)
+		return e;
+	translate_statvfs(zst, out);
+	return 0;
+}
+
+int sys_fstatvfs(int fd, struct statvfs *out) {
+	zenos_statfs zst{};
+	long ret = zenos_do_syscall2(ZENOS_SYSCALL_FSTATFS,
+			fd, reinterpret_cast<long>(&zst));
+	int e = sc_error(ret);
+	if(e)
+		return e;
+	translate_statvfs(zst, out);
+	return 0;
+}
+
 int sys_dup(int fd, int flags, int *newfd) {
 	(void)flags;
-	return finish_fd(zenos_do_syscall1(ZENOS_SYSCALL_DUP, fd), newfd);
+	return finish_fd(zenos_do_syscall2(ZENOS_SYSCALL_DUP, fd, 0), newfd);
 }
 
 int sys_dup2(int fd, int flags, int newfd) {
@@ -392,18 +432,20 @@ int sys_fcntl(int fd, int request, va_list args, int *result) {
 		case F_DUPFD:
 		case F_DUPFD_CLOEXEC: {
 			int minfd = va_arg(args, int);
-			if(minfd > 0)
-				return ENOSYS;
-			int newfd;
-			int e = sys_dup(fd, 0, &newfd);
-			if(e)
-				return e;
-			*result = newfd;
-			return 0;
+			return finish_fd(zenos_do_syscall2(ZENOS_SYSCALL_DUP, fd, minfd), result);
 		}
 		default:
 			return ENOSYS;
 	}
+}
+
+int sys_poll(struct pollfd *fds, nfds_t count, int timeout, int *num_events) {
+	long ret = zenos_do_syscall3(ZENOS_SYSCALL_POLL,
+			reinterpret_cast<long>(fds), count, timeout);
+	if(int e = sc_error(ret))
+		return e;
+	*num_events = static_cast<int>(ret);
+	return 0;
 }
 
 int sys_readv(int fd, const struct iovec *iovs, int iovc, ssize_t *bytes_read) {
@@ -598,6 +640,73 @@ pid_t sys_getpid() {
 	return zenos_do_syscall0(ZENOS_SYSCALL_GETPID);
 }
 
+pid_t sys_getppid() {
+	return zenos_do_syscall0(ZENOS_SYSCALL_GETPPID);
+}
+
+int sys_getpgid(pid_t pid, pid_t *pgid) {
+	*pgid = pid ? pid : sys_getpid();
+	return 0;
+}
+
+int sys_getsid(pid_t pid, pid_t *sid) {
+	*sid = pid ? pid : sys_getpid();
+	return 0;
+}
+
+int sys_setpgid(pid_t pid, pid_t pgid) {
+	(void)pid;
+	(void)pgid;
+	return 0;
+}
+
+uid_t sys_getuid() {
+	return zenos_do_syscall0(ZENOS_SYSCALL_GETUID);
+}
+
+gid_t sys_getgid() {
+	return zenos_do_syscall0(ZENOS_SYSCALL_GETGID);
+}
+
+uid_t sys_geteuid() {
+	return zenos_do_syscall0(ZENOS_SYSCALL_GETEUID);
+}
+
+gid_t sys_getegid() {
+	return zenos_do_syscall0(ZENOS_SYSCALL_GETEGID);
+}
+
+int sys_getaffinity(pid_t pid, size_t cpusetsize, cpu_set_t *mask) {
+	long ret = zenos_do_syscall3(ZENOS_SYSCALL_SCHED_GETAFFINITY,
+			pid, cpusetsize, reinterpret_cast<long>(mask));
+	return sc_error(ret);
+}
+
+int sys_sysinfo(struct sysinfo *info) {
+	zenos_sysinfo zi{};
+	long ret = zenos_do_syscall1(ZENOS_SYSCALL_SYSINFO, reinterpret_cast<long>(&zi));
+	int e = sc_error(ret);
+	if(e)
+		return e;
+
+	memset(info, 0, sizeof(*info));
+	info->uptime = zi.uptime;
+	info->loads[0] = zi.loads[0];
+	info->loads[1] = zi.loads[1];
+	info->loads[2] = zi.loads[2];
+	info->totalram = zi.totalram;
+	info->freeram = zi.freeram;
+	info->sharedram = zi.sharedram;
+	info->bufferram = zi.bufferram;
+	info->totalswap = zi.totalswap;
+	info->freeswap = zi.freeswap;
+	info->procs = zi.procs;
+	info->totalhigh = zi.totalhigh;
+	info->freehigh = zi.freehigh;
+	info->mem_unit = zi.mem_unit;
+	return 0;
+}
+
 int sys_kill(int pid, int signal) {
 	long ret = zenos_do_syscall2(ZENOS_SYSCALL_KILL, pid, signal);
 	return sc_error(ret);
@@ -639,6 +748,35 @@ int sys_fsync(int fd) {
 
 int sys_fdatasync(int fd) {
 	return sys_fsync(fd);
+}
+
+int sys_chmod(const char *pathname, mode_t mode) {
+	(void)mode;
+	struct stat st{};
+	return sys_stat(fsfd_target::path, -1, pathname, 0, &st);
+}
+
+int sys_fchmod(int fd, mode_t mode) {
+	(void)mode;
+	struct stat st{};
+	return sys_stat(fsfd_target::fd, fd, nullptr, 0, &st);
+}
+
+int sys_fchmodat(int fd, const char *pathname, mode_t mode, int flags) {
+	(void)flags;
+	if(fd != AT_FDCWD)
+		return ENOSYS;
+	return sys_chmod(pathname, mode);
+}
+
+int sys_fchownat(int dirfd, const char *pathname, uid_t owner, gid_t group, int flags) {
+	(void)owner;
+	(void)group;
+	(void)flags;
+	if(dirfd != AT_FDCWD)
+		return ENOSYS;
+	struct stat st{};
+	return sys_stat(fsfd_target::path, -1, pathname, 0, &st);
 }
 
 int sys_clone(void *tcb, pid_t *pid_out, void *stack) {

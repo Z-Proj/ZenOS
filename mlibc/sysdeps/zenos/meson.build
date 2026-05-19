@@ -13,6 +13,8 @@ libc_sources += files(
 	'generic/entry.cpp',
 	'generic/generic.cpp',
 	'generic/ioctl.cpp',
+	'generic/linux_compat.cpp',
+	'generic/mntent.cpp',
 	'generic/thread.cpp',
 	'generic/thread.S',
 )
@@ -68,6 +70,14 @@ if not no_headers
 	)
 
 	install_headers(
+		'include/endian.h',
+		'include/features.h',
+		'include/malloc.h',
+		'include/mntent.h',
+		'include/paths.h',
+	)
+
+	install_headers(
 		'include/asm/ioctl.h',
 		'include/asm/ioctls.h',
 		subdir: 'asm'
@@ -81,7 +91,10 @@ if not no_headers
 
 	install_headers(
 		'include/sys/ioctl.h',
+		'include/sys/prctl.h',
 		'include/sys/reboot.h',
+		'include/sys/statfs.h',
+		'include/sys/sysinfo.h',
 		'include/sys/sysmacros.h',
 		subdir: 'sys'
 	)

@@ -215,8 +215,8 @@ int vfs_opendir_entry(const char *path, fd_entry_t *out)
     const char *rel = NULL;
     vfs_mount_t *m = vfs_mount_find(rpath, &rel);
     if (!m) return -1;
-    if (!m->ops->open) return -1;
-    return m->ops->open(m->fs_data, rel, 0, out);
+    if (!m->ops->opendir) return -1;
+    return m->ops->opendir(m->fs_data, rel, out);
 }
 
 int vfs_readdir_entry(fd_entry_t *e, char *name_out, int *is_dir_out) { return fat_readdir_entry(e, name_out, is_dir_out); }
@@ -396,6 +396,19 @@ int vfs_stat(const char *path)
     vfs_mount_t *m = vfs_mount_find(rpath, &rel);
     if (!m || !m->ops->stat) return -1;
     return m->ops->stat(m->fs_data, rel);
+}
+
+int vfs_statfs(const char *path, vfs_statfs_t *out)
+{
+    if (!path || !out) return -1;
+
+    char rpath[512];
+    resolve_path(path, rpath, sizeof(rpath));
+
+    const char *rel = NULL;
+    vfs_mount_t *m = vfs_mount_find(rpath, &rel);
+    if (!m || !m->ops->statfs) return -1;
+    return m->ops->statfs(m->fs_data, rel, out);
 }
 
 int vfs_open(const char *path, int write)

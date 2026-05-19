@@ -43,7 +43,7 @@
 
 #define WIN_W     600
 #define WIN_H     400
-#define FONT_SIZE 12
+#define FONT_SIZE 14
 
 #define C_BG     0xFF0D1117
 #define C_FG     0xFFCDD6F4

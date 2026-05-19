@@ -71,7 +71,7 @@ The project focuses on clean design, correctness, and real hardware interaction.
 - **Compilers** — [TinyCC](https://github.com/TinyCC/tinycc), [SmallerC](https://github.com/alexfru/SmallerC)
 - **Scripting** — [Lua 5.5.0](https://www.lua.org/)
 - **Networking** — wget, zen package manager
-- **Misc** — hello, init
+- **Misc** — hello, init, busybox
 
 
 **The `ZenOS.vhd` in the repository usually already has these compiled and ready.**
@@ -139,6 +139,12 @@ socat
 ## Third Party
 
 - Check **[CREDITS.md](https://github.com/Z-Proj/ZenOS/blob/main/docs/CREDITS.md)** for the list of **third party apps and libraries**.
+
+---
+
+## License
+
+- **ZenOS** is released under the terms of the **MIT License** : Read **[LICENSE](https://github.com/Z-Proj/ZenOS/blob/main/LICENSE)** for the full document.
 
 ---
 
