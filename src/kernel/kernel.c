@@ -77,7 +77,9 @@ void _start(void)
     init_kernel_heap();
     enable_sse_and_fpu();
     vga_init();
+    vga_boot_splash_show("Initializing kernel");
     smp_prepare();
+    vga_boot_splash_status("Initializing CPU tables");
     init_gdt_for_cpu(smp_bsp_cpu_index());
     init_idt();
     AcpiInit();
@@ -96,6 +98,7 @@ void _start(void)
     input_init();
     IoApicSetIrqMapped(1, 0x21);
     init_keyboard();
+    vga_boot_splash_status("Mounting boot disk");
     ata_init();
     uint8_t boot_drive = 0;
     for (int i = 0; i < 4; i++)
@@ -140,6 +143,8 @@ void _start(void)
 #endif
     vfs_init();
     input_register_devfs();
+    if (vga_boot_splash_load_tga("/mnt/drv0/sys/splash.tga") < 0)
+        vga_boot_splash_status("Starting userland");
     if (!(framebuffer_bpp == 32))
         log("\nZenOS only supports 32bpp displays right now.\n", 2, 1);
     char *init_argv[] = {"kernel"};

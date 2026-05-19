@@ -20,6 +20,9 @@
 #include "../../libk/core/mem.h"
 #include "../../libk/spinlock.h"
 #include "../../drv/rtc.h"
+#include "../../kernel/sched.h"
+
+#define FAT_IO_CHUNK 4096U
 
 DWORD get_fattime(void) {
     rtc_time_t t = rtc_get_time();
@@ -155,23 +158,49 @@ int fat_open(const char *path, int write) { return fat_open_vol(path, write, 0);
 
 int fat_read(int fd, void *buf, uint32_t size, uint32_t *bytes_read) {
     if (!initialized || fd < 0 || fd >= FAT_MAX_FDS || !fd_table[fd].used) return -1;
-    UINT br = 0;
-    fat_lock();
-    FRESULT fr = f_read(&fd_table[fd].fil, buf, size, &br);
-    fat_unlock();
-    if (bytes_read) *bytes_read = br;
-    return (fr == FR_OK) ? 0 : -1;
+    uint8_t *out = (uint8_t *)buf;
+    uint32_t total = 0;
+    while (total < size) {
+        UINT br = 0;
+        UINT chunk = (UINT)(size - total);
+        if (chunk > FAT_IO_CHUNK)
+            chunk = FAT_IO_CHUNK;
+        fat_lock();
+        FRESULT fr = f_read(&fd_table[fd].fil, out + total, chunk, &br);
+        fat_unlock();
+        total += br;
+        if (fr != FR_OK) {
+            if (bytes_read) *bytes_read = total;
+            return total ? 0 : -1;
+        }
+        if (br == 0 || br < chunk)
+            break;
+        if (total < size)
+            sched_yield();
+    }
+    if (bytes_read) *bytes_read = total;
+    return 0;
 }
 
 int fat_write(int fd, const void *buf, uint32_t size) {
     if (!initialized || fd < 0 || fd >= FAT_MAX_FDS || !fd_table[fd].used) return -1;
     if (!fd_table[fd].writable) return -1;
-    UINT bw = 0;
-    fat_lock();
-    FRESULT fr = f_write(&fd_table[fd].fil, buf, size, &bw);
-    fat_unlock();
-    if (fr != FR_OK || bw != size) { log("Write fd=%d failed.", 2, 0, fd); return -1; }
-    fd_table[fd].total_written += bw;
+    const uint8_t *in = (const uint8_t *)buf;
+    uint32_t total = 0;
+    while (total < size) {
+        UINT bw = 0;
+        UINT chunk = (UINT)(size - total);
+        if (chunk > FAT_IO_CHUNK)
+            chunk = FAT_IO_CHUNK;
+        fat_lock();
+        FRESULT fr = f_write(&fd_table[fd].fil, in + total, chunk, &bw);
+        fat_unlock();
+        fd_table[fd].total_written += bw;
+        total += bw;
+        if (fr != FR_OK || bw != chunk) { log("Write fd=%d failed.", 2, 0, fd); return -1; }
+        if (total < size)
+            sched_yield();
+    }
     return 0;
 }
 
@@ -446,23 +475,50 @@ int fat_open_entry(const char *path, int write, fd_entry_t *out) { return fat_op
 
 int fat_read_entry(fd_entry_t *e, void *buf, uint32_t size, uint32_t *bytes_read) {
     if (!e || !e->used || e->type != FD_FILE || !e->file) return -1;
-    UINT br = 0;
-    fat_lock();
-    FRESULT fr = f_read(&e->file->fil, buf, size, &br);
-    fat_unlock();
-    if (bytes_read) *bytes_read = br;
-    return (fr == FR_OK) ? 0 : -1;
+    uint8_t *out = (uint8_t *)buf;
+    uint32_t total = 0;
+    while (total < size) {
+        UINT br = 0;
+        UINT chunk = (UINT)(size - total);
+        if (chunk > FAT_IO_CHUNK)
+            chunk = FAT_IO_CHUNK;
+        fat_lock();
+        FRESULT fr = f_read(&e->file->fil, out + total, chunk, &br);
+        fat_unlock();
+        total += br;
+        if (fr != FR_OK) {
+            if (bytes_read) *bytes_read = total;
+            return total ? 0 : -1;
+        }
+        if (br == 0 || br < chunk)
+            break;
+        if (total < size)
+            sched_yield();
+    }
+    if (bytes_read) *bytes_read = total;
+    return 0;
 }
 
 int fat_write_entry(fd_entry_t *e, const void *buf, uint32_t size) {
     if (!e || !e->used || e->type != FD_FILE || !e->file) return -1;
     if (!e->file->writable) return -1;
-    UINT bw = 0;
-    fat_lock();
-    FRESULT fr = f_write(&e->file->fil, buf, size, &bw);
-    fat_unlock();
-    if (fr != FR_OK || bw != size) return -1;
-    e->file->total_written += bw;
+    const uint8_t *in = (const uint8_t *)buf;
+    uint32_t total = 0;
+    while (total < size) {
+        UINT bw = 0;
+        UINT chunk = (UINT)(size - total);
+        if (chunk > FAT_IO_CHUNK)
+            chunk = FAT_IO_CHUNK;
+        fat_lock();
+        FRESULT fr = f_write(&e->file->fil, in + total, chunk, &bw);
+        fat_unlock();
+        e->file->total_written += bw;
+        total += bw;
+        if (fr != FR_OK || bw != chunk)
+            return -1;
+        if (total < size)
+            sched_yield();
+    }
     return 0;
 }
 

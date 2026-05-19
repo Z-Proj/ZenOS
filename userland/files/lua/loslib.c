@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
@@ -130,19 +131,78 @@ static int os_tmpname(lua_State *L)
     return 1;
 }
 
+static int run_shell_command(const char *cmd, int *status_out)
+{
+    const char *shell = "/mnt/drv0/bin/sh";
+
+    if (!cmd)
+        return access(shell, X_OK) == 0 ? 0 : -1;
+
+    pid_t child = fork();
+    if (child < 0)
+        return -1;
+
+    if (child == 0) {
+        char *const argv[] = {"sh", "-c", (char *)cmd, NULL};
+        char *const envp[] = {NULL};
+        execve(shell, argv, envp);
+        execve("/bin/sh", argv, envp);
+        _exit(127);
+    }
+
+    int status = 0;
+    pid_t ret;
+    do {
+        ret = waitpid(child, &status, 0);
+    } while (ret < 0 && errno == EINTR);
+
+    if (ret < 0)
+        return -1;
+
+    if (status_out)
+        *status_out = status;
+    return 0;
+}
+
 static int os_system(lua_State *L)
 {
-    (void)L;
-    lua_pushinteger(L, -1);
+    const char *cmd = luaL_optstring(L, 1, NULL);
+    int status = -1;
+    if (run_shell_command(cmd, &status) < 0) {
+        lua_pushinteger(L, -1);
+        return 1;
+    }
+    lua_pushinteger(L, status);
     return 1;
 }
 
 static int os_execute(lua_State *L)
 {
-    (void)L;
-    lua_pushnil(L);
-    lua_pushstring(L, "no shell on ZenOS");
-    lua_pushinteger(L, -1);
+    const char *cmd = luaL_optstring(L, 1, NULL);
+
+    if (!cmd) {
+        lua_pushboolean(L, run_shell_command(NULL, NULL) == 0);
+        return 1;
+    }
+
+    int status = 0;
+    if (run_shell_command(cmd, &status) < 0) {
+        lua_pushnil(L);
+        lua_pushstring(L, strerror(errno));
+        lua_pushinteger(L, errno);
+        return 3;
+    }
+
+    int code = status;
+    if ((status & 0xff) == 0)
+        code = (status >> 8) & 0xff;
+
+    if (code == 0)
+        lua_pushboolean(L, 1);
+    else
+        lua_pushnil(L);
+    lua_pushstring(L, "exit");
+    lua_pushinteger(L, code);
     return 3;
 }
 

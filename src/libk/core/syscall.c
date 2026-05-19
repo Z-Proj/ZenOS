@@ -1285,6 +1285,8 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             total += bytes_read;
             if (bytes_read < chunk)
                 break;
+            if (total < size)
+                sched_yield();
         }
         kfree(kbuf);
         return (int64_t)total;
@@ -1397,6 +1399,8 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                 return (total > 0) ? (int64_t)total : -5;
             }
             total += chunk;
+            if (total < size)
+                sched_yield();
         }
         kfree(kbuf);
         return (int64_t)total;

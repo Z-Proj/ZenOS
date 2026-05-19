@@ -25,6 +25,9 @@ extern uint8_t *framebuffer_addr;
 extern bool flanterm;
 
 void vga_init(void);
+void vga_boot_splash_show(const char *status);
+int vga_boot_splash_load_tga(const char *path);
+void vga_boot_splash_status(const char *status);
 void clr(void);
 void ft_run(bool set);
 void printc(char c);

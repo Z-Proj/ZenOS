@@ -58,6 +58,7 @@ install: $(APP)
 	$(FATMAN) $(VHD) import bg.png /lib/harp/bg.png
 	$(FATMAN) $(VHD) import bg2.jpg /lib/harp/bg2.jpg
 	$(FATMAN) $(VHD) import bg3.jpg /lib/harp/bg3.jpg
+	$(FATMAN) $(VHD) import splash.tga /sys/splash.tga
 
 clean:
 	rm -f $(OBJS) $(APP).elf
