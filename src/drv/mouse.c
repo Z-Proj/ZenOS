@@ -27,6 +27,7 @@ typedef struct
     uint8_t buttons;
     uint8_t packet[3];
     uint8_t cycle;
+    bool irq_ready;
     bool ready;
 } mouse_t;
 
@@ -36,6 +37,12 @@ static spinlock_t mouse_lock;
 #define PS2_STATUS_OUTPUT_FULL 0x01
 #define PS2_STATUS_INPUT_FULL 0x02
 #define PS2_STATUS_AUX_DATA 0x20
+
+#define PS2_MOUSE_ALWAYS_ONE 0x08
+#define PS2_MOUSE_X_SIGN 0x10
+#define PS2_MOUSE_Y_SIGN 0x20
+#define PS2_MOUSE_X_OVERFLOW 0x40
+#define PS2_MOUSE_Y_OVERFLOW 0x80
 
 #define MOUSE_RESPONSE_ACK 0xFA
 #define MOUSE_RESPONSE_RESEND 0xFE
@@ -125,6 +132,14 @@ static bool mouse_send_command(uint8_t cmd)
     return false;
 }
 
+static int32_t mouse_decode_delta(uint8_t header, uint8_t value, uint8_t sign)
+{
+    int32_t delta = value;
+    if (header & sign)
+        delta -= 256;
+    return delta;
+}
+
 void mouse_apply_delta(int32_t dx, int32_t dy, uint8_t buttons)
 {
     uint64_t rflags = spinlock_acquire_irqsave(&mouse_lock);
@@ -151,7 +166,7 @@ void mouse_process_byte(uint8_t data)
     switch (mouse.cycle)
     {
     case 0:
-        if (data & 0x08)
+        if ((data & PS2_MOUSE_ALWAYS_ONE) && !(data & (PS2_MOUSE_X_OVERFLOW | PS2_MOUSE_Y_OVERFLOW)))
         {
             mouse.packet[0] = data;
             mouse.cycle++;
@@ -165,15 +180,9 @@ void mouse_process_byte(uint8_t data)
         break;
     case 2:
         mouse.packet[2] = data;
-        if (mouse.packet[0] & 0xC0)
-        {
-            mouse.cycle = 0;
-            spinlock_release_irqrestore(&mouse_lock, rflags);
-            break;
-        }
         uint8_t new_buttons = mouse.packet[0] & 0x07;
-        int32_t dx = (int8_t)mouse.packet[1];
-        int32_t dy = -(int8_t)mouse.packet[2];
+        int32_t dx = mouse_decode_delta(mouse.packet[0], mouse.packet[1], PS2_MOUSE_X_SIGN);
+        int32_t dy = -mouse_decode_delta(mouse.packet[0], mouse.packet[2], PS2_MOUSE_Y_SIGN);
         mouse.cycle = 0;
         spinlock_release_irqrestore(&mouse_lock, rflags);
         mouse_apply_delta(dx, dy, new_buttons);
@@ -183,6 +192,12 @@ void mouse_process_byte(uint8_t data)
 
 void mouse_poll(void)
 {
+    uint64_t rflags = spinlock_acquire_irqsave(&mouse_lock);
+    bool irq_ready = mouse.irq_ready;
+    spinlock_release_irqrestore(&mouse_lock, rflags);
+    if (irq_ready)
+        return;
+
     for (int i = 0; i < 32; i++)
     {
         uint8_t status = inportb(0x64);
@@ -197,7 +212,9 @@ void mouse_poll(void)
 void mouse_handler(registers_t *regs)
 {
     (void)regs;
-    mouse_process_byte(inportb(0x60));
+    uint8_t status = inportb(0x64);
+    if ((status & (PS2_STATUS_OUTPUT_FULL | PS2_STATUS_AUX_DATA)) == (PS2_STATUS_OUTPUT_FULL | PS2_STATUS_AUX_DATA))
+        mouse_process_byte(inportb(0x60));
 }
 
 void mouse_init(void)
@@ -206,6 +223,7 @@ void mouse_init(void)
     mouse.x = framebuffer_width / 2;
     mouse.y = framebuffer_height / 2;
     mouse.cycle = 0;
+    mouse.irq_ready = false;
     mouse.ready = false;
     mouse.buttons = 0;
     mouse_drain_output();
@@ -256,6 +274,9 @@ void mouse_init(void)
     }
 
     register_interrupt_handler(IRQ12, mouse_handler, "Mouse Handler");
+    uint64_t rflags = spinlock_acquire_irqsave(&mouse_lock);
+    mouse.irq_ready = true;
+    spinlock_release_irqrestore(&mouse_lock, rflags);
 
     mouse_drain_output();
     log("Mouse Initialized.", 4, 0);
