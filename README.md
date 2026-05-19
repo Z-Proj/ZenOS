@@ -80,7 +80,7 @@ A separate `Storage.vhd` is present for storage.
 ### I/O & Display
 
 - [Flanterm](https://codeberg.org/mintsuki/flanterm) for early kernel output
-- Scalable font rendering via [SSFN](https://gitlab.com/bztsrc/scalable-font2)
+- Clean font rendering via the [FreeType Engine](https://freetype.org/)
 - Structured kernel logging with log levels and serial output
 
 ---
