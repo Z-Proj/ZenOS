@@ -154,7 +154,7 @@ static void draw_boot_fallback(const char *status)
         0xfff5f7fa
     );
     draw_text_at(
-        "ZenOS",
+        "Zen",
         box_x + 33,
         box_y + 34,
         0xfff5f7fa
@@ -166,7 +166,7 @@ static void draw_boot_fallback(const char *status)
         0xfff5f7fa
     );
     draw_text_at(
-        "ZenOS",
+        "Zen",
         box_x + 33,
         box_y + 35,
         0xfff5f7fa
