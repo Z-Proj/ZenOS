@@ -374,6 +374,11 @@ void init_keyboard(void)
     log("Keyboard Initialized.", 1, 0);
 }
 
+void keyboard_enqueue_char(char c)
+{
+    if (c)
+        buffer_put_char(c);
+}
 
 char get_key(void)
 {

@@ -254,6 +254,25 @@ pci_device_t* pci_find_device_by_class(uint8_t class_code, uint8_t subclass) {
     return NULL;
 }
 
+pci_device_t* pci_find_device_by_class_prog_if(uint8_t class_code, uint8_t subclass, uint8_t prog_if) {
+    pci_device_t *current = device_list;
+    while (current) {
+        if (current->class_code == class_code && current->subclass == subclass && current->prog_if == prog_if) {
+            return current;
+        }
+        current = current->next;
+    }
+    return NULL;
+}
+
+pci_device_t* pci_first_device(void) {
+    return device_list;
+}
+
+pci_device_t* pci_next_device(pci_device_t *dev) {
+    return dev ? dev->next : NULL;
+}
+
 void pci_dump_devices(void) {
     pci_device_t *current = device_list;
     while (current) {

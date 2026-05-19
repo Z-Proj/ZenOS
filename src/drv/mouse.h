@@ -21,6 +21,7 @@
 
 void mouse_init(void);
 void mouse_process_byte(uint8_t data);
+void mouse_apply_delta(int32_t dx, int32_t dy, uint8_t buttons);
 void mouse_poll(void);
 uint32_t mouse_x(void);
 uint32_t mouse_y(void);

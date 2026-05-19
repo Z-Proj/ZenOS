@@ -68,6 +68,7 @@
 #include "../drv/disk/ata.h"
 #include "../drv/disk/fat.h"
 #include "../drv/disk/vfs.h"
+#include "../drv/usb/usb.h"
 
 void _start(void)
 {
@@ -89,6 +90,7 @@ void _start(void)
     IoApicSetIrqMapped(14, 0x2E);
     IoApicSetIrqMapped(15, 0x2F);
     IoApicSetIrqMapped(8, 0x28);
+    vga_boot_splash_status("Initializing timers and PCI");
     rtc_initialize();
     sched_init();
     pci_initialize_system();
@@ -112,7 +114,7 @@ void _start(void)
     }
     if (fat_init(boot_drive) != FAT_OK)
     {
-        log("Unable to mount FAT. Format drive? (y/*)", 2, 1);
+        log("Unable to mount drive. Format it? (y/*)", 2, 1);
         __asm__ __volatile__("sti");
         char flag = wait_for_key();
         __asm__ __volatile__("cli");
@@ -128,7 +130,10 @@ void _start(void)
     }
     IoApicSetIrqMapped(12, 0x2C);
     mouse_init();
+    vga_boot_splash_status("Initializing USB");
+    usb_init();
     init_smp();
+    vga_boot_splash_status("Initializing Networking");
     e1000_init();
     net_init();
     socket_init();
@@ -144,7 +149,7 @@ void _start(void)
     vfs_init();
     input_register_devfs();
     if (vga_boot_splash_load_tga("/mnt/drv0/sys/splash.tga") < 0)
-        vga_boot_splash_status("Starting userland");
+        vga_boot_splash_status("Starting apps...");
     if (!(framebuffer_bpp == 32))
         log("\nZenOS only supports 32bpp displays right now.\n", 2, 1);
     char *init_argv[] = {"kernel"};

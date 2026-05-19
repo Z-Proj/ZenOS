@@ -167,7 +167,10 @@ qemu:
 	-netdev user,id=net0 \
 	-device e1000,netdev=net0 \
 	-enable-kvm \
-	-cpu host
+	-cpu host \
+	-device qemu-xhci,id=xhci \
+	-device usb-kbd,bus=xhci.0 \
+	-device usb-mouse,bus=xhci.0
 
 stop:
 	VBoxManage controlvm "ZenOS" poweroff

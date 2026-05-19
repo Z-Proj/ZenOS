@@ -125,6 +125,26 @@ static bool mouse_send_command(uint8_t cmd)
     return false;
 }
 
+void mouse_apply_delta(int32_t dx, int32_t dy, uint8_t buttons)
+{
+    uint64_t rflags = spinlock_acquire_irqsave(&mouse_lock);
+    uint8_t prev_buttons = mouse.buttons;
+    int32_t next_x = (int32_t)mouse.x + dx;
+    int32_t next_y = (int32_t)mouse.y + dy;
+    int32_t max_x = framebuffer_width ? (int32_t)framebuffer_width - 1 : 0;
+    int32_t max_y = framebuffer_height ? (int32_t)framebuffer_height - 1 : 0;
+    if (next_x < 0) next_x = 0;
+    if (next_y < 0) next_y = 0;
+    if (next_x > max_x) next_x = max_x;
+    if (next_y > max_y) next_y = max_y;
+    mouse.buttons = buttons;
+    mouse.x = (uint32_t)next_x;
+    mouse.y = (uint32_t)next_y;
+    mouse.ready = true;
+    spinlock_release_irqrestore(&mouse_lock, rflags);
+    input_enqueue_mouse(dx, dy, buttons, prev_buttons);
+}
+
 void mouse_process_byte(uint8_t data)
 {
     uint64_t rflags = spinlock_acquire_irqsave(&mouse_lock);
@@ -154,20 +174,9 @@ void mouse_process_byte(uint8_t data)
         uint8_t new_buttons = mouse.packet[0] & 0x07;
         int32_t dx = (int8_t)mouse.packet[1];
         int32_t dy = -(int8_t)mouse.packet[2];
-        uint8_t prev_buttons = mouse.buttons;
-        int32_t next_x = (int32_t)mouse.x + dx;
-        int32_t next_y = (int32_t)mouse.y + dy;
-        if (next_x < 0) next_x = 0;
-        if (next_y < 0) next_y = 0;
-        if (next_x >= (int32_t)framebuffer_width) next_x = (int32_t)framebuffer_width - 1;
-        if (next_y >= (int32_t)framebuffer_height) next_y = (int32_t)framebuffer_height - 1;
-        mouse.buttons = new_buttons;
-        mouse.x = (uint32_t)next_x;
-        mouse.y = (uint32_t)next_y;
         mouse.cycle = 0;
-        mouse.ready = true;
         spinlock_release_irqrestore(&mouse_lock, rflags);
-        input_enqueue_mouse(dx, dy, new_buttons, prev_buttons);
+        mouse_apply_delta(dx, dy, new_buttons);
         break;
     }
 }
@@ -194,6 +203,11 @@ void mouse_handler(registers_t *regs)
 void mouse_init(void)
 {
     spinlock_init(&mouse_lock);
+    mouse.x = framebuffer_width / 2;
+    mouse.y = framebuffer_height / 2;
+    mouse.cycle = 0;
+    mouse.ready = false;
+    mouse.buttons = 0;
     mouse_drain_output();
     if (!mouse_wait(1))
     {
@@ -244,12 +258,6 @@ void mouse_init(void)
     register_interrupt_handler(IRQ12, mouse_handler, "Mouse Handler");
 
     mouse_drain_output();
-
-    mouse.x = framebuffer_width / 2;
-    mouse.y = framebuffer_height / 2;
-    mouse.cycle = 0;
-    mouse.ready = false;
-    mouse.buttons = 0;
     log("Mouse Initialized.", 4, 0);
 }
 

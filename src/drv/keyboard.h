@@ -43,6 +43,7 @@
 #define KBD_SCANCODE2_F10   0x09
 
 void init_keyboard(void);
+void keyboard_enqueue_char(char c);
 
 char get_key(void);
 char wait_for_key(void);

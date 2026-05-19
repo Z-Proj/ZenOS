@@ -28,12 +28,13 @@ The project focuses on clean design, correctness, and real hardware interaction.
 
 ### Syscalls
 
-75+ POSIX-compatible / custom syscalls covering major app and C library needs.
+100+ POSIX-compatible / custom syscalls covering major app and C library needs.
 
 ### Hardware & Drivers
 
 - Framebuffer output
 - PS/2 keyboard and mouse
+- USB HID keyboard and mouse (xHCI)
 - PC speaker
 - Serial port for debugging and logging
 - Local APIC and IOAPIC interrupt handling
@@ -79,6 +80,7 @@ A separate `Storage.vhd` is present for storage.
 
 ### I/O & Display
 
+- USB HID devices like keyboard and mouse via xHCI
 - [Flanterm](https://codeberg.org/mintsuki/flanterm) for early kernel output
 - Clean font rendering via the [FreeType Engine](https://freetype.org/)
 - Structured kernel logging with log levels and serial output

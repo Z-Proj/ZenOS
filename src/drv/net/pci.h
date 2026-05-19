@@ -108,6 +108,9 @@ void pci_init(void);
 
 pci_device_t* pci_find_device(uint16_t vendor_id, uint16_t device_id);
 pci_device_t* pci_find_device_by_class(uint8_t class_code, uint8_t subclass);
+pci_device_t* pci_find_device_by_class_prog_if(uint8_t class_code, uint8_t subclass, uint8_t prog_if);
+pci_device_t* pci_first_device(void);
+pci_device_t* pci_next_device(pci_device_t *dev);
 void pci_dump_devices(void);
 void pci_setup_device(pci_device_t *dev);
 void pci_initialize_system(void);
