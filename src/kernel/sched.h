@@ -65,6 +65,8 @@ typedef struct task
     pid_t wait_result_pid;
     uint8_t waiting_on_pid;
     uint8_t wait_collected;
+    uint32_t userspace_faults;
+    uint64_t last_userspace_fault;
 
     uint64_t futex_wait_addr;
     int futex_woken;

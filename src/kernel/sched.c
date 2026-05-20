@@ -440,6 +440,8 @@ task_t *task_create_user_from_parent(void (*entry)(void), const char *name, page
     task->wait_result_pid = -1;
     task->waiting_on_pid = 0;
     task->wait_collected = 0;
+    task->userspace_faults = 0;
+    task->last_userspace_fault = 0;
     if (parent && parent->fd_table)
     {
         task->fd_table = fd_table_clone(parent->fd_table);
@@ -1190,6 +1192,8 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
     child->wait_result_pid = -1;
     child->waiting_on_pid = 0;
     child->wait_collected = 0;
+    child->userspace_faults = 0;
+    child->last_userspace_fault = 0;
     child->pinned_cpu = sched_pick_user_cpu_locked();
     child->running_cpu = -1;
     child->last_cpu = -1;
