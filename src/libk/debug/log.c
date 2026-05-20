@@ -32,7 +32,7 @@
 #include "../../kernel/sched.h"
 
 spinlock_t loglock __attribute__((section(".data"))) = {0};
-char *os_version = debug ? "0.90.0 DEBUG_ENABLED" : "0.90.0 Unstable";
+char *os_version = debug ? "1.0.0 Developer" : "1.0.0";
 
 void sound_err()
 {
