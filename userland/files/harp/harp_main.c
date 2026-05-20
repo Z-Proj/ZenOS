@@ -197,7 +197,7 @@ static void get_drive_root_from_cwd(void)
 
 static void ensure_launcher_cfg(void)
 {
-    snprintf(launcher_cfg_path, sizeof(launcher_cfg_path), "%s/sys/harp.cfg", drive_root);
+    snprintf(launcher_cfg_path, sizeof(launcher_cfg_path), "%s/lib/harp/harp.cfg", drive_root);
     FILE *fp = fopen(launcher_cfg_path, "r");
     if (fp) {
         fclose(fp);
@@ -209,9 +209,9 @@ static void ensure_launcher_cfg(void)
     fp = fopen(launcher_cfg_path, "w");
     if (!fp)
         return;
-    fprintf(fp, "%s/bin/terminal; 0xF0F0F0; TRM\n", drive_root);
-    fprintf(fp, "%s/bin/imgview; 0x88C0D0; IMG\n", drive_root);
-    fprintf(fp, "%s/bin/doom; 0xD08770; DUM\n", drive_root);
+    fprintf(fp, "%s/bin/terminal; 0x010101; TRM\n", drive_root);
+    fprintf(fp, "%s/bin/nk_widgets; 0x#191970; APP\n", drive_root);
+    fprintf(fp, "%s/bin/doom; 0xFF0101; GUN\n", drive_root);
     fclose(fp);
 }
 

@@ -59,6 +59,19 @@ install: $(APP)
 	$(FATMAN) $(VHD) import bg2.jpg /lib/harp/bg2.jpg
 	$(FATMAN) $(VHD) import bg3.jpg /lib/harp/bg3.jpg
 	$(FATMAN) $(VHD) import splash.tga /sys/splash.tga
+	$(FATMAN) $(VHD) mkdir sys/crash
+	$(FATMAN) $(VHD) import crash/AC.tga sys/crash/AC.tga
+	$(FATMAN) $(VHD) import crash/DF.tga sys/crash/DF.tga
+	$(FATMAN) $(VHD) import crash/DIV0.tga sys/crash/DIV0.tga
+	$(FATMAN) $(VHD) import crash/EXCEPTION.tga sys/crash/EXCEPTION.tga
+	$(FATMAN) $(VHD) import crash/GPF.tga sys/crash/GPF.tga
+	$(FATMAN) $(VHD) import crash/MC.tga sys/crash/MC.tga
+	$(FATMAN) $(VHD) import crash/PF.tga sys/crash/PF.tga
+	$(FATMAN) $(VHD) import crash/SIMD.tga sys/crash/SIMD.tga
+	$(FATMAN) $(VHD) import crash/SNP.tga sys/crash/SNP.tga
+	$(FATMAN) $(VHD) import crash/SS.tga sys/crash/SS.tga
+	$(FATMAN) $(VHD) import crash/TSS.tga sys/crash/TSS.tga
+	$(FATMAN) $(VHD) import crash/UD.tga sys/crash/UD.tga
 
 clean:
 	rm -f $(OBJS) $(APP).elf

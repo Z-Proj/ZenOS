@@ -237,7 +237,7 @@ static uint32_t tga_decode_pixel_kernel(const uint8_t *p, int bytes)
     return ((uint32_t)a << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
 }
 
-static int tga_draw_from_memory(const uint8_t *data, size_t size)
+static int tga_draw_from_memory(const uint8_t *data, size_t size, int centered, int boot_fallback)
 {
     if (!data || size < sizeof(tga_hdr_t))
         return -1;
@@ -275,13 +275,16 @@ static int tga_draw_from_memory(const uint8_t *data, size_t size)
 
     int crop_w = iw < (int)framebuffer_width ? iw : (int)framebuffer_width;
     int crop_h = ih < (int)framebuffer_height ? ih : (int)framebuffer_height;
-    int src_x0 = (iw - crop_w) / 2;
-    int src_y0 = (ih - crop_h) / 2;
-    int dst_x0 = ((int)framebuffer_width - crop_w) / 2;
-    int dst_y0 = ((int)framebuffer_height - crop_h) / 2;
+    int src_x0 = centered ? (iw - crop_w) / 2 : 0;
+    int src_y0 = centered ? (ih - crop_h) / 2 : 0;
+    int dst_x0 = centered ? ((int)framebuffer_width - crop_w) / 2 : 0;
+    int dst_y0 = centered ? ((int)framebuffer_height - crop_h) / 2 : 0;
     int flip_v = !(h->descriptor & 0x20);
 
-    draw_boot_fallback("Loading");
+    if (boot_fallback)
+        draw_boot_fallback("Loading");
+    else
+        fill_rect(0, 0, framebuffer_width, framebuffer_height, 0x000000);
 
     if (h->data_type == 1 || h->data_type == 2 || h->data_type == 3) {
         size_t row_bytes = (size_t)iw * (size_t)pixel_bytes;
@@ -375,11 +378,99 @@ int vga_boot_splash_load_tga(const char *path)
     }
 
     spinlock_acquire(&vga_lock);
-    tga_draw_from_memory(buf, bytes_read);
+    ret = tga_draw_from_memory(buf, bytes_read, 1, 1);
     spinlock_release(&vga_lock);
 
     kfree(buf);
     return ret;
+}
+
+static int vga_load_tga_unlocked(const char *path, int centered, int boot_fallback)
+{
+    if (!path)
+        return -1;
+
+    fd_entry_t file;
+    memset(&file, 0, sizeof(file));
+    if (vfs_open_entry(path, 0, &file) < 0)
+        return -1;
+
+    uint32_t size = vfs_size_entry(&file);
+    if (size < sizeof(tga_hdr_t) || size > 16 * 1024 * 1024) {
+        vfs_close_entry(&file);
+        return -1;
+    }
+
+    uint8_t *buf = (uint8_t *)kmalloc(size);
+    if (!buf) {
+        vfs_close_entry(&file);
+        return -1;
+    }
+
+    uint32_t bytes_read = 0;
+    int ret = vfs_read_entry(&file, buf, size, &bytes_read);
+    vfs_close_entry(&file);
+    if (ret < 0 || bytes_read != size) {
+        kfree(buf);
+        return -1;
+    }
+
+    ret = tga_draw_from_memory(buf, bytes_read, centered, boot_fallback);
+    kfree(buf);
+    return ret;
+}
+
+static uint32_t text_line_count(const char *str)
+{
+    if (!str || !str[0])
+        return 1;
+    uint32_t lines = 1;
+    for (size_t i = 0; str[i]; i++)
+        if (str[i] == '\n')
+            lines++;
+    return lines;
+}
+
+void vga_crash_screen(const char *name, const char *title, const char *info)
+{
+    if (!framebuffer_addr || !framebuffer_width || !framebuffer_height)
+        return;
+
+    char path[96];
+    int loaded = -1;
+    if (name && name[0]) {
+        snprintf(path, sizeof(path), "/mnt/drv0/sys/crash/%s.tga", name);
+        loaded = vga_load_tga_unlocked(path, 0, 0);
+    }
+
+    if (loaded < 0) {
+        ft_run(true);
+        if (flanterm) {
+            setcolor(0xffffff, 0x000000);
+            clr();
+            prints("ZenOS kernel crash\n\n");
+            prints(title ? title : "Unknown exception");
+            prints("\n\n");
+            if (info)
+                prints(info);
+        } else {
+            fill_rect(0, 0, framebuffer_width, framebuffer_height, 0x000000);
+            draw_text_at("ZenOS kernel crash", 16, 16, 0xffffffff);
+            draw_text_at(title ? title : "Unknown exception", 16, 40, 0xffffffff);
+            if (info)
+                draw_text_at(info, 16, 72, 0xffffffff);
+        }
+        return;
+    }
+
+    ft_run(false);
+    uint32_t lines = text_line_count(info) + 1;
+    uint32_t panel_h = lines * 16 + 12;
+    uint32_t y = framebuffer_height > panel_h ? (uint32_t)framebuffer_height - panel_h : 0;
+    fill_rect(0, y, framebuffer_width, panel_h, 0x000000);
+    draw_text_at(title ? title : "Unknown exception", 8, y + 4, 0xffffffff);
+    if (info)
+        draw_text_at(info, 8, y + 20, 0xffffffff);
 }
 
 uint32_t get_pixel_at(uint32_t x, uint32_t y)

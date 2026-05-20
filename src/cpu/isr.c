@@ -19,6 +19,7 @@
 #include "../libk/ports.h"
 #include "../libk/string.h"
 #include "../libk/debug/log.h"
+#include "../drv/vga.h"
 #include "../kernel/sched.h"
 #include <stdint.h>
 
@@ -30,8 +31,138 @@ void register_interrupt_handler(uint8_t interrupt, isr_handler_t handler, const 
     interrupt_handlers[interrupt] = handler;
 }
 
+static const char *exception_title(uint64_t int_no)
+{
+    switch (int_no) {
+        case DIVISION_BY_ZERO: return "Division by zero";
+        case DEBUG_EXCEPTION: return "Debug exception";
+        case NON_MASKABLE_INTERRUPT: return "Non-maskable interrupt";
+        case BREAKPOINT_EXCEPTION: return "Breakpoint";
+        case OVERFLOW_EXCEPTION: return "Overflow";
+        case BOUND_RANGE_EXCEEDED: return "Bound range exceeded";
+        case INVALID_OPCODE_EXCEPTION: return "Invalid opcode";
+        case DEVICE_NOT_AVAILABLE: return "Device not available";
+        case DOUBLE_FAULT: return "Double fault";
+        case INVALID_TSS: return "Invalid TSS";
+        case SEGMENT_NOT_PRESENT: return "Segment not present";
+        case STACK_SEGMENT_FAULT: return "Stack segment fault";
+        case GENERAL_PROTECTION_FAULT: return "General protection fault";
+        case PAGE_FAULT: return "Page fault";
+        case X87_FLOATING_POINT: return "x87 floating point exception";
+        case ALIGNMENT_CHECK: return "Alignment check";
+        case MACHINE_CHECK: return "Machine check";
+        case SIMD_FLOATING_POINT: return "SIMD floating point exception";
+        case VIRTUALIZATION_EXCEPTION: return "Virtualization exception";
+        case SECURITY_EXCEPTION: return "Security exception";
+        default: return "CPU exception";
+    }
+}
+
+static const char *exception_splash(uint64_t int_no)
+{
+    switch (int_no) {
+        case DIVISION_BY_ZERO: return "DIV0";
+        case INVALID_OPCODE_EXCEPTION: return "UD";
+        case DOUBLE_FAULT: return "DF";
+        case INVALID_TSS: return "TSS";
+        case SEGMENT_NOT_PRESENT: return "SNP";
+        case STACK_SEGMENT_FAULT: return "SS";
+        case GENERAL_PROTECTION_FAULT: return "GPF";
+        case PAGE_FAULT: return "PF";
+        case ALIGNMENT_CHECK: return "AC";
+        case MACHINE_CHECK: return "MC";
+        case SIMD_FLOATING_POINT: return "SIMD";
+        default: return "EXCEPTION";
+    }
+}
+
+static void halt_forever(void)
+{
+    for (;;)
+        asm volatile("cli; hlt");
+}
+
+static void kernel_exception_screen(registers_t *regs)
+{
+    uint64_t cr2 = 0;
+    if (regs->int_no == PAGE_FAULT)
+        asm volatile("mov %%cr2, %0" : "=r"(cr2));
+    task_t *task = sched_current_task();
+    const char *task_name = task ? task->name : "kernel";
+    int pid = task ? task->pid : -1;
+    uint16_t selector = (uint16_t)((regs->err_code >> 3) & 0x1fff);
+    char info[1536];
+
+    if (regs->int_no == PAGE_FAULT) {
+        snprintf(info, sizeof(info),
+            "Task: %s (PID %d)\n"
+            "Fault address: 0x%016lx\n"
+            "Error: 0x%016lx  %s  %s  %s\n"
+            "RIP=0x%016lx RSP=0x%016lx RFLAGS=0x%016lx\n"
+            "RAX=0x%016lx RBX=0x%016lx RCX=0x%016lx\n"
+            "RDX=0x%016lx RSI=0x%016lx RDI=0x%016lx\n"
+            "RBP=0x%016lx R8 =0x%016lx R9 =0x%016lx\n"
+            "R10=0x%016lx R11=0x%016lx R12=0x%016lx\n"
+            "R13=0x%016lx R14=0x%016lx R15=0x%016lx\n"
+            "CS=0x%04lx SS=0x%04lx",
+            task_name, pid, cr2, regs->err_code,
+            (regs->err_code & 1) ? "protection" : "not-present",
+            (regs->err_code & 2) ? "write" : "read",
+            (regs->err_code & 4) ? "user" : "supervisor",
+            regs->rip, regs->userrsp, regs->rflags,
+            regs->rax, regs->rbx, regs->rcx, regs->rdx,
+            regs->rsi, regs->rdi, regs->rbp,
+            regs->r8, regs->r9, regs->r10, regs->r11,
+            regs->r12, regs->r13, regs->r14, regs->r15,
+            regs->cs, regs->ss);
+    } else if (regs->int_no == GENERAL_PROTECTION_FAULT) {
+        snprintf(info, sizeof(info),
+            "Task: %s (PID %d)\n"
+            "Error: 0x%016lx  selector=0x%04x  %s\n"
+            "RIP=0x%016lx RSP=0x%016lx RFLAGS=0x%016lx\n"
+            "RAX=0x%016lx RBX=0x%016lx RCX=0x%016lx\n"
+            "RDX=0x%016lx RSI=0x%016lx RDI=0x%016lx\n"
+            "RBP=0x%016lx R8 =0x%016lx R9 =0x%016lx\n"
+            "R10=0x%016lx R11=0x%016lx R12=0x%016lx\n"
+            "R13=0x%016lx R14=0x%016lx R15=0x%016lx\n"
+            "CS=0x%04lx SS=0x%04lx",
+            task_name, pid, regs->err_code, selector,
+            (regs->err_code & 1) ? "external" : "internal",
+            regs->rip, regs->userrsp, regs->rflags,
+            regs->rax, regs->rbx, regs->rcx, regs->rdx,
+            regs->rsi, regs->rdi, regs->rbp,
+            regs->r8, regs->r9, regs->r10, regs->r11,
+            regs->r12, regs->r13, regs->r14, regs->r15,
+            regs->cs, regs->ss);
+    } else {
+        snprintf(info, sizeof(info),
+            "Task: %s (PID %d)\n"
+            "Interrupt: %lu  Error: 0x%016lx\n"
+            "RIP=0x%016lx RSP=0x%016lx RFLAGS=0x%016lx\n"
+            "RAX=0x%016lx RBX=0x%016lx RCX=0x%016lx\n"
+            "RDX=0x%016lx RSI=0x%016lx RDI=0x%016lx\n"
+            "RBP=0x%016lx R8 =0x%016lx R9 =0x%016lx\n"
+            "R10=0x%016lx R11=0x%016lx R12=0x%016lx\n"
+            "R13=0x%016lx R14=0x%016lx R15=0x%016lx\n"
+            "CS=0x%04lx SS=0x%04lx",
+            task_name, pid, regs->int_no, regs->err_code,
+            regs->rip, regs->userrsp, regs->rflags,
+            regs->rax, regs->rbx, regs->rcx, regs->rdx,
+            regs->rsi, regs->rdi, regs->rbp,
+            regs->r8, regs->r9, regs->r10, regs->r11,
+            regs->r12, regs->r13, regs->r14, regs->r15,
+            regs->cs, regs->ss);
+    }
+
+    vga_crash_screen(exception_splash(regs->int_no), exception_title(regs->int_no), info);
+    halt_forever();
+}
+
 void isr_handler(registers_t* regs)
 {
+    if (regs->int_no < 32 && !(regs->cs & 3))
+        kernel_exception_screen(regs);
+
     switch(regs->int_no) {
         case DIVISION_BY_ZERO:
             if (regs->cs & 3) {
