@@ -19,6 +19,7 @@
 #include "../libk/ports.h"
 #include "../libk/string.h"
 #include "../libk/debug/log.h"
+#include "../libk/debug/serial.h"
 #include "../drv/vga.h"
 #include "../kernel/sched.h"
 #include <stdint.h>
@@ -198,30 +199,31 @@ static void userspace_exception_report(registers_t *regs)
     task->userspace_faults++;
     task->last_userspace_fault = regs->int_no;
 
+    uint64_t cr2 = 0;
+    if (regs->int_no == PAGE_FAULT)
+        asm volatile("mov %%cr2, %0" : "=r"(cr2));
+
+    char msg[768];
+    if (regs->int_no == PAGE_FAULT) {
+        snprintf(msg, sizeof(msg),
+            "\n%s: %s in %s (pid %d)\n"
+            "  fault=0x%016lx rip=0x%016lx rsp=0x%016lx error=0x%016lx\n",
+            "ZenOS", exception_title(regs->int_no), task->name, task->pid,
+            cr2, regs->rip, regs->userrsp, regs->err_code);
+    } else {
+        snprintf(msg, sizeof(msg),
+            "\n%s: %s in %s (pid %d)\n"
+            "  rip=0x%016lx rsp=0x%016lx error=0x%016lx\n",
+            "ZenOS", exception_title(regs->int_no), task->name, task->pid,
+            regs->rip, regs->userrsp, regs->err_code);
+    }
+    serial_write_string(msg);
+
     fd_entry_t *err = NULL;
     if (task->fd_table && task->fd_table->entries[2].used)
         err = &task->fd_table->entries[2];
 
     if (err && err->type == FD_PTY_SLAVE && err->pty) {
-        uint64_t cr2 = 0;
-        if (regs->int_no == PAGE_FAULT)
-            asm volatile("mov %%cr2, %0" : "=r"(cr2));
-
-        char msg[768];
-        if (regs->int_no == PAGE_FAULT) {
-            snprintf(msg, sizeof(msg),
-                "\n%s: %s in %s (pid %d)\n"
-                "  fault=0x%016lx rip=0x%016lx rsp=0x%016lx error=0x%016lx\n",
-                "ZenOS", exception_title(regs->int_no), task->name, task->pid,
-                cr2, regs->rip, regs->userrsp, regs->err_code);
-        } else {
-            snprintf(msg, sizeof(msg),
-                "\n%s: %s in %s (pid %d)\n"
-                "  rip=0x%016lx rsp=0x%016lx error=0x%016lx\n",
-                "ZenOS", exception_title(regs->int_no), task->name, task->pid,
-                regs->rip, regs->userrsp, regs->err_code);
-        }
-        log(msg, 3, 0);
         pty_fault_write(err->pty, msg);
     }
 

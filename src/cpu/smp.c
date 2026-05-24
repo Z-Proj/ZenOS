@@ -53,13 +53,13 @@ void ap_entry(struct limine_smp_info *info) {
 void smp_prepare(void)
 {
     struct limine_smp_response *smp = smp_request.response;
-    if (smp == NULL) {
+    if (smp == NULL) { // Limine fetch failed
         clr();
         log("Failed to fetch SMP (CPU) info.", 0, 1);
     }
-    if(smp->cpu_count > MAX_CPUS) {
+    if(smp->cpu_count > MAX_CPUS) { // Very unstable beyond 16.
         clr();
-        log("\n\nThis system cannot run ZenOS\n\n - This system does not meet the requirement of maximum 8 CPUs.\n\nConsider downgrading your CPU.\nDecrease CPUs available if on a VM.\n ", 0, 1);
+        log("\n\nThis system cannot run ZenOS\n\n - This system does not meet the requirement of maximum 16 CPUs.\n\nConsider downgrading your CPU.\nDecrease CPUs available if on a VM.\n ", 0, 1);
     }
 
     g_cpu_count = (uint32_t)smp->cpu_count;
@@ -83,7 +83,7 @@ void init_smp() {
             log("Starting CPU %lu (LAPIC ID %d)", 1, 0,
                 i, smp->cpus[i]->lapic_id);
             smp->cpus[i]->extra_argument = i;
-            smp->cpus[i]->goto_address = ap_entry;
+            smp->cpus[i]->goto_address = ap_entry; // CPU cores now end up at ap_entry, lets catch them there
         }
     }
     while (g_activeCpuCount < smp->cpu_count) {

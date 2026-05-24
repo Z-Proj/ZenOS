@@ -72,14 +72,14 @@
 
 void _start(void)
 {
-    serial_init();
+    serial_init(); // Serial logging
     init_pmm();
     init_vmm();
     init_kernel_heap();
     enable_sse_and_fpu();
-    vga_init();
+    vga_init(); // Display initializes here
     vga_boot_splash_show("Initializing kernel");
-    smp_prepare();
+    smp_prepare(); // prep and check core needs
     vga_boot_splash_status("Initializing CPU tables");
     init_gdt_for_cpu(smp_bsp_cpu_index());
     init_idt();
@@ -91,7 +91,7 @@ void _start(void)
     IoApicSetIrqMapped(15, 0x2F);
     IoApicSetIrqMapped(8, 0x28);
     vga_boot_splash_status("Initializing timers and PCI");
-    rtc_initialize();
+    rtc_initialize(); // fallback
     sched_init();
     pci_initialize_system();
     IoApicSetIrqMapped(0, 0x22);
@@ -107,14 +107,14 @@ void _start(void)
     {
         if (ata_drive_exists(i) == ATA_SUCCESS)
         {
-            boot_drive = i;
+            boot_drive = i; // For now first master drive found is taken 
             log("Drive selected for use: %i", 1, 0, i);
             break;
         }
     }
     if (fat_init(boot_drive) != FAT_OK)
     {
-        log("Unable to mount drive. Format it? (y/*)", 2, 1);
+        log("Unable to mount drive. Format it? (y/*)", 2, 1); // Probably not great to just format it
         __asm__ __volatile__("sti");
         char flag = wait_for_key();
         __asm__ __volatile__("cli");
@@ -130,11 +130,11 @@ void _start(void)
     }
     IoApicSetIrqMapped(12, 0x2C);
     mouse_init();
-    vga_boot_splash_status("Initializing USB");
+    vga_boot_splash_status("Initializing USB"); // xHCI is better than nothing
     usb_init();
     init_smp();
     vga_boot_splash_status("Initializing Networking");
-    e1000_init();
+    e1000_init(); // ehh, mostly VMs only :(
     net_init();
     socket_init();
     unix_sock_init();
@@ -148,14 +148,14 @@ void _start(void)
 #endif
     vfs_init();
     input_register_devfs();
-    if (vga_boot_splash_load_tga("/mnt/drv0/sys/splash.tga") < 0)
-        vga_boot_splash_status("Starting apps...");
     if (!(framebuffer_bpp == 32))
-        log("\nZenOS only supports 32bpp displays right now.\n", 2, 1);
+        log("\nZenOS only supports 32bpp displays right now.\n", -1, 1);
+    if (vga_boot_splash_load_tga("/mnt/drv0/sys/splash.tga") < 0)
+        vga_boot_splash_status("Starting apps..."); // Boot screen
     char *init_argv[] = {"kernel"};
     if (elf_exec("/mnt/drv0/bin/init", 1, init_argv) < 0)
         log("No init program found.", 0, 1);
-    sched_start();
+    sched_start(); // Hand off. Kernel success!
     for (;;)
         ;
 }

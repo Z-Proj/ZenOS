@@ -2558,44 +2558,54 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         return 0;
     }
 
-    case SYSCALL_NET_CONNECT:
+    case SYSCALL_SOCKET:
     {
-        net_connect_args_t *args = (net_connect_args_t *)arg1;
-        if (!args)
-            return (uint64_t)-1;
-        return (uint64_t)(int64_t)tcp_connect(args->ip, args->port);
+        int domain = (int)arg1;
+        int type = (int)arg2;
+        int protocol = (int)arg3;
+        if (domain != 2 || type != 1)
+            return (uint64_t)(int64_t)-97;
+        if (protocol != 0 && protocol != 6)
+            return (uint64_t)(int64_t)-93;
+        return (uint64_t)(int64_t)tcp_socket();
     }
 
-    case SYSCALL_NET_SEND:
+    case SYSCALL_CONNECT:
+    {
+        int id = (int)arg1;
+        zen_sockaddr_in_t *addr = (zen_sockaddr_in_t *)arg2;
+        uint32_t addrlen = (uint32_t)arg3;
+        if (!addr || addrlen < sizeof(zen_sockaddr_in_t))
+            return (uint64_t)(int64_t)-22;
+        if (addr->sin_family != 2)
+            return (uint64_t)(int64_t)-97;
+        return (uint64_t)(int64_t)tcp_connect_socket(id, addr->sin_addr, ntohs(addr->sin_port));
+    }
+
+    case SYSCALL_SEND:
     {
         int id = (int)arg1;
         const void *buf = (const void *)arg2;
         size_t len = (size_t)arg3;
         if (!buf)
-            return (uint64_t)-1;
+            return (uint64_t)(int64_t)-22;
         return (uint64_t)(int64_t)tcp_send(id, buf, len);
     }
 
-    case SYSCALL_NET_RECV:
+    case SYSCALL_RECV:
     {
         int id = (int)arg1;
         void *buf = (void *)arg2;
         size_t len = (size_t)arg3;
         if (!buf)
-            return (uint64_t)-1;
+            return (uint64_t)(int64_t)-22;
         return (uint64_t)(int64_t)tcp_recv(id, buf, len);
     }
 
-    case SYSCALL_NET_CLOSE:
+    case SYSCALL_CLOSESOCKET:
     {
         int id = (int)arg1;
         tcp_close(id);
-        return 0;
-    }
-
-    case SYSCALL_NET_POLL:
-    {
-        net_poll();
         return 0;
     }
 
@@ -2621,7 +2631,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         return poll_fds_once(fds, count);
     }
 
-    case SYSCALL_DNS_RESOLVE:
+    case SYSCALL_GETHOSTBYNAME:
     {
         const char *hostname = (const char *)arg1;
         uint8_t *ip_out = (uint8_t *)arg2;

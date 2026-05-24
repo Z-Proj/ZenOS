@@ -37,43 +37,14 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 #include "../../userlib.h"
 
 #define PKG_SERVER_HOST "zen-pkg.byethost17.com"
 #define PKG_SERVER_PORT 80
 #define PKG_BASE_PATH "/packages"
 #define INSTALL_DIR "/mnt/drv0/bin"
-
-#define SYSCALL_NET_CONNECT 61
-#define SYSCALL_NET_SEND 62
-#define SYSCALL_NET_RECV 63
-#define SYSCALL_NET_CLOSE 64
-#define SYSCALL_DNS_RESOLVE 66
-
-typedef struct
-{
-    uint8_t ip[4];
-    uint16_t port;
-} net_connect_args_t;
-
-static int net_connect(const uint8_t ip[4], uint16_t port)
-{
-    net_connect_args_t a;
-    a.ip[0] = ip[0];
-    a.ip[1] = ip[1];
-    a.ip[2] = ip[2];
-    a.ip[3] = ip[3];
-    a.port = port;
-    return (int)(int64_t)_syscall1(SYSCALL_NET_CONNECT, (uint64_t)&a);
-}
-static int net_send(int id, const void *b, size_t l) { return (int)(int64_t)_syscall3(SYSCALL_NET_SEND, (uint64_t)id, (uint64_t)b, (uint64_t)l); }
-static int net_recv(int id, void *b, size_t l) { return (int)(int64_t)_syscall3(SYSCALL_NET_RECV, (uint64_t)id, (uint64_t)b, (uint64_t)l); }
-static void net_close(int id) { _syscall1(SYSCALL_NET_CLOSE, (uint64_t)id); }
-
-static int dns_resolve(const char *host, uint8_t ip_out[4])
-{
-    return (int)(int64_t)_syscall2(SYSCALL_DNS_RESOLVE, (uint64_t)host, (uint64_t)ip_out);
-}
 
 static int my_atoi(const char *s)
 {
@@ -98,29 +69,47 @@ static int http_get(const char *path, char **body_out, int *body_len_out)
     for (int attempt = 0; attempt < 5; attempt++)
     {
         uint8_t ip[4];
-        if (dns_resolve(PKG_SERVER_HOST, ip) < 0)
+        if (zen_gethostbyname4(PKG_SERVER_HOST, ip) < 0)
         {
             printf("zen: DNS failed for %s\n", PKG_SERVER_HOST);
             return -1;
         }
 
-        int conn = net_connect(ip, PKG_SERVER_PORT);
+        int conn = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         if (conn < 0)
         {
+            puts("zen: socket failed\n");
+            continue;
+        }
+
+        struct sockaddr_in addr;
+        memset(&addr, 0, sizeof(addr));
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(PKG_SERVER_PORT);
+        memcpy(&addr.sin_addr.s_addr, ip, 4);
+
+        if (connect(conn, (const struct sockaddr *)&addr, sizeof(addr)) < 0)
+        {
             puts("zen: cannot connect\n");
+            close(conn);
             continue;
         }
 
         int rlen = snprintf(req, sizeof(req),
                             "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
                             path, PKG_SERVER_HOST);
-        net_send(conn, req, (size_t)rlen);
+        if (send(conn, req, (size_t)rlen, 0) < 0)
+        {
+            puts("zen: send failed\n");
+            close(conn);
+            continue;
+        }
 
         total = 0;
         int n;
         while (total < RX_SIZE - 1)
         {
-            n = net_recv(conn, chunk, sizeof(chunk));
+            n = recv(conn, chunk, sizeof(chunk), 0);
             if (n <= 0)
                 break;
             if (total + n > RX_SIZE - 1)
@@ -128,7 +117,7 @@ static int http_get(const char *path, char **body_out, int *body_len_out)
             memcpy(rx_buf + total, chunk, n);
             total += n;
         }
-        net_close(conn);
+        close(conn);
         rx_buf[total] = '\0';
 
         if (total > 0)

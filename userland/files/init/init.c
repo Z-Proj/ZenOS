@@ -22,6 +22,34 @@ static long _strtol(const char *s, char **end)
     return n;
 }
 
+static int _strlen(const char *s)
+{
+    int n = 0;
+    while (s && s[n]) n++;
+    return n;
+}
+
+static void _puts2(const char *a, const char *b)
+{
+    _write(a, (uint64_t)_strlen(a));
+    _write(b, (uint64_t)_strlen(b));
+}
+
+static void _putnum(int n)
+{
+    char buf[16];
+    int i = 15;
+    int neg = n < 0;
+    unsigned int v = neg ? (unsigned int)(-n) : (unsigned int)n;
+    buf[i--] = '\0';
+    do {
+        buf[i--] = (char)('0' + (v % 10));
+        v /= 10;
+    } while (v);
+    if (neg) buf[i--] = '-';
+    _write(buf + i + 1, (uint64_t)(14 - i));
+}
+
 static char _buf[4096];
 static int  _bfd  = -1;
 static int  _bpos = 0;
@@ -119,7 +147,10 @@ int main(int argc, char *argv[])
 
         int pid = zen_spawn(args[0], (char *const *)args);
         if (pid < 0) {
-            MSG("\x1b[38;2;255;50;50mInit: spawn failed\x1b[0m\n");
+            _puts2("\x1b[38;2;255;50;50mInit: spawn failed: ", args[0]);
+            _write(" errno=", 7);
+            _putnum(errno);
+            _write("\x1b[0m\n", 5);
             continue;
         }
 

@@ -30,3 +30,4 @@
 - [FIGlet](https://github.com/cmatsuoka/figlet) — Large ASCII text renderer
 - [BusyBox](https://busybox.net/) — The Swiss Army Knife of Embedded Linux
 - [DOOM](https://github.com/id-Software/DOOM), and the [generic platform layer](https://github.com/ozkl/doomgeneric) — 3D FPS action game.
+- [ClassiCube](https://classicube.net) — A clean-room remake of 2009 Minecraft Alpha.

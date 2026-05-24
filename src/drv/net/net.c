@@ -705,20 +705,34 @@ void net_init(void)
 
 int tcp_connect(const uint8_t ip[4], uint16_t port)
 {
+    int id = tcp_socket();
+    if (id < 0)
+        return -1;
+    if (tcp_connect_socket(id, ip, port) < 0)
+        return -1;
+    return id;
+}
 
-    int id = -1;
+int tcp_socket(void)
+{
     for (int i = 0; i < MAX_TCP_CONNS; i++)
     {
         if (conns[i].state == TCP_STATE_CLOSED)
         {
-            id = i;
-            break;
+            memset(&conns[i], 0, sizeof(conns[i]));
+            conns[i].state = TCP_STATE_SOCKET;
+            return i;
         }
     }
-    if (id < 0)
+    return -1;
+}
+
+int tcp_connect_socket(int id, const uint8_t ip[4], uint16_t port)
+{
+    tcp_conn_t *c = conn_get(id);
+    if (!c || c->state != TCP_STATE_SOCKET)
         return -1;
 
-    tcp_conn_t *c = &conns[id];
     memset(c, 0, sizeof(*c));
     memcpy(c->remote_ip, ip, 4);
     c->remote_port = port;

@@ -20,6 +20,7 @@
 
 #define NSIG        36
 
+// Signal list
 #define SIGHUP      1
 #define SIGINT      2
 #define SIGQUIT     3

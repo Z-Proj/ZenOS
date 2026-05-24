@@ -80,12 +80,12 @@
 #define SYSCALL_SIGACTION        58
 #define SYSCALL_SIGRETURN        59
 #define SYSCALL_SIGPROCMASK      60
-#define SYSCALL_NET_CONNECT      61
-#define SYSCALL_NET_SEND         62
-#define SYSCALL_NET_RECV         63
-#define SYSCALL_NET_CLOSE        64
-#define SYSCALL_NET_POLL         65
-#define SYSCALL_DNS_RESOLVE      66
+#define SYSCALL_SOCKET           61
+#define SYSCALL_CONNECT          62
+#define SYSCALL_SEND             63
+#define SYSCALL_RECV             64
+#define SYSCALL_CLOSESOCKET      65
+#define SYSCALL_GETHOSTBYNAME    66
 #define SYSCALL_FUTEX            67
 #define SYSCALL_PTY_OPEN         68  
 #define SYSCALL_IOCTL            69  
@@ -189,9 +189,11 @@ typedef struct {
 #define ARCH_GET_GS              0x1004
 
 typedef struct {
-    uint8_t  ip[4];
-    uint16_t port;
-} net_connect_args_t;
+    uint16_t sin_family;
+    uint16_t sin_port;
+    uint8_t  sin_addr[4];
+    uint8_t  sin_zero[8];
+} zen_sockaddr_in_t;
 
 void syscall_retain_special_user_mappings(page_table_t *pml4);
 void syscall_release_special_user_mappings(page_table_t *pml4);

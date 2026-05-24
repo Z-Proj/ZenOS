@@ -304,7 +304,7 @@ static int task_is_switching_from_locked(task_t *task)
 void task_exit(void)
 {
     task_t *current = sched_current_task();
-    if (!current)
+    if (!current) // this shouldnt ever happen
         log("A Task exit function returned.", 0, 1);
 
     __asm__ volatile("cli" ::: "memory");
@@ -377,7 +377,7 @@ void sched_start(void)
             } while (iter != task_list_head);
         }
 
-        if (!has_idle)
+        if (!has_idle) // Why do I check if idle already exists, when the system is literally just booted? Idk, edge cases of apocalypse.
         {
             char idle_name[16];
             snprintf(idle_name, sizeof(idle_name), "Idle-%u", i);
@@ -533,7 +533,7 @@ static void reap_dead_tasks(void)
     task_t *iter = task_list_head;
     task_t *prev = NULL;
     task_t *start = task_list_head;
-
+    // is this function too heavy for each tick
     do
     {
         task_t *next = iter->next;
@@ -761,7 +761,7 @@ void sched_yield(void)
         spinlock_release_irqrestore(&sched_lock, rflags);
         return;
     }
-
+    // finally:
     sched_switch_locked(cpu_state, old_task, new_task, cpu_index, rflags,
                         old_task ? &old_task->regs : &cpu_state->bootstrap_regs);
 }
@@ -1285,7 +1285,7 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
 
 int sched_signal(uint64_t pid, int sig)
 {
-    if (sig <= 0 || sig >= NSIG)
+    if (sig <= 0 || sig >= NSIG) // Nix like signals
         return -1;
     if (!task_list_head)
         return -1;

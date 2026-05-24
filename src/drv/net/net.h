@@ -87,6 +87,7 @@ typedef struct
 typedef enum
 {
     TCP_STATE_CLOSED = 0,
+    TCP_STATE_SOCKET,
     TCP_STATE_SYN_SENT,
     TCP_STATE_ESTABLISHED,
     TCP_STATE_FIN_WAIT,
@@ -123,6 +124,8 @@ void net_poll(void);
 
 int net_arp_resolve(const uint8_t ip[4], uint8_t mac_out[ETH_ALEN]);
 
+int tcp_socket(void);
+int tcp_connect_socket(int id, const uint8_t ip[4], uint16_t port);
 int tcp_connect(const uint8_t ip[4], uint16_t port);
 int tcp_send(int id, const void *data, size_t len);
 int tcp_recv(int id, void *buf, size_t max_len);

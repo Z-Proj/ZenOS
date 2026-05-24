@@ -217,6 +217,11 @@ static inline int socket_delete(const char *name) { return (int)_sc_ret(_syscall
 static inline int socket_exists(const char *name) { return (int)_sc_ret(_syscall1(37, (uint64_t)name)); }
 static inline uint32_t socket_available(socket_file_t *file) { return (uint32_t)_syscall1(38, (uint64_t)file); }
 
+static inline int zen_gethostbyname4(const char *host, uint8_t ip_out[4])
+{
+    return (int)_sc_ret(_syscall2(66, (uint64_t)host, (uint64_t)ip_out));
+}
+
 static inline int zen_getkey(void) { return (int)_syscall0(3); }
 static inline uint32_t zen_mouse_x(void) { return (uint32_t)_syscall0(5); }
 static inline uint32_t zen_mouse_y(void) { return (uint32_t)_syscall0(6); }

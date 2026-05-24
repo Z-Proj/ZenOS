@@ -20,6 +20,7 @@
 #include <sys/utsname.h>
 #include <termios.h>
 #include <unistd.h>
+#include <netinet/in.h>
 
 #include <frg/manual_box.hpp>
 #include <mlibc/all-sysdeps.hpp>
@@ -29,6 +30,17 @@
 #include "syscall.h"
 
 namespace {
+
+static bool inet_sockets[64];
+
+static bool is_inet_socket(int fd) {
+	return fd >= 0 && static_cast<size_t>(fd) < (sizeof(inet_sockets) / sizeof(inet_sockets[0])) && inet_sockets[fd];
+}
+
+static void set_inet_socket(int fd, bool value) {
+	if(fd >= 0 && static_cast<size_t>(fd) < (sizeof(inet_sockets) / sizeof(inet_sockets[0])))
+		inet_sockets[fd] = value;
+}
 
 static int sc_error(long ret) {
 	return ret < 0 ? static_cast<int>(-ret) : 0;
@@ -221,6 +233,14 @@ int sys_read_entries(int handle, void *buffer, size_t max_size, size_t *bytes_re
 }
 
 int sys_read(int fd, void *buf, size_t count, ssize_t *bytes_read) {
+	if(is_inet_socket(fd)) {
+		long ret = zenos_do_syscall4(ZENOS_SYSCALL_RECV, fd, reinterpret_cast<long>(buf), count, 0);
+		int e = sc_error(ret);
+		if(e)
+			return e;
+		*bytes_read = ret;
+		return 0;
+	}
 	long ret = zenos_do_syscall3(ZENOS_SYSCALL_READ, fd, reinterpret_cast<long>(buf), count);
 	int e = sc_error(ret);
 	if(e)
@@ -230,6 +250,15 @@ int sys_read(int fd, void *buf, size_t count, ssize_t *bytes_read) {
 }
 
 int sys_write(int fd, const void *buf, size_t count, ssize_t *bytes_written) {
+	if(is_inet_socket(fd)) {
+		long ret = zenos_do_syscall4(ZENOS_SYSCALL_SEND, fd, reinterpret_cast<long>(buf), count, 0);
+		int e = sc_error(ret);
+		if(e)
+			return e;
+		if(bytes_written)
+			*bytes_written = ret;
+		return 0;
+	}
 	long ret = zenos_do_syscall3(ZENOS_SYSCALL_WRITE, fd, reinterpret_cast<long>(buf), count);
 	int e = sc_error(ret);
 	if(e)
@@ -249,6 +278,11 @@ int sys_seek(int fd, off_t offset, int whence, off_t *new_offset) {
 }
 
 int sys_close(int fd) {
+	if(is_inet_socket(fd)) {
+		long ret = zenos_do_syscall1(ZENOS_SYSCALL_CLOSESOCKET, fd);
+		set_inet_socket(fd, false);
+		return sc_error(ret);
+	}
 	long ret = zenos_do_syscall1(ZENOS_SYSCALL_CLOSE, fd);
 	return sc_error(ret);
 }
@@ -792,7 +826,18 @@ int sys_clone(void *tcb, pid_t *pid_out, void *stack) {
 }
 
 int sys_socket(int domain, int type, int protocol, int *fd) {
-	(void)protocol;
+	int base_type = type & ~(SOCK_CLOEXEC | SOCK_NONBLOCK);
+	if(domain == AF_INET) {
+		if(base_type != SOCK_STREAM)
+			return EPROTONOSUPPORT;
+		if(protocol != 0 && protocol != IPPROTO_TCP)
+			return EPROTONOSUPPORT;
+		long ret = zenos_do_syscall3(ZENOS_SYSCALL_SOCKET, domain, base_type, protocol);
+		int e = finish_fd(ret, fd);
+		if(!e)
+			set_inet_socket(*fd, true);
+		return e;
+	}
 	long ret = zenos_do_syscall2(ZENOS_SYSCALL_UNIX_SOCKET, domain, type);
 	return finish_fd(ret, fd);
 }
@@ -816,17 +861,42 @@ int sys_accept(int fd, int *newfd, struct sockaddr *addr, socklen_t *addrlen, in
 }
 
 int sys_connect(int fd, const struct sockaddr *addr, socklen_t addrlen) {
-	(void)addrlen;
+	if((addr && addr->sa_family == AF_INET) || is_inet_socket(fd)) {
+		if(!addr || addrlen < sizeof(struct sockaddr_in))
+			return EINVAL;
+		long ret = zenos_do_syscall3(ZENOS_SYSCALL_CONNECT,
+				fd, reinterpret_cast<long>(addr), addrlen);
+		int e = sc_error(ret);
+		if(!e)
+			set_inet_socket(fd, true);
+		return e;
+	}
 	long ret = zenos_do_syscall2(ZENOS_SYSCALL_UNIX_CONNECT,
 			fd, reinterpret_cast<long>(addr));
 	return sc_error(ret);
 }
 
 int sys_msg_send(int fd, const struct msghdr *msg, int flags, ssize_t *bytes_written) {
-	(void)flags;
 	if (!msg || !msg->msg_iov || msg->msg_iovlen == 0)
 		return EINVAL;
 	ssize_t total = 0;
+	if(is_inet_socket(fd)) {
+		for (size_t i = 0; i < msg->msg_iovlen; i++) {
+			long ret = zenos_do_syscall4(ZENOS_SYSCALL_SEND,
+					fd,
+					reinterpret_cast<long>(msg->msg_iov[i].iov_base),
+					msg->msg_iov[i].iov_len,
+					flags);
+			int e = sc_error(ret);
+			if(e) return e;
+			total += ret;
+			if((size_t)ret < msg->msg_iov[i].iov_len)
+				break;
+		}
+		*bytes_written = total;
+		return 0;
+	}
+	(void)flags;
 	for (size_t i = 0; i < msg->msg_iovlen; i++) {
 		long ret = zenos_do_syscall4(ZENOS_SYSCALL_UNIX_SEND,
 				fd,
@@ -842,10 +912,26 @@ int sys_msg_send(int fd, const struct msghdr *msg, int flags, ssize_t *bytes_wri
 }
 
 int sys_msg_recv(int fd, struct msghdr *msg, int flags, ssize_t *bytes_read) {
-	(void)flags;
 	if (!msg || !msg->msg_iov || msg->msg_iovlen == 0)
 		return EINVAL;
 	ssize_t total = 0;
+	if(is_inet_socket(fd)) {
+		for (size_t i = 0; i < msg->msg_iovlen; i++) {
+			long ret = zenos_do_syscall4(ZENOS_SYSCALL_RECV,
+					fd,
+					reinterpret_cast<long>(msg->msg_iov[i].iov_base),
+					msg->msg_iov[i].iov_len,
+					flags);
+			int e = sc_error(ret);
+			if(e) return e;
+			total += ret;
+			if((size_t)ret < msg->msg_iov[i].iov_len)
+				break;
+		}
+		*bytes_read = total;
+		return 0;
+	}
+	(void)flags;
 	for (size_t i = 0; i < msg->msg_iovlen; i++) {
 		long ret = zenos_do_syscall5(ZENOS_SYSCALL_UNIX_RECV,
 				fd,
@@ -883,6 +969,10 @@ int sys_setsockopt(int fd, int layer, int number, const void *buffer, socklen_t 
 }
 
 int sys_shutdown(int fd, int how) {
+	if(is_inet_socket(fd)) {
+		long ret = zenos_do_syscall2(ZENOS_SYSCALL_CLOSESOCKET, fd, how);
+		return sc_error(ret);
+	}
 	long ret = zenos_do_syscall2(ZENOS_SYSCALL_UNIX_SHUTDOWN, fd, how);
 	return sc_error(ret);
 }

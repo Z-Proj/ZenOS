@@ -18,7 +18,7 @@
 #include "stdint.h"
 #include "acpi/acpi.h"
 
-#define MAX_CPUS 8
+#define MAX_CPUS 16
 
 typedef struct
 {
