@@ -246,7 +246,7 @@ int main(int argc, char** argv) {
 	SetupProgram(argc, argv);
 	do {
 		res = RunProgram(argc, argv);
-	} while (Platform_IsSingleProcess() && Window_Main.Exists);
+	} while (Platform_IsSingleProcess() && (Window_Main.Exists || HasPendingGameArgs()));
 	Window_Free();
 	Process_Exit(res);
 	return (int)res;

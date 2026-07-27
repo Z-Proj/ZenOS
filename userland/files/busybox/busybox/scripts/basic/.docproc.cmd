@@ -13,8 +13,8 @@ deps_scripts/basic/docproc := \
   /usr/include/bits/long-double.h \
   /usr/include/gnu/stubs.h \
   /usr/include/gnu/stubs-64.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/stddef.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/stdarg.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/stddef.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/stdarg.h \
   /usr/include/bits/types.h \
   /usr/include/bits/typesizes.h \
   /usr/include/bits/time64.h \
@@ -57,6 +57,7 @@ deps_scripts/basic/docproc := \
   /usr/include/bits/struct_rwlock.h \
   /usr/include/alloca.h \
   /usr/include/bits/stdlib-bsearch.h \
+  /usr/include/bits/types/once_flag.h \
   /usr/include/bits/stdlib-float.h \
   /usr/include/string.h \
   /usr/include/bits/types/locale_t.h \
@@ -70,8 +71,8 @@ deps_scripts/basic/docproc := \
   /usr/include/bits/getopt_posix.h \
   /usr/include/bits/getopt_core.h \
   /usr/include/bits/unistd_ext.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/limits.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/syslimits.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/limits.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/syslimits.h \
   /usr/include/limits.h \
   /usr/include/bits/posix1_lim.h \
   /usr/include/bits/local_lim.h \

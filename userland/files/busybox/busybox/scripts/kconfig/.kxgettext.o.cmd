@@ -13,7 +13,7 @@ deps_scripts/kconfig/kxgettext.o := \
   /usr/include/bits/long-double.h \
   /usr/include/gnu/stubs.h \
   /usr/include/gnu/stubs-64.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/stddef.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/stddef.h \
   /usr/include/bits/waitflags.h \
   /usr/include/bits/waitstatus.h \
   /usr/include/bits/floatn.h \
@@ -46,6 +46,7 @@ deps_scripts/kconfig/kxgettext.o := \
   /usr/include/bits/struct_rwlock.h \
   /usr/include/alloca.h \
   /usr/include/bits/stdlib-bsearch.h \
+  /usr/include/bits/types/once_flag.h \
   /usr/include/bits/stdlib-float.h \
   /usr/include/string.h \
   /usr/include/bits/types/locale_t.h \
@@ -54,7 +55,7 @@ deps_scripts/kconfig/kxgettext.o := \
   scripts/kconfig/lkc.h \
   scripts/kconfig/expr.h \
   /usr/include/stdio.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/stdarg.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/stdarg.h \
   /usr/include/bits/types/__fpos_t.h \
   /usr/include/bits/types/__mbstate_t.h \
   /usr/include/bits/types/__fpos64_t.h \
@@ -64,7 +65,7 @@ deps_scripts/kconfig/kxgettext.o := \
   /usr/include/bits/types/cookie_io_functions_t.h \
   /usr/include/bits/stdio_lim.h \
   /usr/include/bits/stdio.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/stdbool.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/stdbool.h \
   /usr/include/libintl.h \
   /usr/include/locale.h \
   /usr/include/bits/locale.h \

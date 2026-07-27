@@ -721,6 +721,17 @@ static void poll_ipc(void)
                 request_full_redraw();
                 break;
             }
+
+        } else if (msg.type == WM_MSG_CAPTURE) {
+            for (int i = 0; i < MAX_WINDOWS; i++) {
+                if (!windows[i].active || windows[i].pid != msg.pid) continue;
+                if (msg.x && focused_win == i) {
+                    captured_win = i;
+                } else if (captured_win == i) {
+                    captured_win = -1;
+                }
+                break;
+            }
         }
     }
 }
@@ -921,14 +932,39 @@ int main(int argc, char* argv[])
             drag_win = -1; dragging = 0;
         }
 
-        int cw = client_window_at((int)mx, (int)my);
-        if (!dragging && moved && cw >= 0)
-            send_mouse_event(cw, HARP_EVENT_MOUSE_MOVE, 0, 0, (int)mx, (int)my, mods);
-        if (!dragging && cw >= 0) {
-            uint8_t changed = btn ^ prev_btn;
-            if (changed & 1) send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_LEFT,   (btn&1)?1:0, (int)mx, (int)my, mods);
-            if (changed & 2) send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_MIDDLE, (btn&2)?1:0, (int)mx, (int)my, mods);
-            if (changed & 4) send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_RIGHT,  (btn&4)?1:0, (int)mx, (int)my, mods);
+        int cw = (captured_win >= 0 && windows[captured_win].active && !windows[captured_win].minimized)
+                     ? captured_win : client_window_at((int)mx, (int)my);
+
+        if (captured_win >= 0 && cw == captured_win) {
+            if (!dragging && moved) {
+                int32_t dx = (int32_t)mx - prev_mx;
+                int32_t dy = (int32_t)my - prev_my;
+                send_mouse_raw_event(cw, dx, dy, mods);
+            }
+            if (!dragging) {
+                uint8_t changed = btn ^ prev_btn;
+                if (changed & 1) send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_LEFT,   (btn&1)?1:0, (int)mx, (int)my, mods);
+                if (changed & 2) send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_MIDDLE, (btn&2)?1:0, (int)mx, (int)my, mods);
+                if (changed & 4) send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_RIGHT,  (btn&4)?1:0, (int)mx, (int)my, mods);
+            }
+        } else {
+            if (!dragging && moved && cw >= 0)
+                send_mouse_event(cw, HARP_EVENT_MOUSE_MOVE, 0, 0, (int)mx, (int)my, mods);
+            if (!dragging && cw >= 0) {
+                uint8_t changed = btn ^ prev_btn;
+                if (changed & 1) send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_LEFT,   (btn&1)?1:0, (int)mx, (int)my, mods);
+                if (changed & 2) send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_MIDDLE, (btn&2)?1:0, (int)mx, (int)my, mods);
+                if (changed & 4) send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_RIGHT,  (btn&4)?1:0, (int)mx, (int)my, mods);
+            }
+        }
+
+        if (captured_win >= 0 && moved) {
+            window_t *cwin = &windows[captured_win];
+            uint32_t center_x = (uint32_t)(cwin->x + cwin->w / 2);
+            uint32_t center_y = (uint32_t)(cwin->y + TITLEBAR_H + cwin->h / 2);
+            input_set_ptr_pos(center_x, center_y);
+            mx = center_x;
+            my = center_y;
         }
 
         flush_pending_redraw(mx, my);

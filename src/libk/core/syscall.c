@@ -1105,6 +1105,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     case SYSCALL_MOUSE_BTN:
         return mouse_button();
 
+    case SYSCALL_MOUSE_SET_POS:
+        mouse_set_pos((uint32_t)arg1, (uint32_t)arg2);
+        return 0;
+
     case SYSCALL_SPEAKER:
         speaker_play((uint32_t)arg1);
         return 0;

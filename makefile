@@ -25,6 +25,8 @@ CFLAGS = -mcmodel=kernel -m64 \
          -ffreestanding -fno-stack-protector \
          -fno-pie -fno-pic \
          -mno-red-zone \
+         -mno-sse -mno-sse2 -mno-mmx -mno-avx \
+         -fno-vectorize -fno-slp-vectorize -fno-tree-vectorize \
          -fomit-frame-pointer \
          -fno-unwind-tables -fno-asynchronous-unwind-tables \
          -Wall -Wextra -Wno-missing-braces \
@@ -176,7 +178,7 @@ stop:
 	VBoxManage controlvm "ZenOS" poweroff
 
 vbox:
-	virtualboxvm --startvm "ZenOS" & sleep 6 && socat - UNIX-CONNECT:/tmp/zenos
+	virtualboxvm --startvm "ZenOS" & sleep 3 && socat - UNIX-CONNECT:/tmp/zenos
 
 gdb:
 	gdb build/kernel.bin
@@ -214,7 +216,6 @@ mlibc:
 
 .PHONY: all clean run qemu out stop gdb fat funcs mlibc
 
-src/libk/core/mem.o: CFLAGS += -fno-vectorize -fno-slp-vectorize -mno-sse -mno-sse2 -mno-mmx
-src/libk/string.o: CFLAGS += -fno-builtin-memcpy -fno-builtin-memmove -fno-builtin-memset -fno-builtin-memcmp -fno-builtin-memchr -fno-vectorize -fno-slp-vectorize -mno-sse -mno-sse2 -mno-mmx
+src/libk/string.o: CFLAGS += -fno-builtin-memcpy -fno-builtin-memmove -fno-builtin-memset -fno-builtin-memcmp -fno-builtin-memchr
 
 -include $(DEPS)

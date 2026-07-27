@@ -166,13 +166,17 @@ static void HandleKey(const harp_event_t* ev) {
 static void HandleMouseMove(const harp_event_t* ev) {
 	int x = ClampInt(ev->x, 0, Window_Main.Width - 1);
 	int y = ClampInt(ev->y, 0, Window_Main.Height - 1);
-	if (Input.RawMode) {
-		Event_RaiseRawMove(&PointerEvents.RawMoved, x - mouseX, y - mouseY);
-	} else {
+	if (!Input.RawMode) {
 		Pointer_SetPosition(0, x, y);
 	}
 	mouseX = x;
 	mouseY = y;
+}
+
+static void HandleMouseRawMove(const harp_event_t* ev) {
+	if (Input.RawMode) {
+		Event_RaiseRawMove(&PointerEvents.RawMoved, (float)ev->x, (float)ev->y);
+	}
 }
 
 static int MapMouseButton(int code) {
@@ -202,6 +206,9 @@ void Window_ProcessEvents(float delta) {
 			break;
 		case HARP_EVENT_MOUSE_MOVE:
 			HandleMouseMove(&ev);
+			break;
+		case HARP_EVENT_MOUSE_RAW_MOVE:
+			HandleMouseRawMove(&ev);
 			break;
 		case HARP_EVENT_MOUSE_BUTTON:
 			HandleMouseButton(&ev);
@@ -273,6 +280,7 @@ void Window_LockLandscapeOrientation(cc_bool lock) { }
 void Window_EnableRawMouse(void) {
 	Input.RawMode = true;
 	Cursor_SetVisible(false);
+	if (win) harp_set_mouse_capture(win, true);
 }
 
 void Window_UpdateRawMouse(void) { }
@@ -280,4 +288,5 @@ void Window_UpdateRawMouse(void) { }
 void Window_DisableRawMouse(void) {
 	Input.RawMode = false;
 	Cursor_SetVisible(true);
+	if (win) harp_set_mouse_capture(win, false);
 }

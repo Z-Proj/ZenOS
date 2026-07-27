@@ -21,7 +21,7 @@ deps_scripts/kconfig/conf.o := \
   /usr/include/bits/types/__locale_t.h \
   /usr/include/stdlib.h \
   /usr/include/bits/libc-header-start.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/stddef.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/stddef.h \
   /usr/include/bits/waitflags.h \
   /usr/include/bits/waitstatus.h \
   /usr/include/bits/floatn.h \
@@ -39,9 +39,10 @@ deps_scripts/kconfig/conf.o := \
   /usr/include/bits/struct_mutex.h \
   /usr/include/bits/struct_rwlock.h \
   /usr/include/bits/stdlib-bsearch.h \
+  /usr/include/bits/types/once_flag.h \
   /usr/include/bits/stdlib-float.h \
   /usr/include/stdio.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/stdarg.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/stdarg.h \
   /usr/include/bits/types/__fpos_t.h \
   /usr/include/bits/types/__mbstate_t.h \
   /usr/include/bits/types/__fpos64_t.h \
@@ -68,7 +69,7 @@ deps_scripts/kconfig/conf.o := \
   /usr/include/bits/struct_stat.h \
   scripts/kconfig/lkc.h \
   scripts/kconfig/expr.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/stdbool.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/stdbool.h \
   /usr/include/libintl.h \
   /usr/include/locale.h \
   /usr/include/bits/locale.h \

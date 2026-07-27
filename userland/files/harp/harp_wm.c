@@ -50,6 +50,7 @@ window_t windows[MAX_WINDOWS];
 int      zstack[MAX_WINDOWS];
 int      zcount      = 0;
 int      focused_win = -1;
+int      captured_win = -1;
 int      drag_win    = -1;
 int      drag_start_x, drag_start_y;
 int      drag_base_x, drag_base_y;
@@ -151,6 +152,9 @@ void set_focused_window(int idx)
 
     int prev = focused_win;
     focused_win = idx;
+
+    if (captured_win >= 0 && captured_win != idx)
+        captured_win = -1;
 
     if (prev >= 0 && windows[prev].active) {
         harp_event_t ev;
@@ -343,6 +347,21 @@ void send_mouse_event(int idx, uint16_t type, uint16_t code, int32_t value,
     ev.value     = value;
     ev.x         = x - w->x;
     ev.y         = y - (w->y + TITLEBAR_H);
+    ev.modifiers = mods;
+    send_window_event(w, &ev);
+}
+
+void send_mouse_raw_event(int idx, int32_t dx, int32_t dy, uint32_t mods)
+{
+    if (idx < 0 || idx >= MAX_WINDOWS) return;
+    window_t *w = &windows[idx];
+    if (!w->active || w->minimized) return;
+    if (dx == 0 && dy == 0) return;
+    harp_event_t ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.type      = HARP_EVENT_MOUSE_RAW_MOVE;
+    ev.x         = dx;
+    ev.y         = dy;
     ev.modifiers = mods;
     send_window_event(w, &ev);
 }

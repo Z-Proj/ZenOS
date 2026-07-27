@@ -16,7 +16,18 @@
 #include <stdint.h>
 #include "sse_fpu.h"
 #include "../libk/debug/log.h"
+#include "../libk/string.h"
 #include "stddef.h"
+
+static uint8_t initial_fpu_state[FPU_STATE_SIZE] __attribute__((aligned(FPU_STATE_ALIGN)));
+static int initial_fpu_state_ready = 0;
+
+static inline void load_default_mxcsr(void)
+{
+    uint32_t mxcsr = 0x1F80;
+    asm volatile("ldmxcsr %0" : : "m"(mxcsr) : "memory");
+}
+
 void enable_sse_and_fpu(void)
 {
     uint64_t cr0, cr4;
@@ -37,5 +48,35 @@ void enable_sse_and_fpu(void)
     asm("mov %%cr4, %0" : "=r"(t));
     t |= 3 << 9;
     asm("mov %0, %%cr4" ::"r"(t));
-    asm("fninit");
+    asm volatile("fninit");
+    load_default_mxcsr();
+    fpu_save_state(initial_fpu_state);
+    initial_fpu_state_ready = 1;
+}
+
+void fpu_init_state(void *state)
+{
+    if (!state)
+        return;
+
+    if (initial_fpu_state_ready) {
+        memcpy(state, initial_fpu_state, FPU_STATE_SIZE);
+        return;
+    }
+
+    memset(state, 0, FPU_STATE_SIZE);
+}
+
+void fpu_save_state(void *state)
+{
+    if (!state)
+        return;
+    asm volatile("fxsave64 (%0)" : : "r"(state) : "memory");
+}
+
+void fpu_restore_state(const void *state)
+{
+    if (!state)
+        return;
+    asm volatile("fxrstor64 (%0)" : : "r"(state) : "memory");
 }

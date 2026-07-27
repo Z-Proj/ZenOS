@@ -18,7 +18,7 @@ deps_applets/usage := \
   /usr/include/bits/types.h \
   /usr/include/bits/typesizes.h \
   /usr/include/bits/time64.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/stddef.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/stddef.h \
   /usr/include/bits/confname.h \
   /usr/include/bits/getopt_posix.h \
   /usr/include/bits/getopt_core.h \
@@ -54,6 +54,7 @@ deps_applets/usage := \
   /usr/include/bits/struct_rwlock.h \
   /usr/include/alloca.h \
   /usr/include/bits/stdlib-bsearch.h \
+  /usr/include/bits/types/once_flag.h \
   /usr/include/bits/stdlib-float.h \
   /usr/include/string.h \
   /usr/include/bits/types/locale_t.h \

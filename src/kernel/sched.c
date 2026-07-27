@@ -219,6 +219,7 @@ static task_t *create_kernel_task_locked(void (*entry)(void), const char *name, 
         return NULL;
 
     memset(task, 0, sizeof(task_t));
+    fpu_init_state(task->fpu_state);
     task->pid = next_pid++;
     strncpy(task->name, name, 63);
     task->name[63] = '\0';
@@ -420,6 +421,7 @@ task_t *task_create_user_from_parent(void (*entry)(void), const char *name, page
         return NULL;
     }
     memset(task, 0, sizeof(task_t));
+    fpu_init_state(task->fpu_state);
     task->pid = next_pid++;
     strncpy(task->name, name, 63);
     task->name[63] = '\0';
@@ -706,6 +708,10 @@ static void sched_switch_locked(sched_cpu_state_t *cpu_state, task_t *old_task, 
         syscall_prepare_user_return(new_task->user_gs_base);
     else if (!new_task->is_kernel_task)
         syscall_prepare_sysret_return(new_task->user_gs_base);
+
+    if (old_task && old_task != new_task)
+        fpu_save_state(old_task->fpu_state);
+    fpu_restore_state(new_task->fpu_state);
 
     spinlock_release_noirq(&sched_lock);
 
@@ -1197,6 +1203,7 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
     child->pinned_cpu = sched_pick_user_cpu_locked();
     child->running_cpu = -1;
     child->last_cpu = -1;
+    fpu_save_state(child->fpu_state);
     memcpy(child->sighandlers, parent->sighandlers, sizeof(parent->sighandlers));
     child->sig_pending = 0;
     child->sig_mask = parent->sig_mask;

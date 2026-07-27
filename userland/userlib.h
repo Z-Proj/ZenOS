@@ -226,6 +226,7 @@ static inline int zen_getkey(void) { return (int)_syscall0(3); }
 static inline uint32_t zen_mouse_x(void) { return (uint32_t)_syscall0(5); }
 static inline uint32_t zen_mouse_y(void) { return (uint32_t)_syscall0(6); }
 static inline uint8_t zen_mouse_btn(void) { return (uint8_t)_syscall0(7); }
+static inline void zen_mouse_set_pos(uint32_t x, uint32_t y) { _syscall2(103, x, y); }
 static inline void zen_speaker(uint32_t hz) { _syscall1(8, hz); }
 static inline void zen_speaker_off(void) { _syscall0(9); }
 static inline int zen_ls(char *buf, size_t sz) { return (int)_sc_ret(_syscall2(44, (uint64_t)buf, sz)); }

@@ -91,7 +91,7 @@ void _start(void)
     IoApicSetIrqMapped(15, 0x2F);
     IoApicSetIrqMapped(8, 0x28);
     vga_boot_splash_status("Initializing timers and PCI");
-    rtc_initialize(); // fallback
+    rtc_initialize();
     sched_init();
     pci_initialize_system();
     IoApicSetIrqMapped(0, 0x22);

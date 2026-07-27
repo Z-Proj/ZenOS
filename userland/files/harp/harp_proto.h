@@ -40,15 +40,17 @@
 #define WM_MSG_UNREGISTER 3
 #define WM_MSG_RETITLE    4
 #define WM_MSG_RESIZE_REQ 5
+#define WM_MSG_CAPTURE    6
 
-#define HARP_EVENT_FOCUS        1
-#define HARP_EVENT_BLUR         2
-#define HARP_EVENT_MOUSE_MOVE   3
-#define HARP_EVENT_MOUSE_BUTTON 4
-#define HARP_EVENT_KEY          5
-#define HARP_EVENT_RESIZE       6
-#define HARP_EVENT_CLOSE_REQ    7
-#define HARP_EVENT_EXPOSE       8
+#define HARP_EVENT_FOCUS         1
+#define HARP_EVENT_BLUR          2
+#define HARP_EVENT_MOUSE_MOVE    3
+#define HARP_EVENT_MOUSE_BUTTON  4
+#define HARP_EVENT_KEY           5
+#define HARP_EVENT_RESIZE        6
+#define HARP_EVENT_CLOSE_REQ     7
+#define HARP_EVENT_EXPOSE        8
+#define HARP_EVENT_MOUSE_RAW_MOVE 9
 
 #define HARP_MOD_SHIFT 0x01
 #define HARP_MOD_CTRL  0x02

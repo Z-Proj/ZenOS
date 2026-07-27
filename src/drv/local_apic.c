@@ -108,13 +108,28 @@ static uint32_t lapic_timer_calibrate(uint32_t frequency_hz)
     LocalApicOut(LAPIC_TICR, 0xffffffffu);
 
     uint64_t start_ns = hpet_monotonic_ns();
-    while ((hpet_monotonic_ns() - start_ns) < 10000000ULL)
+    uint64_t now_ns = start_ns;
+    uint64_t spins = 0;
+    const uint64_t MAX_CALIBRATION_SPINS = 200000000ULL;
+    while ((now_ns - start_ns) < 10000000ULL) {
         __asm__ volatile("pause" ::: "memory");
+        now_ns = hpet_monotonic_ns();
+        if (++spins >= MAX_CALIBRATION_SPINS)
+            break;
+    }
 
-    uint32_t elapsed = 0xffffffffu - LocalApicIn(LAPIC_TCCR);
-    uint32_t initial_count = (uint32_t)(((uint64_t)elapsed * 100ULL) / frequency_hz);
-    if (initial_count < 16)
-        initial_count = 16;
+    uint32_t initial_count;
+    if ((now_ns - start_ns) < 10000000ULL) {
+        log("LAPIC timer calibration failed.", 2, 0);
+        initial_count = 100000000ULL / frequency_hz;
+        if (initial_count < 16)
+            initial_count = 16;
+    } else {
+        uint32_t elapsed = 0xffffffffu - LocalApicIn(LAPIC_TCCR);
+        initial_count = (uint32_t)(((uint64_t)elapsed * 100ULL) / frequency_hz);
+        if (initial_count < 16)
+            initial_count = 16;
+    }
 
     LocalApicOut(LAPIC_TIMER, LAPIC_TIMER_MASKED | LAPIC_TIMER_VECTOR);
     LocalApicOut(LAPIC_TICR, 0);

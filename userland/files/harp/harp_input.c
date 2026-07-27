@@ -59,6 +59,7 @@ uint32_t input_ptr_x(void)    { return s_ptr_x; }
 uint32_t input_ptr_y(void)    { return s_ptr_y; }
 uint8_t  input_ptr_btn(void)  { return s_ptr_btn; }
 uint32_t input_modifiers(void){ return s_mods; }
+void     input_set_ptr_pos(uint32_t x, uint32_t y) { s_ptr_x = x; s_ptr_y = y; }
 int      input_consume_tab(void) { int v = s_tab_flag; s_tab_flag = 0; return v; }
 
 int translate_key(uint16_t code, uint32_t mods, int32_t value)

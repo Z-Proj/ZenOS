@@ -16,6 +16,14 @@
 #ifndef SSE_FPU_H
 #define SSE_FPU_H
 
+#include <stddef.h>
+
+#define FPU_STATE_SIZE 512
+#define FPU_STATE_ALIGN 16
+
 void enable_sse_and_fpu(void);
+void fpu_init_state(void *state);
+void fpu_save_state(void *state);
+void fpu_restore_state(const void *state);
 
 #endif

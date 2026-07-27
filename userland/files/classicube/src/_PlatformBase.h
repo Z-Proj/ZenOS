@@ -189,6 +189,10 @@ static CC_INLINE int GetGameArgs(cc_string* args) {
 	return count;
 }
 
+static CC_INLINE cc_bool HasPendingGameArgs(void) {
+	return gameHasArgs && gameNumArgs > 0;
+}
+
 #ifdef DEFAULT_COMMANDLINE_FUNC
 int Platform_GetCommandLineArgs(int argc, STRING_REF char** argv, cc_string* args) {
 	if (gameHasArgs) return GetGameArgs(args);

@@ -24,7 +24,7 @@ deps_applets/applet_tables := \
   /usr/include/bits/types/clockid_t.h \
   /usr/include/bits/types/time_t.h \
   /usr/include/bits/types/timer_t.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/stddef.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/stddef.h \
   /usr/include/bits/stdint-intn.h \
   /usr/include/endian.h \
   /usr/include/bits/endian.h \
@@ -49,8 +49,9 @@ deps_applets/applet_tables := \
   /usr/include/fcntl.h \
   /usr/include/bits/fcntl.h \
   /usr/include/bits/fcntl-linux.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/limits.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/syslimits.h \
+  /usr/include/bits/cloexec.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/limits.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/syslimits.h \
   /usr/include/limits.h \
   /usr/include/bits/libc-header-start.h \
   /usr/include/bits/posix1_lim.h \
@@ -66,13 +67,14 @@ deps_applets/applet_tables := \
   /usr/include/bits/floatn-common.h \
   /usr/include/alloca.h \
   /usr/include/bits/stdlib-bsearch.h \
+  /usr/include/bits/types/once_flag.h \
   /usr/include/bits/stdlib-float.h \
   /usr/include/string.h \
   /usr/include/bits/types/locale_t.h \
   /usr/include/bits/types/__locale_t.h \
   /usr/include/strings.h \
   /usr/include/stdio.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/stdarg.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/stdarg.h \
   /usr/include/bits/types/__fpos_t.h \
   /usr/include/bits/types/__mbstate_t.h \
   /usr/include/bits/types/__fpos64_t.h \

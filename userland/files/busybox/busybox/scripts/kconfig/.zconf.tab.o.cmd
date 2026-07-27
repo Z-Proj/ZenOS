@@ -19,10 +19,10 @@ deps_scripts/kconfig/zconf.tab.o := \
   /usr/include/bits/endianness.h \
   /usr/include/bits/types/locale_t.h \
   /usr/include/bits/types/__locale_t.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/stdarg.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/stdarg.h \
   /usr/include/stdio.h \
   /usr/include/bits/libc-header-start.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/stddef.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/stddef.h \
   /usr/include/bits/types/__fpos_t.h \
   /usr/include/bits/types/__mbstate_t.h \
   /usr/include/bits/types/__fpos64_t.h \
@@ -60,10 +60,11 @@ deps_scripts/kconfig/zconf.tab.o := \
   /usr/include/bits/struct_rwlock.h \
   /usr/include/alloca.h \
   /usr/include/bits/stdlib-bsearch.h \
+  /usr/include/bits/types/once_flag.h \
   /usr/include/bits/stdlib-float.h \
   /usr/include/string.h \
   /usr/include/strings.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/stdbool.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/stdbool.h \
   scripts/kconfig/lkc.h \
   scripts/kconfig/expr.h \
   /usr/include/libintl.h \
@@ -79,13 +80,13 @@ deps_scripts/kconfig/zconf.tab.o := \
   /usr/include/asm-generic/errno.h \
   /usr/include/asm-generic/errno-base.h \
   /usr/include/inttypes.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/stdint.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/stdint.h \
   /usr/include/stdint.h \
   /usr/include/bits/wchar.h \
   /usr/include/bits/stdint-uintn.h \
   /usr/include/bits/stdint-least.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/limits.h \
-  /usr/lib/gcc/x86_64-redhat-linux/15/include/syslimits.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/limits.h \
+  /usr/lib/gcc/x86_64-redhat-linux/16/include/syslimits.h \
   /usr/include/limits.h \
   /usr/include/bits/posix1_lim.h \
   /usr/include/bits/local_lim.h \

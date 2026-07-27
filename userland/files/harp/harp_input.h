@@ -41,6 +41,7 @@ uint32_t input_ptr_x(void);
 uint32_t input_ptr_y(void);
 uint8_t  input_ptr_btn(void);
 uint32_t input_modifiers(void);
+void     input_set_ptr_pos(uint32_t x, uint32_t y);
 
 int input_pump_keyboard(void);
 int input_pump_mouse(void);

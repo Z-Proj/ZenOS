@@ -15,15 +15,17 @@
 #define WM_MSG_UNREGISTER 3
 #define WM_MSG_RETITLE    4
 #define WM_MSG_RESIZE_REQ 5
+#define WM_MSG_CAPTURE    6
 
-#define HARP_EVENT_FOCUS        1
-#define HARP_EVENT_BLUR         2
-#define HARP_EVENT_MOUSE_MOVE   3
-#define HARP_EVENT_MOUSE_BUTTON 4
-#define HARP_EVENT_KEY          5
-#define HARP_EVENT_RESIZE       6
-#define HARP_EVENT_CLOSE_REQ    7
-#define HARP_EVENT_EXPOSE       8
+#define HARP_EVENT_FOCUS         1
+#define HARP_EVENT_BLUR          2
+#define HARP_EVENT_MOUSE_MOVE    3
+#define HARP_EVENT_MOUSE_BUTTON  4
+#define HARP_EVENT_KEY           5
+#define HARP_EVENT_RESIZE        6
+#define HARP_EVENT_CLOSE_REQ     7
+#define HARP_EVENT_EXPOSE        8
+#define HARP_EVENT_MOUSE_RAW_MOVE 9
 
 #define HARP_MOD_SHIFT 0x01
 #define HARP_MOD_CTRL  0x02
@@ -154,6 +156,17 @@ static inline void harp_retitle(harp_window_t *gw, const char *title)
     msg.type = WM_MSG_RETITLE;
     msg.pid  = gw->pid;
     strncpy(msg.title, title, sizeof(msg.title) - 1);
+    socket_write(gw->sock, &msg, sizeof(msg));
+}
+
+static inline void harp_set_mouse_capture(harp_window_t *gw, int captured)
+{
+    if (!gw || !gw->sock) return;
+    wm_msg_t msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.type = WM_MSG_CAPTURE;
+    msg.pid  = gw->pid;
+    msg.x    = captured ? 1 : 0;
     socket_write(gw->sock, &msg, sizeof(msg));
 }
 

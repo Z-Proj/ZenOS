@@ -122,6 +122,7 @@
 #define SYSCALL_GETEGID          100
 #define SYSCALL_GETPPID          101
 #define SYSCALL_POLL            102
+#define SYSCALL_MOUSE_SET_POS   103
 #define ZEN_TIOCGWINSZ  0x5413  
 #define ZEN_TIOCSWINSZ  0x5414  
 #define ZEN_TIOCSPTYGID 0x5420  

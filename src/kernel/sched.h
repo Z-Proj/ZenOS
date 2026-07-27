@@ -19,6 +19,7 @@
 #include <stdint.h>
 typedef int64_t pid_t;
 #include "../cpu/isr.h"
+#include "../cpu/sse_fpu.h"
 #include "../libk/core/mem.h"
 #include "../libk/core/fd.h"
 #include "../libk/core/syscall.h"
@@ -80,6 +81,7 @@ typedef struct task
     int32_t running_cpu;
     int32_t last_cpu;
     char cwd[256];
+    uint8_t fpu_state[FPU_STATE_SIZE] __attribute__((aligned(FPU_STATE_ALIGN)));
     struct task *next;
 } task_t;
 
