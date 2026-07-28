@@ -230,6 +230,10 @@ void DG_SetWindowTitle(const char *title)
 
 int main(int argc, char **argv)
 {
+	if (!harp_online()) {
+		zen_log("DOOM: WM unreachable.", 2, 1);
+		return -1;
+	}
     doomgeneric_Create(argc, argv);
     while (1) {
         doomgeneric_Tick();

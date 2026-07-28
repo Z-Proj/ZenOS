@@ -32,7 +32,7 @@
 #include "../../kernel/sched.h"
 
 spinlock_t loglock __attribute__((section(".data"))) = {0};
-char *os_version = debug ? "1.0.0 Developer" : "1.0.0";
+char *os_version = env == 0 ? "1.0.0 (Stable)" : (env == 1 ? "1.0.0 Developer" : "1.0.0 Debug (Unstable)");
 
 void sound_err()
 {
@@ -66,7 +66,7 @@ void log_internal(const char *file, int line, const char *fmt, int level, int vi
         break;
     case 3:
         color_seq = "\x1b[38;2;255;50;50m";
-        if (!debug)
+        if (env != 0 || env != 1)
             sound_err();
         break;
     case 4:
@@ -110,11 +110,17 @@ void log_internal(const char *file, int line, const char *fmt, int level, int vi
     serial_write_string(logline);
     serial_write_string("\x1b[0m");
 
-    if (visibility == 1 || debug)
-    {
-        prints(color_seq);
-        prints(logline);
-        prints("\x1b[0m");
+    if (visibility == 1){
+        switch (env){
+            case 0 : {
+                break;
+            }
+            default : {
+                prints(color_seq);
+                prints(logline);
+                prints("\x1b[0m");
+            }
+        }
     }
 
     spinlock_release(&loglock);

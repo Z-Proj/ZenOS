@@ -24,6 +24,7 @@
 #include <unistd.h>
 #include "_PlatformBase.h"
 #include "main_impl.h"
+#include "../../../include/harp_api.h"
 
 const char* Platform_AppNameSuffix = " ZenOS";
 const cc_result ReturnCode_FileShareViolation = 1000000000;
@@ -242,6 +243,10 @@ cc_result Platform_Decrypt(const void* data, int len, cc_string* dst) {
 }
 
 int main(int argc, char** argv) {
+	if (!harp_online()) {
+		zen_log("ClassiCube: WM unreachable.", 2, 1);
+		return -1;
+	}
 	cc_result res;
 	SetupProgram(argc, argv);
 	do {

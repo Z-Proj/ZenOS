@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
 #include <linux/input.h>
@@ -63,6 +64,15 @@ typedef struct {
 } harp_window_t;
 
 static inline void harp_flush_rect(harp_window_t *gw, int x, int y, int w, int h);
+
+static inline bool harp_online(void) {
+    for (int retry = 0; retry < 10; retry++) {
+        if (socket_exists(WM_SOCK)) break;
+        zen_sleep_ms(10);
+        if (retry == 9) return false;
+    }
+    return true;
+}
 
 static inline harp_window_t *harp_open(const char *title, int x, int y, int w, int h)
 {

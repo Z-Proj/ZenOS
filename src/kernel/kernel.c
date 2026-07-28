@@ -77,6 +77,7 @@ void _start(void)
     init_pmm();
     init_vmm();
     init_kernel_heap();
+    log("\nZenOS v%s\n", 1, 0, os_version);
     enable_sse_and_fpu();
     vga_init(); // Display initializes here
     vga_boot_splash_show("Initializing kernel");
@@ -157,6 +158,9 @@ void _start(void)
     char *init_argv[] = {"kernel"};
     if (elf_exec("/mnt/drv0/bin/init", 1, init_argv) < 0)
         log("No init program found.", 0, 1);
+    for(int i = 0; i < framebuffer_width; i++)
+        for(int j = 0; j < framebuffer_height; j++)
+            put_pixel(i, j, 0x000000);
     sched_start(); // Hand off. Kernel success!
     for (;;)
         ;
