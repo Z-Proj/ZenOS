@@ -53,6 +53,7 @@
 #include "../cpu/id/cpuid.h"
 #include "../drv/rtc.h"
 #include "../drv/hpet.h"
+#include "../drv/pit.h"
 #include "../drv/vga.h"
 #include "../drv/input.h"
 #include "../drv/mouse.h"
@@ -94,8 +95,9 @@ void _start(void)
     rtc_initialize();
     sched_init();
     pci_initialize_system();
-    IoApicSetIrqMapped(0, 0x22);
-    hpet_init(200);
+    IoApicSetIrqMapped(0, TIMER_IRQ_VECTOR);
+    if (!hpet_init(200))
+        pit_init(200);
     LocalApicTimerInit(200);
     input_init();
     IoApicSetIrqMapped(1, 0x21);

@@ -16,9 +16,8 @@
 #include <stdint.h>
 #include "../cpu/isr.h"
 #include "../drv/local_apic.h"
+#include "../drv/hpet.h"
 #include "../libk/debug/log.h"
-
-#define HPET_IRQ_VECTOR 0x22
 
 static uintptr_t hpet_base = 0;
 
@@ -57,17 +56,29 @@ void SetHpetAddress(uint64_t addr)
     hpet_base = (uintptr_t)addr;
 }
 
-void hpet_init(uint32_t frequency_hz)
+int hpet_init(uint32_t frequency_hz)
 {
     if (!hpet_base || !frequency_hz)
-        return;
+        return 0;
+
+    uint64_t cap = hpet_read(HPET_CAP);
+    if (!cap || cap == 0xFFFFFFFFFFFFFFFFULL)
+    {
+        log("HPET capabilities register invalid, HPET not live.", 2, 0);
+        hpet_base = 0;
+        return 0;
+    }
 
     hpet_write(HPET_CFG, 0);
     hpet_write(HPET_COUNTER, 0);
 
-    hpet_period_fs = hpet_read(HPET_CAP) >> 32;
+    hpet_period_fs = cap >> 32;
     if (!hpet_period_fs)
-        return;
+    {
+        log("HPET period is zero, HPET not live.", 2, 0);
+        hpet_base = 0;
+        return 0;
+    }
 
     hpet_counter_hz = 1000000000000000ULL / hpet_period_fs;
     ticks_per_irq = hpet_counter_hz / frequency_hz;
@@ -83,17 +94,23 @@ void hpet_init(uint32_t frequency_hz)
     tcfg &= ~(1ULL << 6);
     hpet_write(HPET_T0_CFG, tcfg);
 
-    register_interrupt_handler(HPET_IRQ_VECTOR, hpet_handler, "HPET Timer");
+    register_interrupt_handler(TIMER_IRQ_VECTOR, hpet_handler, "HPET Timer");
 
     hpet_write(HPET_CFG, 1 | 2);
     hpet_freq_hz = frequency_hz;
 
     log("HPET Initialized.", 4, 0);
+    return 1;
 }
 
 uint32_t hpet_get_freq_hz(void)
 {
     return hpet_freq_hz;
+}
+
+void hpet_set_freq_hz(uint32_t hz)
+{
+    hpet_freq_hz = hz;
 }
 
 uint64_t hpet_monotonic_ns(void)
@@ -114,8 +131,18 @@ uint64_t hpet_monotonic_ns(void)
 
 void sleep_us(uint64_t us)
 {
-    if (!hpet_base || !hpet_period_fs) {
-        for (volatile uint64_t i = 0; i < us * 10; i++);
+    if (!hpet_base || !hpet_period_fs)
+    {
+        if (!hpet_freq_hz)
+            return;
+        uint64_t start_ns = hpet_monotonic_ns();
+        for (;;)
+        {
+            uint64_t now_ns = hpet_monotonic_ns();
+            if ((now_ns - start_ns) >= us * 1000ULL)
+                break;
+            asm volatile("sti; hlt; cli" ::: "memory");
+        }
         return;
     }
 
