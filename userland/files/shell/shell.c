@@ -309,40 +309,25 @@ static void cmd_yield_cmd(void) {
 }
 
 static void cmd_help(void) {
-    fputs("  touch <file> [size]  - Create file\n", stdout);
-    fputs("  rm <file>            - Delete file\n", stdout);
-    fputs("  cat <file>           - Display file contents\n", stdout);
-    fputs("  write <file> <text>  - Write to file\n", stdout);
-    fputs("  stat <file>          - Show file info\n", stdout);
-    fputs("  pwd                  - Print working directory\n", stdout);
-    fputs("  ls [dir]             - List directory contents\n", stdout);
-    fputs("  cd <dir>             - Change directory\n", stdout);
-    fputs("  mkdir <dir>          - Create directory\n", stdout);
-    fputs("  rmdir <dir>          - Remove directory\n", stdout);
-    fputs("  malloc <size>        - Test sbrk allocation\n", stdout);
-    fputs("  mmap <size>          - Test mmap allocation\n", stdout);
-    fputs("  sockcreate <name>    - Create IPC socket\n", stdout);
-    fputs("  sockwrite <name><msg>- Write to socket\n", stdout);
-    fputs("  sockread <name>      - Read from socket\n", stdout);
-    fputs("  sockdel <name>       - Delete socket\n", stdout);
-    fputs("  exec <file>          - Execute program (or just type progname)\n", stdout);
-    fputs("  execwait <file>      - Execute and wait for exit\n", stdout);
-    fputs("  kill <pid>           - Kill a process by PID\n", stdout);
-    fputs("  ps                   - Show process info\n", stdout);
-    fputs("  yield                - Yield CPU\n", stdout);
-    fputs("  uname                - System information\n", stdout);
-    fputs("  time                 - Show current time\n", stdout);
-    fputs("  sleep <ms>           - Sleep for milliseconds\n", stdout);
-    fputs("  mouse                - Show mouse position\n", stdout);
-    fputs("  beep [freq] [dur]    - Play sound\n", stdout);
-    fputs("  help                 - Show this help\n", stdout);
-    fputs("  clear                - Clear screen\n", stdout);
-    fputs("  echo <text>          - Print text\n", stdout);
-    fputs("  version              - Show OS version\n", stdout);
-    fputs("  z                    - Repeat last command\n", stdout);
-    fputs("  exit                 - Exit shell\n", stdout);
-    fputs("  shutdown <sec>       - Shutdown system\n", stdout);
-    fputs("  reboot               - Reboot system\n", stdout);
+    fputs("  ZenOS Shell, version ", stdout);
+    utsname_t uts;
+    if (uname(&uts) == 0) {
+        fputs(uts.release, stdout);
+    } else
+        fputs("unknown", stdout);
+
+    fputs("\n"
+        "  These shell commands are built-in.\n"
+        "  For apps, see the bin directory.\n"
+        "  Type `help` to see this list.\n"
+        "\n"
+        "  help                  clear                 version\n"
+        "  exit                  write                 cd\n"
+        "  sockcreate            sockwrite             sockread\n"
+        "  sockdel               exec                  execwait\n"
+        "  yield                 shutdown              reboot\n"
+        "  z (repeat last cmd)\n",
+        stdout);
 }
 
 static void cmd_clear(void) {

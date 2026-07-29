@@ -157,8 +157,8 @@ byte *I_ZoneBase (int *size)
 
     zonemem = AutoAllocMemory(size, default_ram, min_ram);
 
-    printf("zone memory: %p, %x allocated for zone\n", 
-           zonemem, *size);
+    // printf("zone memory: %p, %x allocated for zone\n", 
+        //    zonemem, *size);
 
     return zonemem;
 }
@@ -188,17 +188,17 @@ void I_PrintDivider(void)
 
 void I_PrintStartupBanner(char *gamedescription)
 {
-    I_PrintDivider();
-    I_PrintBanner(gamedescription);
-    I_PrintDivider();
+    // I_PrintDivider();
+    // I_PrintBanner(gamedescription);
+    // I_PrintDivider();
     
-    printf(
-    " " PACKAGE_NAME " is free software, covered by the GNU General Public\n"
-    " License.  There is NO warranty; not even for MERCHANTABILITY or FITNESS\n"
-    " FOR A PARTICULAR PURPOSE. You are welcome to change and distribute\n"
-    " copies under certain conditions. See the source for more information.\n");
+    // printf(
+    // " " PACKAGE_NAME " is free software, covered by the GNU General Public\n"
+    // " License.  There is NO warranty; not even for MERCHANTABILITY or FITNESS\n"
+    // " FOR A PARTICULAR PURPOSE. You are welcome to change and distribute\n"
+    // " copies under certain conditions. See the source for more information.\n");
 
-    I_PrintDivider();
+    // I_PrintDivider();
 }
 
 // 
@@ -446,7 +446,7 @@ void I_Error (char *error, ...)
     }
 #elif defined(__DJGPP__)
     {
-        printf("%s\n", msgbuf);
+        // printf("%s\n", msgbuf);
         exit(-1);
     }
 

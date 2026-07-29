@@ -97,7 +97,7 @@ static void LoadResponseFile(int argv_index)
 #endif
     }
 
-    printf("Found response file %s!\n", response_filename);
+    // printf("Found response file %s!\n", response_filename);
 
     size = M_FileLength(handle);
 
@@ -218,11 +218,11 @@ static void LoadResponseFile(int argv_index)
     // Disabled - Vanilla Doom does not do this.
     // Display arguments
 
-    printf("%d command-line args:\n", myargc);
+    // printf("%d command-line args:\n", myargc);
 
     for (k=1; k<myargc; k++)
     {
-        printf("'%s'\n", myargv[k]);
+        // printf("'%s'\n", myargv[k]);
     }
 #endif
 #endif

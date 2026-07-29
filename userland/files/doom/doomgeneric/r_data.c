@@ -538,15 +538,15 @@ void R_InitTextures (void)
     // up the box" effect, which uses backspace to "step back" inside
     // the box.  If stdout is a file, don't draw the box.
 
-    if (I_ConsoleStdout())
-    {
-        printf("[");
-        for (i = 0; i < temp3 + 9; i++)
-            printf(" ");
-        printf("]");
-        for (i = 0; i < temp3 + 10; i++)
-            printf("\b");
-    }
+    // if (I_ConsoleStdout())
+    // {
+        // printf("[");
+        // for (i = 0; i < temp3 + 9; i++)
+            // printf(" ");
+        // printf("]");
+        // for (i = 0; i < temp3 + 10; i++)
+            // printf("\b");
+    // }
 	
     for (i=0 ; i<numtextures ; i++, directory++)
     {

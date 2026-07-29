@@ -168,7 +168,7 @@ void DG_Init()
 {
     s_win = harp_open("DOOM", 40, 30, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
     if (!s_win) {
-        write(2, "DG_Init: harp_open failed\n", 26);
+        write(2, "DOOM: harp_open failed\n", 26);
         _exit(1);
     }
     memset(s_win->buf, 0, (size_t)(DOOMGENERIC_RESX * DOOMGENERIC_RESY * 4));
