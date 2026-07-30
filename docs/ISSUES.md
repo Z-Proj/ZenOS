@@ -1,11 +1,13 @@
 ## Current issues in Zen:
 
-> Due to the poor HPET fallback I did, many apps fail to tick on VBox. Also, need a more proper fix.
+> `zen` pkgmgr crashes on VirtualBox.
 
-> ClassiCube mouse capture needs fixes. Mouse does not warp.
+> If on first boot on VBox, we go ahead and click the TRM icon on Harp dash, the input system dies. Okay on QEMU.
 
 ---
 
 ### What to do:
 
-> Fix it
+> Check network logic
+
+> Inspect input system deadlock.

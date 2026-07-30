@@ -41,6 +41,7 @@
 #define KBD_SCANCODE2_F8    0x0A
 #define KBD_SCANCODE2_F9    0x01
 #define KBD_SCANCODE2_F10   0x09
+#define KBD_SCANCODE2_F12   0x07
 
 void init_keyboard(void);
 void keyboard_enqueue_char(char c);

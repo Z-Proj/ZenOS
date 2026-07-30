@@ -24,6 +24,7 @@
 #include "../libk/string.h"
 #include "../libk/core/mem.h"
 #include "../kernel/sched.h"
+#include "../cpu/acpi/acpi.h"
 #include <stdbool.h>
 
 #define PS2_DATA_PORT        0x60
@@ -320,6 +321,9 @@ static void kbd_handle_scancode(uint8_t scancode)
         key_states[scancode] = true;
         update_modifier_state(scancode, true, false);
         input_enqueue_key(input_keycode_from_scancode(scancode, 0), 1);
+
+        if (key_states[KBD_SCANCODE2_F1] && key_states[KBD_SCANCODE2_F12])
+            AcpiReboot();
 
         if (scancode == KBD_SCANCODE2_F2) {
             font(font_id++);

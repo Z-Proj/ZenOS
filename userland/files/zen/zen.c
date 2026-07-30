@@ -41,7 +41,7 @@
 #include <netinet/in.h>
 #include "../../userlib.h"
 
-#define PKG_SERVER_HOST "zen-pkg.byethost17.com"
+#define PKG_SERVER_HOST "zenos.nekoweb.org"
 #define PKG_SERVER_PORT 80
 #define PKG_BASE_PATH "/packages"
 #define INSTALL_DIR "/mnt/drv0/bin"
@@ -122,8 +122,6 @@ static int http_get(const char *path, char **body_out, int *body_len_out)
 
         if (total > 0)
             break;
-        printf("zen: no data from %d.%d.%d.%d, retrying...\n",
-               ip[0], ip[1], ip[2], ip[3]);
     }
 
     if (total == 0)
@@ -170,32 +168,12 @@ static int cmd_list(void)
 
     char *body;
     int blen;
+
     if (http_get(path, &body, &blen) < 0)
         return 1;
-    
-    int i = 0;
-    while (i < blen)
-    {
-        int j = i;
-        while (j < blen && body[j] != '\n' && body[j] != '\r')
-            j++;
-        
-        if (j > i)
-        {
-            for (int k = i; k < j; k++)
-            {
-                putchar(body[k]);
-            }
-            putchar('\n');
-        }
-        else
-        {
-            putchar('\n');
-        }
-        i = j;
-        while (i < blen && (body[i] == '\n' || body[i] == '\r'))
-            i++;
-    }
+
+    write(STDOUT_FILENO, body, blen);
+
     return 0;
 }
 
@@ -203,10 +181,8 @@ static int cmd_install(const char *name, const char *destdir)
 {
     char path[256], dest[256];
 
-    /* fetch the .txt version from server */
     snprintf(path, sizeof(path), "%s/%s.txt", PKG_BASE_PATH, name);
 
-    /* save to bin/ without .txt extension */
     if (destdir)
         snprintf(dest, sizeof(dest), "%s/%s", destdir, name);
     else
