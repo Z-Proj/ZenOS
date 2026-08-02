@@ -696,11 +696,6 @@ void net_init(void)
         1, 0,
         my_mac[0], my_mac[1], my_mac[2], my_mac[3], my_mac[4], my_mac[5],
         my_ip[0], my_ip[1], my_ip[2], my_ip[3]);
-
-    static const uint8_t qemu_gw_mac[6] = {0x52, 0x55, 0x0a, 0x00, 0x02, 0x02};
-    arp_cache_put(my_gw, qemu_gw_mac);
-    log("net: gateway %d.%d.%d.%d seeded in ARP cache", 1, 0,
-        my_gw[0], my_gw[1], my_gw[2], my_gw[3]);
 }
 
 int tcp_connect(const uint8_t ip[4], uint16_t port)

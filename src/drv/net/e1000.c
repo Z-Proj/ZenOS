@@ -259,7 +259,8 @@ int e1000_send_packet(void *data, size_t len)
 {
     if (len > TX_BUFFER_SIZE)
         return -1;
-    if (!pci_dev)
+
+    if (!pci_dev || !dev.tx_ring)
         return -1;
 
     if (!e1000_link_up())
@@ -297,6 +298,9 @@ int e1000_send_packet(void *data, size_t len)
 
 int e1000_receive_packet(void *buf, size_t buf_size)
 {
+    if (!pci_dev || !dev.rx_ring)
+        return -1;
+
     uint16_t idx = dev.rx_cur;
     e1000_rx_desc *desc = &dev.rx_ring[idx];
 

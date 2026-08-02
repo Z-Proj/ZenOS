@@ -129,8 +129,9 @@ $(APP): $(OBJS)
 	      -R .debug_line -R .debug_str -R .debug_ranges $(APP).elf 2>/dev/null || true
 
 install: $(APP)
-	$(FATMAN) $(VHD) mkdir /texpacks || true
-	$(FATMAN) $(VHD) import default.zip /texpacks/default.zip || true
+	$(FATMAN) $(VHD) mkdir /ClassiCube || true
+	$(FATMAN) $(VHD) mkdir /ClassiCube/texpacks || true
+	$(FATMAN) $(VHD) import default.zip /ClassiCube/texpacks/default.zip || true
 	$(FATMAN) $(VHD) delete $(INSTALL_PATH) || true
 	$(FATMAN) $(VHD) import $(APP).elf $(INSTALL_PATH)
 	@$(INSTALL_HOOK)

@@ -210,7 +210,7 @@ static void ensure_launcher_cfg(void)
     if (!fp)
         return;
     fprintf(fp, "%s/bin/terminal; 0x010101; TRM\n", drive_root);
-    fprintf(fp, "%s/bin/nk_widgets; 0x#191970; APP\n", drive_root);
+    fprintf(fp, "%s/bin/classicube; 0x#191970; MC\n", drive_root);
     fprintf(fp, "%s/bin/doom; 0xFF0101; GUN\n", drive_root);
     fclose(fp);
 }

@@ -216,7 +216,10 @@ cc_result Process_StartOpen(const cc_string* args) {
 
 void Platform_Init(void) { }
 void Platform_Free(void) { }
-cc_result Platform_SetDefaultCurrentDirectory(int argc, char **argv) { return 0; }
+cc_result Platform_SetDefaultCurrentDirectory(int argc, char **argv) {
+	mkdir("ClassiCube", 0755);
+	return chdir("ClassiCube") == -1 ? errno : 0;
+}
 
 cc_bool Platform_DescribeError(cc_result res, cc_string* dst) {
 	const char* msg = strerror((int)res);

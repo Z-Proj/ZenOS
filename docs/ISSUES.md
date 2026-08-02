@@ -1,8 +1,6 @@
 ## Current issues in Zen:
 
-> `zen` pkgmgr crashes on VirtualBox.
-
-> If on first boot on VBox, we go ahead and click the TRM icon on Harp dash, the input system dies. Okay on QEMU.
+> If on first boot on VBox / no other apps open, we go ahead and click the TRM icon on Harp dash, the input system dies. Okay on QEMU.
 
 ---
 

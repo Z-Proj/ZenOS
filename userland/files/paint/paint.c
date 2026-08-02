@@ -70,14 +70,12 @@ int main(void)
 
     float prev_x = 0, prev_y = 0;
     int   was_down = 0;
-    /* background color used for canvas (initialized after nk_harp_init) */
     uint32_t bg_col = 0;
 
     nk_harp_t *nh = nk_harp_init("Paint", 90, 60, WIN_W, WIN_H,
                                   "/mnt/drv0/lib/fonts/default.ttf");
     if (!nh) return 1;
 
-    /* initialize canvas background to nuklear window background color to avoid flicker */
     bg_col = nk_color_to_u32(nh->ctx.style.window.background);
     for (int y = 0; y < CANVAS_H; y++)
         for (int x = 0; x < CANVAS_W; x++)
@@ -90,7 +88,6 @@ int main(void)
             nk_rect(0, 0, WIN_W, WIN_H),
             NK_WINDOW_BORDER | NK_WINDOW_NO_SCROLLBAR)) {
 
-            /* color palette + Clear button (Clear gets a wider slot) */
             nk_layout_row_begin(&nh->ctx, NK_STATIC, 26, 9);
             for (int i = 0; i < 8; i++) {
                 nk_layout_row_push(&nh->ctx, 26);
@@ -102,7 +99,6 @@ int main(void)
                 if (nk_button_color(&nh->ctx, c))
                     cur_color = palette[i];
             }
-            /* wider slot for Clear */
             nk_layout_row_push(&nh->ctx, 80);
             if (nk_button_label(&nh->ctx, "Clear")) {
                 for (int y = 0; y < CANVAS_H; y++)
@@ -143,7 +139,6 @@ int main(void)
 
         nk_harp_render(nh);
 
-        /* copy canvas into the visible window buffer so it appears on top of the UI */
         for (int y = 0; y < CANVAS_H; y++) {
             uint32_t *dst = nh->win->buf + (CANVAS_Y + y) * nh->win->w + CANVAS_X;
             memcpy(dst, canvas[y], CANVAS_W * sizeof(uint32_t));
