@@ -22,6 +22,8 @@ typedef struct {
     struct nk_user_font nk_font;
     struct nk_context   ctx;
     int             close_req;
+    /* whether backbuf has been cleared at least once; avoid memset each frame when not needed */
+    int             backbuf_cleared;
 } nk_harp_t;
 
 static nk_harp_t *g_nh = NULL;
@@ -181,7 +183,10 @@ static inline uint32_t nk_color_to_u32(struct nk_color c)
 static void nk_harp_render(nk_harp_t *nh)
 {
     /* clear backbuf once — full frame drawn before anything hits win->buf */
-    memset(nh->backbuf, 0, (size_t)nh->win->w * nh->win->h * sizeof(uint32_t));
+    if (!nh->backbuf_cleared) {
+        memset(nh->backbuf, 0, (size_t)nh->win->w * nh->win->h * sizeof(uint32_t));
+        nh->backbuf_cleared = 1;
+    }
 
     const struct nk_command *cmd;
     nk_foreach(cmd, &nh->ctx) {
@@ -276,6 +281,7 @@ static nk_harp_t *nk_harp_init(const char *title, int x, int y, int w, int h,
 
     nh->backbuf = (uint32_t *)calloc((size_t)w * h, sizeof(uint32_t));
     if (!nh->backbuf) { harp_close(nh->win); free(nh); return NULL; }
+    nh->backbuf_cleared = 0;
 
     nh->font = font_load(font_path);
     if (!nh->font) { harp_close(nh->win); free(nh); return NULL; }

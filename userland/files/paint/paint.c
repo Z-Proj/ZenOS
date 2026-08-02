@@ -16,6 +16,8 @@
 static uint32_t canvas[CANVAS_H][CANVAS_W];
 static uint32_t cur_color = 0xFFFFFF;
 static float    brush = 4.0f;
+/* mark when canvas contents have changed and need to be copied into backbuf */
+static int canvas_dirty = 0;
 
 static const uint32_t palette[8] = {
     0xFFFFFF, 0x000000, 0xE33E3E, 0x3EA0E3,
@@ -50,6 +52,7 @@ static void paint_dab(float cx, float cy)
             float t = d <= edge0 ? 1.0f : 1.0f - (d - edge0) / (edge1 - edge0);
             t = t * t * (3.0f - 2.0f * t);
             canvas[y][x] = blend_rgb(canvas[y][x], cur_color, (int)(t * 255.0f));
+            canvas_dirty = 1;
         }
     }
 }
@@ -82,6 +85,8 @@ int main(void)
     for (int y = 0; y < CANVAS_H; y++)
         for (int x = 0; x < CANVAS_W; x++)
             canvas[y][x] = bg_col;
+    /* request initial copy of canvas into backbuf */
+    canvas_dirty = 1;
 
     while (!nh->close_req) {
         nk_harp_feed_events(nh);
@@ -90,9 +95,10 @@ int main(void)
             nk_rect(0, 0, WIN_W, WIN_H),
             NK_WINDOW_BORDER | NK_WINDOW_NO_SCROLLBAR)) {
 
-            /* color palette + Clear button */
-            nk_layout_row_static(&nh->ctx, 26, 26, 9);
+            /* color palette + Clear button (Clear gets a wider slot) */
+            nk_layout_row_begin(&nh->ctx, NK_STATIC, 26, 9);
             for (int i = 0; i < 8; i++) {
+                nk_layout_row_push(&nh->ctx, 26);
                 struct nk_color c;
                 c.a = 255;
                 c.r = (palette[i] >> 16) & 0xFF;
@@ -101,12 +107,15 @@ int main(void)
                 if (nk_button_color(&nh->ctx, c))
                     cur_color = palette[i];
             }
-            /* place Clear on the right of the color buttons */
+            /* wider slot for Clear */
+            nk_layout_row_push(&nh->ctx, 80);
             if (nk_button_label(&nh->ctx, "Clear")) {
                 for (int y = 0; y < CANVAS_H; y++)
                     for (int x = 0; x < CANVAS_W; x++)
                         canvas[y][x] = bg_col;
+                canvas_dirty = 1;
             }
+            nk_layout_row_end(&nh->ctx);
 
             nk_layout_row_dynamic(&nh->ctx, 24, 3);
             if (nk_option_label(&nh->ctx, "Small", brush == 2.5f))  brush = 2.5f;
@@ -138,12 +147,16 @@ int main(void)
             was_down = 0;
         }
 
-        nk_harp_render(nh);
-
-        for (int y = 0; y < CANVAS_H; y++) {
-            uint32_t *dst = nh->win->buf + (CANVAS_Y + y) * nh->win->w + CANVAS_X;
-            memcpy(dst, canvas[y], CANVAS_W * sizeof(uint32_t));
+        /* copy canvas into the off-screen backbuf only when it changed */
+        if (canvas_dirty) {
+            for (int y = 0; y < CANVAS_H; y++) {
+                uint32_t *dst = nh->backbuf + (CANVAS_Y + y) * nh->win->w + CANVAS_X;
+                memcpy(dst, canvas[y], CANVAS_W * sizeof(uint32_t));
+            }
+            canvas_dirty = 0;
         }
+
+        nk_harp_render(nh);
         harp_flush(nh->win);
     }
     nk_harp_free(nh);
