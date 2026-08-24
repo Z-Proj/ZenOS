@@ -227,9 +227,7 @@ static void userspace_exception_report(registers_t *regs)
         pty_fault_write(err->pty, msg);
     }
 
-    task->exit_code = 128 + (int)regs->int_no;
-    task->state = TASK_DEAD;
-    sched_yield();
+    sched_abort_current(128 + (int)regs->int_no);
 }
 
 void isr_handler(registers_t* regs)

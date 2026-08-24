@@ -744,7 +744,8 @@ void sched_yield(void)
         old_task->running_cpu = -1;
         old_task->time_slice_remaining = TIME_SLICE;
     }
-    else if (old_task && old_task->running_cpu == (int32_t)cpu_index)
+    else if (old_task && old_task->state != TASK_DEAD &&
+             old_task->running_cpu == (int32_t)cpu_index)
     {
         old_task->running_cpu = -1;
     }
@@ -753,6 +754,12 @@ void sched_yield(void)
 
     if (!new_task)
     {
+        if (old_task && old_task->state == TASK_DEAD)
+        {
+            spinlock_release_irqrestore(&sched_lock, rflags);
+            for (;;)
+                __asm__ volatile("sti; hlt" ::: "memory");
+        }
         if (old_task && old_task->state == TASK_READY)
         {
             old_task->state = TASK_RUNNING;
@@ -769,9 +776,31 @@ void sched_yield(void)
         spinlock_release_irqrestore(&sched_lock, rflags);
         return;
     }
-    // finally:
+    if (old_task && old_task->state == TASK_DEAD &&
+        old_task->running_cpu == (int32_t)cpu_index)
+    {
+        old_task->running_cpu = -1;
+    }
     sched_switch_locked(cpu_state, old_task, new_task, cpu_index, rflags,
                         old_task ? &old_task->regs : &cpu_state->bootstrap_regs);
+}
+
+void sched_abort_current(int exit_code)
+{
+    task_t *current = sched_current_task();
+    if (current)
+    {
+        uint64_t rflags = spinlock_acquire_irqsave(&sched_lock);
+        current->exit_code = exit_code;
+        current->state = TASK_DEAD;
+        spinlock_release_irqrestore(&sched_lock, rflags);
+    }
+
+    for (;;)
+    {
+        sched_yield();
+        __asm__ volatile("sti; hlt" ::: "memory");
+    }
 }
 
 void sched_tick(registers_t *irq_regs)

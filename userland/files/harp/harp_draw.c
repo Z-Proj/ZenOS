@@ -42,7 +42,7 @@
 
 #define FONT_SIZE    16
 #define BASELINE(y)  ((y) + FONT_SIZE + 1)
-#define LAUNCH_FONT_SIZE 11
+#define LAUNCH_FONT_SIZE 16
 #define LAUNCH_BASELINE(y) ((y) + LAUNCH_FONT_SIZE + 1)
 #define TITLEBAR_H   28
 #define WIN_R         12
@@ -594,7 +594,7 @@ void draw_window(int idx, int full_frame)
 
 static void dash_blit_backdrop(int x, int w)
 {
-    if (!s_dash_backdrop) return;
+    if (!s_dash_backdrop || s_dash_backdrop_w <= 0) return;
     int dt = (int)SCR_H - DASH_MARGIN - DASH_H;
     int r = DASH_R;
     if (r > w / 2) r = w / 2;
@@ -612,6 +612,8 @@ static void dash_blit_backdrop(int x, int w)
         }
         if (x0 < 0) x0 = 0;
         if (x1 > (int)SCR_W) x1 = (int)SCR_W;
+        if (x0 >= s_dash_backdrop_w) continue;
+        if (x1 > s_dash_backdrop_w) x1 = s_dash_backdrop_w;
         if (x0 >= x1) continue;
         memcpy(s_backbuf + sy * SCR_W + x0,
                s_dash_backdrop + row * s_dash_backdrop_w + x0,
@@ -666,12 +668,20 @@ void draw_dash(void)
         int ix = launch_x + LAUNCH_PAD;
         int iy = launch_y + (DASH_H - LAUNCH_ICON) / 2;
         for (int i = 0; i < launcher_app_count; i++) {
-            bb_rrect_alpha(ix, iy, LAUNCH_ICON, LAUNCH_ICON, LAUNCH_R, launcher_apps[i].color, 208);
-            int ltw = text_w_sz(launcher_apps[i].label, LAUNCH_FONT_SIZE);
+            uint32_t tile_color = launcher_apps[i].color | 0xFF000000;
+            bb_rrect(ix, iy, LAUNCH_ICON, LAUNCH_ICON, LAUNCH_R, tile_color);
+            char lbl[4];
+            __builtin_strncpy(lbl, launcher_apps[i].label, 3);
+            lbl[3] = 0;
+            int ltw = text_w_sz(lbl, LAUNCH_FONT_SIZE);
+            while (lbl[1] && ltw > LAUNCH_ICON - 4) {
+                lbl[__builtin_strlen(lbl) - 1] = 0;
+                ltw = text_w_sz(lbl, LAUNCH_FONT_SIZE);
+            }
             int tx = ix + (LAUNCH_ICON - ltw) / 2;
-            int ty = iy + (LAUNCH_ICON - LAUNCH_FONT_SIZE) / 2 - 1;
+            int ty = iy + (LAUNCH_ICON - LAUNCH_FONT_SIZE) / 2 - 2;
             uint32_t txt_bg = s_backbuf[(iy + LAUNCH_ICON / 2) * SCR_W + ix + LAUNCH_ICON / 2];
-            bb_text_sz(tx, LAUNCH_BASELINE(ty), LAUNCH_FONT_SIZE, C_WHITE, txt_bg, launcher_apps[i].label);
+            bb_text_sz(tx, LAUNCH_BASELINE(ty), LAUNCH_FONT_SIZE, C_WHITE, txt_bg, lbl);
             ix += LAUNCH_ICON + LAUNCH_GAP;
         }
         dirty_mark(launch_x, launch_y, launch_w, DASH_H);
