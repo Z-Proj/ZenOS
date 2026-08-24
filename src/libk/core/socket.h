@@ -48,6 +48,7 @@ typedef struct
     uint32_t available;
     spinlock_t lock;
     bool in_use;
+    uint64_t owner_pid;
 } socket_file_t;
 
 void socket_init(void);
@@ -60,5 +61,6 @@ socket_error_t socket_close(socket_file_t *file);
 uint32_t socket_available(socket_file_t *file);
 bool socket_exists(const char *name);
 void socket_list(void);
+void socket_close_owned_by(uint64_t pid);
 
 #endif

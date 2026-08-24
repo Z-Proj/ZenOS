@@ -17,6 +17,7 @@
 #include "mem.h"
 #include "string.h"
 #include "../debug/log.h"
+#include "../../kernel/sched.h"
 
 static socket_file_t socket_files[SOCKET_MAX_FILES];
 static bool initialized = false;
@@ -63,6 +64,7 @@ void socket_init(void)
         socket_files[i].write_pos = 0;
         socket_files[i].available = 0;
         socket_files[i].capacity = 0;
+        socket_files[i].owner_pid = 0;
         spinlock_init(&socket_files[i].lock);
         memset(socket_files[i].name, 0, SOCKET_NAME_MAX);
     }
@@ -109,6 +111,8 @@ socket_error_t socket_create(const char *name)
             socket_files[i].write_pos = 0;
             socket_files[i].available = 0;
             socket_files[i].in_use = true;
+            task_t *owner = sched_current_task();
+            socket_files[i].owner_pid = owner ? owner->pid : 0;
             spinlock_release_irqrestore(&socket_table_lock, table_flags);
 
             log("Socket created: %s", 1, 0, name);
@@ -229,6 +233,7 @@ socket_error_t socket_delete(const char *name)
             socket_files[i].write_pos = 0;
             socket_files[i].available = 0;
             socket_files[i].in_use = false;
+            socket_files[i].owner_pid = 0;
             memset(socket_files[i].name, 0, SOCKET_NAME_MAX);
             spinlock_release_irqrestore(&socket_files[i].lock, flags);
             spinlock_release_irqrestore(&socket_table_lock, table_flags);
@@ -240,6 +245,39 @@ socket_error_t socket_delete(const char *name)
 
     spinlock_release_irqrestore(&socket_table_lock, table_flags);
     return SOCKET_ERROR_NOT_FOUND;
+}
+
+void socket_close_owned_by(uint64_t pid)
+{
+    if (!initialized || pid == 0)
+    {
+        return;
+    }
+
+    uint64_t table_flags = spinlock_acquire_irqsave(&socket_table_lock);
+
+    for (int i = 0; i < SOCKET_MAX_FILES; i++)
+    {
+        if (socket_files[i].in_use && socket_files[i].owner_pid == pid)
+        {
+            uint64_t flags = spinlock_acquire_irqsave(&socket_files[i].lock);
+            if (socket_files[i].data)
+            {
+                kfree(socket_files[i].data);
+                socket_files[i].data = NULL;
+            }
+            socket_files[i].capacity = 0;
+            socket_files[i].read_pos = 0;
+            socket_files[i].write_pos = 0;
+            socket_files[i].available = 0;
+            socket_files[i].in_use = false;
+            socket_files[i].owner_pid = 0;
+            memset(socket_files[i].name, 0, SOCKET_NAME_MAX);
+            spinlock_release_irqrestore(&socket_files[i].lock, flags);
+        }
+    }
+
+    spinlock_release_irqrestore(&socket_table_lock, table_flags);
 }
 
 socket_error_t socket_close(socket_file_t *file)

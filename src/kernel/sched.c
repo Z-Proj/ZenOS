@@ -15,6 +15,7 @@
 
 #include "sched.h"
 #include "../libk/core/mem.h"
+#include "../libk/core/socket.h"
 #include "../libk/string.h"
 #include "../libk/debug/log.h"
 #include "../libk/spinlock.h"
@@ -581,6 +582,7 @@ static void reap_dead_tasks(void)
                 fd_table_free(iter->fd_table);
                 iter->fd_table = NULL;
             }
+            socket_close_owned_by(iter->pid);
             if (iter->kernel_stack)
             {
                 free_task_kernel_stack(iter->kernel_stack);

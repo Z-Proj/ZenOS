@@ -36,7 +36,7 @@
 #include "../../userlib.h"
 
 #define MAX_WINDOWS 16
-#define MAX_LAUNCH_APPS 3
+#define MAX_LAUNCH_APPS 8
 #define TITLEBAR_H  28
 #define WIN_R        12
 
@@ -45,6 +45,7 @@ typedef struct {
     char path[128];
     uint32_t color;
     char label[4];
+    char args[96];
 } launcher_app_t;
 
 typedef struct {

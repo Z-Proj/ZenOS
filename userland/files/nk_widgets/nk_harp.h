@@ -22,8 +22,8 @@ typedef struct {
     struct nk_user_font nk_font;
     struct nk_context   ctx;
     int             close_req;
-    /* whether backbuf has been cleared at least once; avoid memset each frame when not needed */
     int             backbuf_cleared;
+    int             scx, scy, scw, sch;
 } nk_harp_t;
 
 static nk_harp_t *g_nh = NULL;
@@ -63,6 +63,10 @@ static void nk_harp_fill_rect(nk_harp_t *nh, int x, int y, int w, int h, uint32_
     int y1 = y < 0 ? 0 : y;
     int x2 = x + w > nh->win->w ? nh->win->w : x + w;
     int y2 = y + h > nh->win->h ? nh->win->h : y + h;
+    if (x1 < nh->scx) x1 = nh->scx;
+    if (y1 < nh->scy) y1 = nh->scy;
+    if (x2 > nh->scx + nh->scw) x2 = nh->scx + nh->scw;
+    if (y2 > nh->scy + nh->sch) y2 = nh->scy + nh->sch;
     if (x1 >= x2 || y1 >= y2) return;
     uint8_t a = (col >> 24) & 0xFF;
     for (int row = y1; row < y2; row++) {
@@ -159,10 +163,19 @@ static void nk_harp_draw_text(nk_harp_t *nh,
     if (!text || len <= 0) return;
     int sz = (int)font_height;
     if (sz < 8) sz = 8;
+    if (y + sz + 2 <= nh->scy || y >= nh->scy + nh->sch) return;
     char tmp[512];
     int copy = len < 511 ? len : 511;
     memcpy(tmp, text, copy);
     tmp[copy] = '\0';
+    int avail = nh->scx + nh->scw - x;
+    if (avail <= 0) return;
+    while (tmp[0] && font_measure(nh->font, sz, tmp) > avail) {
+        int n = (int)strlen(tmp);
+        if (n <= 1) { tmp[0] = '\0'; break; }
+        tmp[n - 1] = '\0';
+    }
+    if (!tmp[0]) return;
     font_draw(nh->font, nh->backbuf, nh->win->w, nh->win->h,
               x, y + sz, sz,
               fg | 0xFF000000, bg,
@@ -171,7 +184,13 @@ static void nk_harp_draw_text(nk_harp_t *nh,
 
 static void nk_harp_set_scissor(nk_harp_t *nh, int x, int y, int w, int h)
 {
-    (void)nh; (void)x; (void)y; (void)w; (void)h;
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > nh->win->w) w = nh->win->w - x;
+    if (y + h > nh->win->h) h = nh->win->h - y;
+    if (w < 0) w = 0;
+    if (h < 0) h = 0;
+    nh->scx = x; nh->scy = y; nh->scw = w; nh->sch = h;
 }
 
 static inline uint32_t nk_color_to_u32(struct nk_color c)
@@ -182,11 +201,9 @@ static inline uint32_t nk_color_to_u32(struct nk_color c)
 
 static void nk_harp_render(nk_harp_t *nh)
 {
-    /* clear backbuf once — full frame drawn before anything hits win->buf */
-    if (!nh->backbuf_cleared) {
-        memset(nh->backbuf, 0, (size_t)nh->win->w * nh->win->h * sizeof(uint32_t));
-        nh->backbuf_cleared = 1;
-    }
+    memset(nh->backbuf, 0, (size_t)nh->win->w * nh->win->h * sizeof(uint32_t));
+    nh->backbuf_cleared = 1;
+    nh->scx = 0; nh->scy = 0; nh->scw = nh->win->w; nh->sch = nh->win->h;
 
     const struct nk_command *cmd;
     nk_foreach(cmd, &nh->ctx) {

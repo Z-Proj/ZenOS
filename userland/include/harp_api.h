@@ -17,6 +17,8 @@
 #define WM_MSG_RETITLE    4
 #define WM_MSG_RESIZE_REQ 5
 #define WM_MSG_CAPTURE    6
+#define WM_MSG_RELOAD_BG   7
+#define WM_MSG_RELOAD_DOCK 8
 
 #define HARP_EVENT_FOCUS         1
 #define HARP_EVENT_BLUR          2
@@ -166,6 +168,26 @@ static inline void harp_retitle(harp_window_t *gw, const char *title)
     msg.type = WM_MSG_RETITLE;
     msg.pid  = gw->pid;
     strncpy(msg.title, title, sizeof(msg.title) - 1);
+    socket_write(gw->sock, &msg, sizeof(msg));
+}
+
+static inline void harp_reload_wallpaper(harp_window_t *gw)
+{
+    if (!gw || !gw->sock) return;
+    wm_msg_t msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.type = WM_MSG_RELOAD_BG;
+    msg.pid  = gw->pid;
+    socket_write(gw->sock, &msg, sizeof(msg));
+}
+
+static inline void harp_reload_dock(harp_window_t *gw)
+{
+    if (!gw || !gw->sock) return;
+    wm_msg_t msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.type = WM_MSG_RELOAD_DOCK;
+    msg.pid  = gw->pid;
     socket_write(gw->sock, &msg, sizeof(msg));
 }
 

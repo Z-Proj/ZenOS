@@ -73,7 +73,8 @@ static socket_file_t *ev_sock  = NULL;
 static int        pending_full_redraw = 0;
 static int        pending_from_z = MAX_WINDOWS;
 static int        pending_dash_redraw = 0;
-static char* dir;
+static char       bg_path[128];
+static char       bg_cfg_path[80];
 static char       drive_root[32];
 static char       launcher_cfg_path[64];
 static char       font_path[64];
@@ -152,6 +153,8 @@ static int parse_launcher_color(const char *s, uint32_t *out)
         return 0;
     if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X'))
         s += 2;
+    if (*s == '#')
+        s++;
     uint32_t value = 0;
     int digits = 0;
     while (*s) {
@@ -204,20 +207,70 @@ static void ensure_launcher_cfg(void)
         return;
     }
     char sys_dir[48];
+    char lib_dir[48];
+    char harp_dir[64];
     snprintf(sys_dir, sizeof(sys_dir), "%s/sys", drive_root);
+    snprintf(lib_dir, sizeof(lib_dir), "%s/lib", drive_root);
+    snprintf(harp_dir, sizeof(harp_dir), "%s/lib/harp", drive_root);
     mkdir(sys_dir, 0755);
+    mkdir(lib_dir, 0755);
+    mkdir(harp_dir, 0755);
     fp = fopen(launcher_cfg_path, "w");
     if (!fp)
         return;
-    fprintf(fp, "%s/bin/terminal; 0x010101; TRM\n", drive_root);
-    fprintf(fp, "%s/bin/classicube; 0x#191970; MC\n", drive_root);
-    fprintf(fp, "%s/bin/doom; 0xFF0101; GUN\n", drive_root);
+    fprintf(fp, "%s/bin/terminal; 0x2F6FED; TRM\n", drive_root);
+    fprintf(fp, "%s/bin/classicube; 0x191970; MC\n", drive_root);
+    fprintf(fp, "%s/bin/doom; 0xD62828; GUN\n", drive_root);
     fclose(fp);
 }
 
 static void build_font_path(void)
 {
     snprintf(font_path, sizeof(font_path), "%s/lib/fonts/default.ttf", drive_root);
+}
+
+static void build_bg_cfg_path(void)
+{
+    snprintf(bg_cfg_path, sizeof(bg_cfg_path), "%s/lib/harp/wallpaper.cfg", drive_root);
+}
+
+/* Loads the wallpaper path from wallpaper.cfg into bg_path. Falls back to the
+ * default bg.png if the config is missing/empty - actual missing/broken image
+ * files are handled later by image_load() itself (bake_bgbuf falls back to a
+ * solid backdrop colour when the file can't be decoded). */
+static void load_bg_path(void)
+{
+    snprintf(bg_path, sizeof(bg_path), "%s/lib/harp/bg.png", drive_root);
+
+    FILE *fp = fopen(bg_cfg_path, "r");
+    if (!fp)
+        return;
+
+    char line[128];
+    if (fgets(line, sizeof(line), fp)) {
+        char *p = trim_ws(line);
+        if (*p) {
+            strncpy(bg_path, p, sizeof(bg_path) - 1);
+            bg_path[sizeof(bg_path) - 1] = '\0';
+        }
+    }
+    fclose(fp);
+}
+
+static void save_bg_path(const char *path)
+{
+    char lib_dir[48];
+    char harp_dir[64];
+    snprintf(lib_dir, sizeof(lib_dir), "%s/lib", drive_root);
+    snprintf(harp_dir, sizeof(harp_dir), "%s/lib/harp", drive_root);
+    mkdir(lib_dir, 0755);
+    mkdir(harp_dir, 0755);
+
+    FILE *fp = fopen(bg_cfg_path, "w");
+    if (!fp)
+        return;
+    fprintf(fp, "%s\n", path);
+    fclose(fp);
 }
 
 static void build_screenshot_dir(void)
@@ -292,6 +345,14 @@ static void load_launcher_cfg(void)
             continue;
         *sep2++ = 0;
 
+        /* optional 4th field: launch arguments, also ';'-separated */
+        char *sep3 = strchr(sep2, ';');
+        char *args = "";
+        if (sep3) {
+            *sep3++ = 0;
+            args = trim_ws(sep3);
+        }
+
         char *path = trim_ws(p);
         char *color = trim_ws(sep1);
         char *label = trim_ws(sep2);
@@ -307,6 +368,7 @@ static void load_launcher_cfg(void)
             set_launcher_label(app->label, label);
         else
             set_launcher_label(app->label, path_basename(app->path));
+        strncpy(app->args, args, sizeof(app->args) - 1);
         app->active = 1;
         launcher_app_count++;
     }
@@ -314,11 +376,44 @@ static void load_launcher_cfg(void)
     fclose(fp);
 }
 
+/* Simple whitespace tokenizer with double-quote support, mirroring init.c's
+ * _parse_args, so dock apps can be launched with parameters. Mutates line. */
+static int split_args(char *line, char *argv[], int max)
+{
+    int argc = 0;
+    while (*line && argc < max - 1) {
+        while (*line == ' ' || *line == '\t') line++;
+        if (!*line) break;
+        if (*line == '"') {
+            line++;
+            argv[argc++] = line;
+            while (*line && *line != '"') line++;
+            if (*line) *line++ = '\0';
+        } else {
+            argv[argc++] = line;
+            while (*line && *line != ' ' && *line != '\t') line++;
+            if (*line) *line++ = '\0';
+        }
+    }
+    argv[argc] = NULL;
+    return argc;
+}
+
 static void launch_launcher_app(int idx)
 {
     if (idx < 0 || idx >= launcher_app_count || !launcher_apps[idx].active)
         return;
-    char *argv[] = { launcher_apps[idx].path, NULL };
+
+    char argsbuf[96];
+    strncpy(argsbuf, launcher_apps[idx].args, sizeof(argsbuf) - 1);
+    argsbuf[sizeof(argsbuf) - 1] = 0;
+
+    char *argv[18];
+    int argc = 0;
+    argv[argc++] = launcher_apps[idx].path;
+    argc += split_args(argsbuf, argv + argc, 18 - argc);
+    argv[argc] = NULL;
+
     int pid = zen_spawn(launcher_apps[idx].path, argv);
     if (pid < 0)
         return;
@@ -616,7 +711,7 @@ static uint32_t *image_load(const char *path, int *out_w, int *out_h)
 static void bake_bgbuf(void)
 {
     int bw = 0, bh = 0;
-    uint32_t *img = image_load(dir, &bw, &bh);
+    uint32_t *img = image_load(bg_path, &bw, &bh);
     bgbuf = (uint32_t *)malloc(SCR_W * SCR_H * 4);
     if (!bgbuf) { if (img) free(img); return; }
     for (uint32_t i = 0; i < SCR_W * SCR_H; i++) bgbuf[i] = 0xFF0E0E0E;
@@ -660,6 +755,17 @@ static void bake_dash_backdrop(void)
     dash_backdrop = strip;
     dash_bd_y     = dt;
     dash_bd_w     = bw;
+}
+
+static void reload_wallpaper(void)
+{
+    load_bg_path();
+    if (bgbuf) { free(bgbuf); bgbuf = NULL; }
+    if (dash_backdrop) { free(dash_backdrop); dash_backdrop = NULL; }
+    bake_bgbuf();
+    bake_dash_backdrop();
+    draw_init(backbuf, bgbuf, dash_backdrop, dash_bd_y, dash_bd_w, s_font);
+    request_full_redraw();
 }
 
 static void poll_ipc(void)
@@ -732,6 +838,16 @@ static void poll_ipc(void)
                 }
                 break;
             }
+
+        } else if (msg.type == WM_MSG_RELOAD_BG) {
+            reload_wallpaper();
+
+        } else if (msg.type == WM_MSG_RELOAD_DOCK) {
+            load_launcher_cfg();
+            pending_full_redraw = 0;
+            pending_from_z = MAX_WINDOWS;
+            pending_dash_redraw = 0;
+            request_full_redraw();
         }
     }
 }
@@ -778,18 +894,23 @@ static void reap_spawned_children(void)
 
 int main(int argc, char* argv[])
 {
-    dir = "";
     if (argc > 2) {
         printf("Invalid number of arguments passed.\n1 || 2 args expected.");
         return 1;
     }
-    if (argc < 2) dir = "/mnt/drv0/lib/harp/bg.png";
-    else dir = argv[1];
     get_drive_root_from_cwd();
     build_font_path();
     build_screenshot_dir();
+    build_bg_cfg_path();
     ensure_launcher_cfg();
     load_launcher_cfg();
+    if (argc == 2) {
+        strncpy(bg_path, argv[1], sizeof(bg_path) - 1);
+        bg_path[sizeof(bg_path) - 1] = '\0';
+        save_bg_path(bg_path);
+    } else {
+        load_bg_path();
+    }
     if (zen_fbinfo(&fb) != 0) return 1;
     SCR_W = (uint32_t)fb.width;
     SCR_H = (uint32_t)fb.height;

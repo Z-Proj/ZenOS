@@ -41,6 +41,8 @@
 #define WM_MSG_RETITLE    4
 #define WM_MSG_RESIZE_REQ 5
 #define WM_MSG_CAPTURE    6
+#define WM_MSG_RELOAD_BG   7
+#define WM_MSG_RELOAD_DOCK 8
 
 #define HARP_EVENT_FOCUS         1
 #define HARP_EVENT_BLUR          2
