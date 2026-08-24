@@ -1,9 +1,5 @@
 ## What I have planned next for Zen:
 
-> Finish 1 bug listed in ISSUES.md
-
-> Update Harp dock to have dynamic amount of apps and configured via Settings.
-
-> Add Settings App (Nuklear) : Boot config, Harp dock config, wallpaper, poweroff and restart options.
+> Finish 3 bugs listed in ISSUES.md
 
 > Self-hosting, perhaps implies GCC porting (Far time later)

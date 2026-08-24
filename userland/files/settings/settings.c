@@ -204,7 +204,7 @@ static void save_boot(void)
             fprintf(fp, "# %s\n", e->text);
     }
     fclose(fp);
-    snprintf(boot_status, sizeof(boot_status), "Saved. Applies on next boot.");
+    snprintf(boot_status, sizeof(boot_status), "Saved. Applies on reboot.");
 }
 
 static void render_boot(nk_harp_t *nh)
@@ -214,7 +214,7 @@ static void render_boot(nk_harp_t *nh)
     nk_layout_row_dynamic(ctx, 20, 1);
     nk_label(ctx, "Startup Applications (/sys/init.run)", NK_TEXT_LEFT);
     nk_layout_row_dynamic(ctx, 16, 1);
-    nk_label_colored(ctx, "Order matters. Unchecked entries are saved disabled (commented out).",
+    nk_label_colored(ctx, "Order matters. Unchecked entries are saved disabled.",
                       NK_TEXT_LEFT, nk_rgb(150, 150, 165));
 
     nk_layout_row_dynamic(ctx, 4, 1);
@@ -357,10 +357,10 @@ static void apply_wallpaper(nk_harp_t *nh)
     harp_reload_wallpaper(nh->win);
 
     if (thumb_valid)
-        snprintf(wall_status, sizeof(wall_status), "Applied - Harp wallpaper updated live.");
+        snprintf(wall_status, sizeof(wall_status), "Applied.");
     else
         snprintf(wall_status, sizeof(wall_status),
-                 "Applied, but that image couldn't be read - Harp will use a fallback background.");
+                 "Image couldn't be read. Applied fallback background.");
 }
 
 static void render_wallpaper(nk_harp_t *nh)
@@ -388,7 +388,7 @@ static void render_wallpaper(nk_harp_t *nh)
         wall_path[wall_path_len] = 0;
         generate_thumbnail(wall_path);
         if (!thumb_valid)
-            snprintf(wall_status, sizeof(wall_status), "Couldn't read that image - check the path.");
+            snprintf(wall_status, sizeof(wall_status), "Couldn't read image - check the path.");
         else
             snprintf(wall_status, sizeof(wall_status), "Preview updated.");
     }
@@ -503,7 +503,7 @@ static void save_dock(nk_harp_t *nh)
     }
     fclose(fp);
     harp_reload_dock(nh->win);
-    snprintf(dock_status, sizeof(dock_status), "Saved - dock updated live.");
+    snprintf(dock_status, sizeof(dock_status), "Saved.");
 }
 
 static void render_dock(nk_harp_t *nh)

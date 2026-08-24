@@ -39,6 +39,7 @@ static uint8_t vol_mounted[FAT_MAX_VOLS];
 static uint8_t initialized = 0;
 static uint8_t fat_drive   = 0;
 static spinlock_t fat_fs_lock = {0};
+static uint64_t fat_fs_lock_flags = 0;
 
 typedef struct {
     FIL      fil;
@@ -66,8 +67,8 @@ void make_fatpath_vol(const char *path, int vol, char *out, size_t outsz) {
 
 uint8_t fat_get_drive(void)    { return fat_drive; }
 uint8_t fat_is_initialized(void) { return initialized; }
-void fat_lock(void) { spinlock_acquire_raw(&fat_fs_lock); }
-void fat_unlock(void) { spinlock_release_raw(&fat_fs_lock); }
+void fat_lock(void) { fat_fs_lock_flags = spinlock_acquire_irqsave(&fat_fs_lock); }
+void fat_unlock(void) { spinlock_release_irqrestore(&fat_fs_lock, fat_fs_lock_flags); }
 
 fat_error_t fat_init(uint8_t drive) {
     spinlock_init(&fat_fs_lock);

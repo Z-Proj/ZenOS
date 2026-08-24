@@ -591,6 +591,13 @@ ata_error_t ata_write_sectors(uint8_t drive, uint32_t lba, uint8_t count, const 
     outportb(base_io + ATA_REG_COMMAND, ATA_CMD_CACHE_FLUSH);
     err = ata_wait_ready(base_io);
     spinlock_release_raw(&ata_lock[chan]);
+    if (err == ATA_SUCCESS)
+    {
+        spinlock_acquire_raw(&cache_lock);
+        for (uint8_t i = 0; i < count; i++)
+            cache_invalidate(drive, lba + i);
+        spinlock_release_raw(&cache_lock);
+    }
     return err;
 }
 
