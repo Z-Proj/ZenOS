@@ -15,7 +15,7 @@ OBJS = nk_impl.o nk_widgets.o
 COMMON_CPPFLAGS := \
 	--sysroot=$(MLIBC_SYSROOT) \
 	-isystem $(MLIBC_USR)/include \
-	-I ../.. -I .
+	-I ../.. -I . -I ../../include
 
 COMMON_CFLAGS := \
 	-m64 -O3 -fPIE -fomit-frame-pointer -flto -ffast-math \

@@ -218,9 +218,10 @@ static void ensure_launcher_cfg(void)
     fp = fopen(launcher_cfg_path, "w");
     if (!fp)
         return;
-    fprintf(fp, "%s/bin/terminal; 0x2F6FED; TRM\n", drive_root);
-    fprintf(fp, "%s/bin/classicube; 0x191970; MC\n", drive_root);
-    fprintf(fp, "%s/bin/doom; 0xD62828; GUN\n", drive_root);
+    fprintf(fp, "%s/bin/terminal;0x2F6FED;TRM;\n", drive_root);
+    fprintf(fp, "%s/bin/classicube;0x191970;MC;World\n", drive_root);
+    fprintf(fp, "%s/bin/doom;0xD62828;GUN;\n", drive_root);
+    fprintf(fp, "%s/bin/settings;0x424242;CFG;\n", drive_root);
     fclose(fp);
 }
 
@@ -372,7 +373,6 @@ static void load_launcher_cfg(void)
         app->active = 1;
         launcher_app_count++;
     }
-
     fclose(fp);
 }
 

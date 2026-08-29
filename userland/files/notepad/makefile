@@ -15,7 +15,7 @@ OBJS = nk_impl.o notepad.o
 COMMON_CPPFLAGS := \
 	--sysroot=$(MLIBC_SYSROOT) \
 	-isystem $(MLIBC_USR)/include \
-	-I ../.. -I . -I ../nk_widgets
+	-I ../.. -I . -I ../../include
 
 COMMON_CFLAGS := \
 	-m64 -O3 -fPIE -fomit-frame-pointer -flto -ffast-math \

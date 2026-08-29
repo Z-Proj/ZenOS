@@ -15,7 +15,7 @@ OBJS = $(SRCS:.c=.o)
 COMMON_CPPFLAGS := \
 	--sysroot=$(MLIBC_SYSROOT) \
 	-isystem $(MLIBC_USR)/include \
-	-I ../.. -I ../nk_widgets
+	-I ../..
 
 COMMON_CFLAGS := \
 	-m64 -O2 -fno-pic -fno-pie -fomit-frame-pointer \
