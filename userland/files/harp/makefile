@@ -55,9 +55,15 @@ install: $(APP)
 	$(FATMAN) $(VHD) mkdir /lib/fonts || true
 	$(FATMAN) $(VHD) delete /lib/fonts/default.ttf || true
 	$(FATMAN) $(VHD) import default.ttf /lib/fonts/default.ttf
-	$(FATMAN) $(VHD) import bg.png /lib/harp/bg.png
+	$(FATMAN) $(VHD) import bg1.jpg /lib/harp/bg1.jpg
 	$(FATMAN) $(VHD) import bg2.jpg /lib/harp/bg2.jpg
 	$(FATMAN) $(VHD) import bg3.jpg /lib/harp/bg3.jpg
+	$(FATMAN) $(VHD) import bg4.jpg /lib/harp/bg4.jpg
+	$(FATMAN) $(VHD) import bg5.jpg /lib/harp/bg5.jpg
+	$(FATMAN) $(VHD) import bg6.jpg /lib/harp/bg6.jpg
+	$(FATMAN) $(VHD) import bg7.jpg /lib/harp/bg7.jpg
+	$(FATMAN) $(VHD) import bg8.jpg /lib/harp/bg8.jpg
+	$(FATMAN) $(VHD) import bg9.jpg /lib/harp/bg9.jpg
 	$(FATMAN) $(VHD) import splash.tga /sys/splash.tga
 	$(FATMAN) $(VHD) mkdir sys/crash
 	$(FATMAN) $(VHD) import crash/AC.tga sys/crash/AC.tga

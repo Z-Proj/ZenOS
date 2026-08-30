@@ -60,25 +60,23 @@
 #define HARP_MOD_CAPS  0x08
 
 #pragma pack(push, 1)
-typedef struct {
-    uint8_t  type;
+typedef struct
+{
+    uint8_t type;
     uint32_t pid;
-    int32_t  x;
-    int32_t  y;
-    int32_t  w;
-    int32_t  h;
-    char     title[64];
+    int32_t x, y, w, h;
+    uint8_t buf_index;
+    char title[64];
 } wm_msg_t;
 
-typedef struct {
+typedef struct
+{
     uint16_t type;
     uint16_t code;
-    int32_t  value;
-    int32_t  x;
-    int32_t  y;
+    int32_t value;
+    int32_t x, y;
     uint32_t modifiers;
-    int32_t  key;
-    int32_t  w;
-    int32_t  h;
+    int32_t key;
+    int32_t w, h;
 } harp_event_t;
 #pragma pack(pop)

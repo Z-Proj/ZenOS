@@ -19296,10 +19296,10 @@ nk_do_button(nk_flags *state, struct nk_command_buffer *out, struct nk_rect r,
     if (!out || !style)
         return nk_false;
 
-    content->x = r.x + style->padding.x + style->border + style->rounding;
-    content->y = r.y + style->padding.y + style->border + style->rounding;
-    content->w = r.w - (2 * (style->padding.x + style->border + style->rounding));
-    content->h = r.h - (2 * (style->padding.y + style->border + style->rounding));
+    content->x = r.x + style->padding.x + style->border;
+    content->y = r.y + style->padding.y + style->border;
+    content->w = r.w - (2 * (style->padding.x + style->border));
+    content->h = r.h - (2 * (style->padding.y + style->border));
 
     bounds.x = r.x - style->touch_padding.x;
     bounds.y = r.y - style->touch_padding.y;

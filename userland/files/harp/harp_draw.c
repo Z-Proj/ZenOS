@@ -42,7 +42,7 @@
 
 #define FONT_SIZE    16
 #define BASELINE(y)  ((y) + FONT_SIZE + 1)
-#define LAUNCH_FONT_SIZE 16
+#define LAUNCH_FONT_SIZE 8
 #define LAUNCH_BASELINE(y) ((y) + LAUNCH_FONT_SIZE + 1)
 #define TITLEBAR_H   28
 #define WIN_R         12
@@ -495,6 +495,8 @@ void draw_window(int idx, int full_frame)
     int fx = w->x, fy = w->y, fw = w->w, fh = w->h + TITLEBAR_H;
     if (fx >= (int)SCR_W || fy >= (int)SCR_H || fx + fw <= 0 || fy + fh <= 0) return;
 
+    uint32_t *src_buf = (uint32_t *)w->shmbuf + (size_t)w->read_index * (size_t)w->w * (size_t)w->h;
+
     int use_partial = !full_frame && w->dirty_valid;
     if (use_partial && !w->shmbuf)
         use_partial = 0;
@@ -514,7 +516,7 @@ void draw_window(int idx, int full_frame)
             int src_y0 = dst_y0 - client_y;
             for (int row = dst_y0; row < dst_y1; row++) {
                 memcpy(s_backbuf + row * SCR_W + dst_x0,
-                       (uint32_t *)w->shmbuf + (src_y0 + row - dst_y0) * w->w + src_x0,
+                       src_buf + (src_y0 + row - dst_y0) * w->w + src_x0,
                        (dst_x1 - dst_x0) * 4);
             }
             bb_round_clip_bottom(fx, fy + TITLEBAR_H, fw, w->h, WIN_R);
@@ -554,7 +556,7 @@ void draw_window(int idx, int full_frame)
         if (dst_x0 < dst_x1 && dst_y0 < dst_y1)
             for (int row = dst_y0; row < dst_y1; row++)
                 memcpy(s_backbuf + row * SCR_W + dst_x0,
-                       (uint32_t *)w->shmbuf + (src_y0 + row - dst_y0) * w->w + src_x0,
+                       src_buf + (src_y0 + row - dst_y0) * w->w + src_x0,
                        (dst_x1 - dst_x0) * 4);
         bb_round_clip_bottom(fx, fy + TITLEBAR_H, fw, w->h, WIN_R);
     } else {

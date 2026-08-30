@@ -1,22 +1,22 @@
 /**
- * 
+ *
  * @file : harp_main.c
  * @brief : Harp - Modern, sleek compositor and window manager.
- * 
+ *
  * MIT License
- * 
+ *
  * Copyright (c) 2026 Rishies2010
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
  * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
  * copies of the Software, and to permit persons to whom the Software is
  * furnished to do so, subject to the following conditions:
- * 
+ *
  * The above copyright notice and this permission notice shall be included in all
  * copies or substantial portions of the Software.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
  * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -24,12 +24,12 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
- * 
+ *
  * The above licensing applies to all other parts of the software (Harp).
- * 
+ *
  * @author : Rishies2010
  * @copyright (c) 2026
- * 
+ *
  */
 
 #include <stdio.h>
@@ -52,40 +52,40 @@
 #include "../nk_widgets/stb_image.h"
 #include "stb_image_write.h"
 
-
 #define FONT_SIZE 14
 #define BASELINE(top) ((top) + FONT_SIZE)
 
-#define BLUR_R      6
+#define BLUR_R 6
 #define DARKEN_PCT 255
-#define DASH_H     36
+#define DASH_H 36
 #define DASH_MARGIN 8
 #define TITLEBAR_H 28
 
 static font_face_t *s_font;
-static uint32_t  *backbuf      = NULL;
-static uint32_t  *bgbuf        = NULL;
-static uint32_t  *dash_backdrop = NULL;
-static int        dash_bd_y    = 0;
-static int        dash_bd_w    = 0;
-static fb_info_t  fb;
-static socket_file_t *ev_sock  = NULL;
-static int        pending_full_redraw = 0;
-static int        pending_from_z = MAX_WINDOWS;
-static int        pending_dash_redraw = 0;
-static char       bg_path[128];
-static char       bg_cfg_path[80];
-static char       drive_root[32];
-static char       launcher_cfg_path[64];
-static char       font_path[64];
-static char       screenshot_dir[80];
+static uint32_t *backbuf = NULL;
+static uint32_t *bgbuf = NULL;
+static uint32_t *dash_backdrop = NULL;
+static int dash_bd_y = 0;
+static int dash_bd_w = 0;
+static fb_info_t fb;
+static socket_file_t *ev_sock = NULL;
+static int pending_full_redraw = 0;
+static int pending_from_z = MAX_WINDOWS;
+static int pending_dash_redraw = 0;
+static char bg_path[128];
+static char bg_cfg_path[80];
+static char drive_root[32];
+static char launcher_cfg_path[64];
+static char font_path[64];
+static char screenshot_dir[80];
 
 #define TASK_SNAPSHOT_MAX 128
 
 static const char *path_basename(const char *path)
 {
     const char *base = path;
-    while (*path) {
+    while (*path)
+    {
         if (*path == '/' || *path == '\\')
             base = path + 1;
         path++;
@@ -95,9 +95,12 @@ static const char *path_basename(const char *path)
 
 static int hex_nibble(char c)
 {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
     return -1;
 }
 
@@ -121,13 +124,15 @@ static char *trim_ws(char *s)
 static void set_launcher_label(char out[4], const char *src)
 {
     int j = 0;
-    while (src && *src && j < 3) {
+    while (src && *src && j < 3)
+    {
         char c = *src++;
         if (c == ' ' || c == '\t')
             continue;
         out[j++] = upper_ascii(c);
     }
-    if (j == 0) {
+    if (j == 0)
+    {
         out[0] = '?';
         j = 1;
     }
@@ -137,12 +142,13 @@ static void set_launcher_label(char out[4], const char *src)
 static uint32_t fallback_launcher_color(const char *seed)
 {
     uint32_t h = 2166136261u;
-    while (seed && *seed) {
+    while (seed && *seed)
+    {
         h ^= (uint8_t)*seed++;
         h *= 16777619u;
     }
-    uint32_t r = 32 + ((h >>  0) & 0x3F);
-    uint32_t g = 32 + ((h >>  8) & 0x3F);
+    uint32_t r = 32 + ((h >> 0) & 0x3F);
+    uint32_t g = 32 + ((h >> 8) & 0x3F);
     uint32_t b = 32 + ((h >> 16) & 0x3F);
     return 0xFF000000U | (r << 16) | (g << 8) | b;
 }
@@ -157,18 +163,21 @@ static int parse_launcher_color(const char *s, uint32_t *out)
         s++;
     uint32_t value = 0;
     int digits = 0;
-    while (*s) {
+    while (*s)
+    {
         int v = hex_nibble(*s++);
         if (v < 0)
             return 0;
         value = (value << 4) | (uint32_t)v;
         digits++;
     }
-    if (digits == 6) {
+    if (digits == 6)
+    {
         *out = 0xFF000000U | value;
         return 1;
     }
-    if (digits == 8) {
+    if (digits == 8)
+    {
         *out = value;
         return 1;
     }
@@ -178,11 +187,13 @@ static int parse_launcher_color(const char *s, uint32_t *out)
 static void get_drive_root_from_cwd(void)
 {
     char cwd[256];
-    if (!getcwd(cwd, sizeof(cwd))) {
+    if (!getcwd(cwd, sizeof(cwd)))
+    {
         strcpy(drive_root, "/mnt/drv0");
         return;
     }
-    if (strncmp(cwd, "/mnt/drv", 8) != 0) {
+    if (strncmp(cwd, "/mnt/drv", 8) != 0)
+    {
         strcpy(drive_root, "/mnt/drv0");
         return;
     }
@@ -190,7 +201,8 @@ static void get_drive_root_from_cwd(void)
     while (*slash && *slash != '/')
         slash++;
     size_t len = (size_t)(slash - cwd);
-    if (len == 0 || len >= sizeof(drive_root)) {
+    if (len == 0 || len >= sizeof(drive_root))
+    {
         strcpy(drive_root, "/mnt/drv0");
         return;
     }
@@ -202,7 +214,8 @@ static void ensure_launcher_cfg(void)
 {
     snprintf(launcher_cfg_path, sizeof(launcher_cfg_path), "%s/lib/harp/harp.cfg", drive_root);
     FILE *fp = fopen(launcher_cfg_path, "r");
-    if (fp) {
+    if (fp)
+    {
         fclose(fp);
         return;
     }
@@ -235,10 +248,6 @@ static void build_bg_cfg_path(void)
     snprintf(bg_cfg_path, sizeof(bg_cfg_path), "%s/lib/harp/wallpaper.cfg", drive_root);
 }
 
-/* Loads the wallpaper path from wallpaper.cfg into bg_path. Falls back to the
- * default bg.png if the config is missing/empty - actual missing/broken image
- * files are handled later by image_load() itself (bake_bgbuf falls back to a
- * solid backdrop colour when the file can't be decoded). */
 static void load_bg_path(void)
 {
     snprintf(bg_path, sizeof(bg_path), "%s/lib/harp/bg.png", drive_root);
@@ -248,9 +257,11 @@ static void load_bg_path(void)
         return;
 
     char line[128];
-    if (fgets(line, sizeof(line), fp)) {
+    if (fgets(line, sizeof(line), fp))
+    {
         char *p = trim_ws(line);
-        if (*p) {
+        if (*p)
+        {
             strncpy(bg_path, p, sizeof(bg_path) - 1);
             bg_path[sizeof(bg_path) - 1] = '\0';
         }
@@ -297,7 +308,8 @@ static int save_screenshot(void)
     char path[112];
     struct stat st;
     int slot = 1;
-    do {
+    do
+    {
         snprintf(path, sizeof(path), "%s/scrshot%d.png", screenshot_dir, slot++);
     } while (slot < 100000 && stat(path, &st) == 0);
 
@@ -305,10 +317,12 @@ static int save_screenshot(void)
     if (!rgba)
         return 0;
 
-    for (uint32_t y = 0; y < fb.height; y++) {
+    for (uint32_t y = 0; y < fb.height; y++)
+    {
         const uint32_t *src = (const uint32_t *)((const uint8_t *)(uintptr_t)fb.addr + (size_t)y * fb.pitch);
         uint8_t *dst = rgba + (size_t)y * (size_t)fb.width * 4;
-        for (uint32_t x = 0; x < fb.width; x++) {
+        for (uint32_t x = 0; x < fb.width; x++)
+        {
             uint32_t p = src[x];
             dst[x * 4 + 0] = (uint8_t)((p >> 16) & 0xFF);
             dst[x * 4 + 1] = (uint8_t)((p >> 8) & 0xFF);
@@ -332,7 +346,8 @@ static void load_launcher_cfg(void)
         return;
 
     char line[256];
-    while (launcher_app_count < MAX_LAUNCH_APPS && fgets(line, sizeof(line), fp)) {
+    while (launcher_app_count < MAX_LAUNCH_APPS && fgets(line, sizeof(line), fp))
+    {
         char *p = trim_ws(line);
         if (*p == 0 || *p == '#')
             continue;
@@ -346,10 +361,10 @@ static void load_launcher_cfg(void)
             continue;
         *sep2++ = 0;
 
-        /* optional 4th field: launch arguments, also ';'-separated */
         char *sep3 = strchr(sep2, ';');
         char *args = "";
-        if (sep3) {
+        if (sep3)
+        {
             *sep3++ = 0;
             args = trim_ws(sep3);
         }
@@ -376,23 +391,31 @@ static void load_launcher_cfg(void)
     fclose(fp);
 }
 
-/* Simple whitespace tokenizer with double-quote support, mirroring init.c's
- * _parse_args, so dock apps can be launched with parameters. Mutates line. */
 static int split_args(char *line, char *argv[], int max)
 {
     int argc = 0;
-    while (*line && argc < max - 1) {
-        while (*line == ' ' || *line == '\t') line++;
-        if (!*line) break;
-        if (*line == '"') {
+    while (*line && argc < max - 1)
+    {
+        while (*line == ' ' || *line == '\t')
+            line++;
+        if (!*line)
+            break;
+        if (*line == '"')
+        {
             line++;
             argv[argc++] = line;
-            while (*line && *line != '"') line++;
-            if (*line) *line++ = '\0';
-        } else {
+            while (*line && *line != '"')
+                line++;
+            if (*line)
+                *line++ = '\0';
+        }
+        else
+        {
             argv[argc++] = line;
-            while (*line && *line != ' ' && *line != '\t') line++;
-            if (*line) *line++ = '\0';
+            while (*line && *line != ' ' && *line != '\t')
+                line++;
+            if (*line)
+                *line++ = '\0';
         }
     }
     argv[argc] = NULL;
@@ -427,11 +450,14 @@ static void full_redraw(void)
     pending_dash_redraw = 0;
     dirty_all();
     draw_desktop();
-    for (int i = 0; i < zcount; i++) {
-        if (dragging && zstack[i] == drag_win) continue;
+    for (int i = 0; i < zcount; i++)
+    {
+        if (dragging && zstack[i] == drag_win)
+            continue;
         draw_window(zstack[i], 1);
     }
-    if (dragging) draw_drag_outline();
+    if (dragging)
+        draw_drag_outline();
     draw_dash();
     push_to_fb((uint32_t *)(uintptr_t)fb.addr, input_ptr_x(), input_ptr_y(), fb.pitch);
 }
@@ -454,7 +480,8 @@ static void request_full_redraw(void)
 static void request_window_redraw(int idx, int redraw_dash)
 {
     int pos = z_pos_of(idx);
-    if (pos < 0) {
+    if (pos < 0)
+    {
         request_full_redraw();
         return;
     }
@@ -468,7 +495,8 @@ static void flush_pending_redraw(uint32_t mx, uint32_t my)
 {
     if (dragging)
         return;
-    if (pending_full_redraw) {
+    if (pending_full_redraw)
+    {
         full_redraw();
         return;
     }
@@ -486,21 +514,30 @@ static void flush_pending_redraw(uint32_t mx, uint32_t my)
 static void box_blur_h(uint32_t *src, uint32_t *dst, int w, int h, int r)
 {
     int diam = 2 * r + 1;
-    for (int y = 0; y < h; y++) {
+    for (int y = 0; y < h; y++)
+    {
         uint32_t *s = src + y * w, *d = dst + y * w;
         uint32_t sr = 0, sg = 0, sb = 0;
-        for (int x = -r; x <= r; x++) {
+        for (int x = -r; x <= r; x++)
+        {
             int sx = x < 0 ? 0 : (x >= w ? w - 1 : x);
             uint32_t p = s[sx];
-            sr += (p >> 16) & 0xFF; sg += (p >> 8) & 0xFF; sb += p & 0xFF;
+            sr += (p >> 16) & 0xFF;
+            sg += (p >> 8) & 0xFF;
+            sb += p & 0xFF;
         }
-        for (int x = 0; x < w; x++) {
+        for (int x = 0; x < w; x++)
+        {
             d[x] = 0xFF000000 | ((sr / diam) << 16) | ((sg / diam) << 8) | (sb / diam);
-            int xl = x - r; if (xl < 0) xl = 0;
-            int xr = x + r + 1; if (xr >= w) xr = w - 1;
+            int xl = x - r;
+            if (xl < 0)
+                xl = 0;
+            int xr = x + r + 1;
+            if (xr >= w)
+                xr = w - 1;
             uint32_t pl = s[xl], pr = s[xr];
             sr += ((pr >> 16) & 0xFF) - ((pl >> 16) & 0xFF);
-            sg += ((pr >>  8) & 0xFF) - ((pl >>  8) & 0xFF);
+            sg += ((pr >> 8) & 0xFF) - ((pl >> 8) & 0xFF);
             sb += (pr & 0xFF) - (pl & 0xFF);
         }
     }
@@ -509,45 +546,56 @@ static void box_blur_h(uint32_t *src, uint32_t *dst, int w, int h, int r)
 static void box_blur_v(uint32_t *src, uint32_t *dst, int w, int h, int r)
 {
     int diam = 2 * r + 1;
-    for (int x = 0; x < w; x++) {
+    for (int x = 0; x < w; x++)
+    {
         uint32_t sr = 0, sg = 0, sb = 0;
-        for (int y = -r; y <= r; y++) {
+        for (int y = -r; y <= r; y++)
+        {
             int sy = y < 0 ? 0 : (y >= h ? h - 1 : y);
             uint32_t p = src[sy * w + x];
-            sr += (p >> 16) & 0xFF; sg += (p >> 8) & 0xFF; sb += p & 0xFF;
+            sr += (p >> 16) & 0xFF;
+            sg += (p >> 8) & 0xFF;
+            sb += p & 0xFF;
         }
-        for (int y = 0; y < h; y++) {
+        for (int y = 0; y < h; y++)
+        {
             dst[y * w + x] = 0xFF000000 | ((sr / diam) << 16) | ((sg / diam) << 8) | (sb / diam);
-            int yt = y - r; if (yt < 0) yt = 0;
-            int yb = y + r + 1; if (yb >= h) yb = h - 1;
+            int yt = y - r;
+            if (yt < 0)
+                yt = 0;
+            int yb = y + r + 1;
+            if (yb >= h)
+                yb = h - 1;
             uint32_t pt = src[yt * w + x], pb = src[yb * w + x];
             sr += ((pb >> 16) & 0xFF) - ((pt >> 16) & 0xFF);
-            sg += ((pb >>  8) & 0xFF) - ((pt >>  8) & 0xFF);
+            sg += ((pb >> 8) & 0xFF) - ((pt >> 8) & 0xFF);
             sb += (pb & 0xFF) - (pt & 0xFF);
         }
     }
 }
 
-#pragma pack(push,1)
-typedef struct {
-    uint8_t  id_len;
-    uint8_t  cmap_type;
-    uint8_t  data_type;
+#pragma pack(push, 1)
+typedef struct
+{
+    uint8_t id_len;
+    uint8_t cmap_type;
+    uint8_t data_type;
     uint16_t cmap_origin;
     uint16_t cmap_length;
-    uint8_t  cmap_depth;
+    uint8_t cmap_depth;
     uint16_t x_origin;
     uint16_t y_origin;
     uint16_t width;
     uint16_t height;
-    uint8_t  bpp;
-    uint8_t  descriptor;
+    uint8_t bpp;
+    uint8_t descriptor;
 } tga_hdr_t;
 #pragma pack(pop)
 
 static inline uint32_t tga_decode_pixel(const uint8_t *p, int bpp)
 {
-    if (bpp == 1) {
+    if (bpp == 1)
+    {
         uint8_t v = p[0];
         return 0xFF000000 | ((uint32_t)v << 16) | ((uint32_t)v << 8) | v;
     }
@@ -559,23 +607,34 @@ static inline uint32_t tga_decode_pixel(const uint8_t *p, int bpp)
 static uint32_t *tga_load(const char *path, int *out_w, int *out_h)
 {
     FILE *f = fopen(path, "rb");
-    if (!f) return NULL;
+    if (!f)
+        return NULL;
 
     tga_hdr_t h;
-    if (fread(&h, sizeof(h), 1, f) != 1) { fclose(f); return NULL; }
-    if (h.id_len) fseek(f, h.id_len, SEEK_CUR);
+    if (fread(&h, sizeof(h), 1, f) != 1)
+    {
+        fclose(f);
+        return NULL;
+    }
+    if (h.id_len)
+        fseek(f, h.id_len, SEEK_CUR);
 
     uint32_t *cmap = NULL;
-    if (h.cmap_type && h.cmap_length > 0) {
+    if (h.cmap_type && h.cmap_length > 0)
+    {
         int ce = h.cmap_depth >> 3;
         cmap = (uint32_t *)malloc(h.cmap_length * 4);
-        if (cmap) {
+        if (cmap)
+        {
             uint8_t ce_buf[4];
-            for (int i = 0; i < h.cmap_length; i++) {
+            for (int i = 0; i < h.cmap_length; i++)
+            {
                 fread(ce_buf, ce, 1, f);
                 cmap[i] = tga_decode_pixel(ce_buf, ce);
             }
-        } else {
+        }
+        else
+        {
             fseek(f, (long)h.cmap_length * (h.cmap_depth >> 3), SEEK_CUR);
         }
     }
@@ -584,8 +643,10 @@ static uint32_t *tga_load(const char *path, int *out_w, int *out_h)
 
     int is_cmap = (h.data_type == 1 || h.data_type == 9);
     int img_bpp = is_cmap ? 1 : (h.bpp >> 3);
-    if (iw <= 0 || ih <= 0 || (img_bpp != 1 && img_bpp != 3 && img_bpp != 4)) {
-        if (cmap) free(cmap);
+    if (iw <= 0 || ih <= 0 || (img_bpp != 1 && img_bpp != 3 && img_bpp != 4))
+    {
+        if (cmap)
+            free(cmap);
         fclose(f);
         return NULL;
     }
@@ -599,41 +660,72 @@ static uint32_t *tga_load(const char *path, int *out_w, int *out_h)
     int src_y1 = src_y0 + crop_h - 1;
 
     uint32_t *px = (uint32_t *)malloc(crop_w * crop_h * 4);
-    uint8_t  *row = (uint8_t *)malloc(iw * img_bpp);
-    if (!px || !row) { free(px); free(row); if (cmap) free(cmap); fclose(f); return NULL; }
+    uint8_t *row = (uint8_t *)malloc(iw * img_bpp);
+    if (!px || !row)
+    {
+        free(px);
+        free(row);
+        if (cmap)
+            free(cmap);
+        fclose(f);
+        return NULL;
+    }
 
-    if (h.data_type == 1 || h.data_type == 2 || h.data_type == 3) {
+    if (h.data_type == 1 || h.data_type == 2 || h.data_type == 3)
+    {
         long row_bytes = (long)iw * img_bpp;
-        for (int y = 0; y < ih; y++) {
+        for (int y = 0; y < ih; y++)
+        {
             int src_y = flip_v ? (ih - 1 - y) : y;
-            if (src_y < src_y0 || src_y > src_y1) { fseek(f, row_bytes, SEEK_CUR); continue; }
+            if (src_y < src_y0 || src_y > src_y1)
+            {
+                fseek(f, row_bytes, SEEK_CUR);
+                continue;
+            }
             fread(row, img_bpp, iw, f);
             int dst_y = src_y - src_y0;
-            for (int x = 0; x < crop_w; x++) {
+            for (int x = 0; x < crop_w; x++)
+            {
                 uint8_t *p = row + (src_x0 + x) * img_bpp;
                 uint32_t c = (is_cmap && cmap) ? cmap[p[0] < h.cmap_length ? p[0] : 0]
                                                : tga_decode_pixel(p, img_bpp);
                 px[dst_y * crop_w + x] = c;
             }
         }
-    } else if (h.data_type == 9 || h.data_type == 10 || h.data_type == 11) {
+    }
+    else if (h.data_type == 9 || h.data_type == 10 || h.data_type == 11)
+    {
         uint32_t *full = (uint32_t *)malloc(iw * ih * 4);
-        if (!full) { free(px); free(row); if (cmap) free(cmap); fclose(f); return NULL; }
+        if (!full)
+        {
+            free(px);
+            free(row);
+            if (cmap)
+                free(cmap);
+            fclose(f);
+            return NULL;
+        }
         int total = iw * ih, i = 0;
         uint8_t tmp[5];
-        while (i < total) {
+        while (i < total)
+        {
             fread(tmp, 1, 1, f);
             int rep = (tmp[0] & 0x7F) + 1;
-            if (tmp[0] & 0x80) {
+            if (tmp[0] & 0x80)
+            {
                 fread(tmp + 1, img_bpp, 1, f);
                 uint32_t c = (is_cmap && cmap) ? cmap[tmp[1] < h.cmap_length ? tmp[1] : 0]
                                                : tga_decode_pixel(tmp + 1, img_bpp);
-                for (int k = 0; k < rep && i < total; k++, i++) {
+                for (int k = 0; k < rep && i < total; k++, i++)
+                {
                     int fy = flip_v ? (ih - 1 - i / iw) : i / iw;
                     full[fy * iw + (i % iw)] = c;
                 }
-            } else {
-                for (int k = 0; k < rep && i < total; k++, i++) {
+            }
+            else
+            {
+                for (int k = 0; k < rep && i < total; k++, i++)
+                {
                     fread(tmp + 1, img_bpp, 1, f);
                     uint32_t c = (is_cmap && cmap) ? cmap[tmp[1] < h.cmap_length ? tmp[1] : 0]
                                                    : tga_decode_pixel(tmp + 1, img_bpp);
@@ -646,12 +738,20 @@ static uint32_t *tga_load(const char *path, int *out_w, int *out_h)
             for (int dx = 0; dx < crop_w; dx++)
                 px[dy * crop_w + dx] = full[(src_y0 + dy) * iw + (src_x0 + dx)];
         free(full);
-    } else {
-        free(px); free(row); if (cmap) free(cmap); fclose(f); return NULL;
+    }
+    else
+    {
+        free(px);
+        free(row);
+        if (cmap)
+            free(cmap);
+        fclose(f);
+        return NULL;
     }
 
     free(row);
-    if (cmap) free(cmap);
+    if (cmap)
+        free(cmap);
     fclose(f);
     *out_w = crop_w;
     *out_h = crop_h;
@@ -679,21 +779,25 @@ static uint32_t *image_load(const char *path, int *out_w, int *out_h)
     int src_y0 = (ih - crop_h) / 2;
 
     uint32_t *px = (uint32_t *)malloc(crop_w * crop_h * 4);
-    if (!px) {
+    if (!px)
+    {
         stbi_image_free(rgba);
         return NULL;
     }
 
-    for (int y = 0; y < crop_h; y++) {
+    for (int y = 0; y < crop_h; y++)
+    {
         const uint8_t *src = rgba + ((size_t)(src_y0 + y) * (size_t)iw + (size_t)src_x0) * 4;
         uint32_t *dst = px + (size_t)y * (size_t)crop_w;
-        for (int x = 0; x < crop_w; x++) {
+        for (int x = 0; x < crop_w; x++)
+        {
             const uint8_t *p = src + (size_t)x * 4;
             uint32_t a = p[3];
             uint32_t r = p[0];
             uint32_t g = p[1];
             uint32_t b = p[2];
-            if (a != 255) {
+            if (a != 255)
+            {
                 r = (r * a) / 255;
                 g = (g * a) / 255;
                 b = (b * a) / 255;
@@ -713,16 +817,27 @@ static void bake_bgbuf(void)
     int bw = 0, bh = 0;
     uint32_t *img = image_load(bg_path, &bw, &bh);
     bgbuf = (uint32_t *)malloc(SCR_W * SCR_H * 4);
-    if (!bgbuf) { if (img) free(img); return; }
-    for (uint32_t i = 0; i < SCR_W * SCR_H; i++) bgbuf[i] = 0xFF0E0E0E;
-    if (img) {
+    if (!bgbuf)
+    {
+        if (img)
+            free(img);
+        return;
+    }
+    for (uint32_t i = 0; i < SCR_W * SCR_H; i++)
+        bgbuf[i] = 0xFF0E0E0E;
+    if (img)
+    {
         int ox = ((int)SCR_W - bw) / 2, oy = ((int)SCR_H - bh) / 2;
-        for (int y = 0; y < bh; y++) {
+        for (int y = 0; y < bh; y++)
+        {
             int dy = oy + y;
-            if (dy < 0 || (uint32_t)dy >= SCR_H) continue;
-            for (int x = 0; x < bw; x++) {
+            if (dy < 0 || (uint32_t)dy >= SCR_H)
+                continue;
+            for (int x = 0; x < bw; x++)
+            {
                 int dx = ox + x;
-                if (dx < 0 || (uint32_t)dx >= SCR_W) continue;
+                if (dx < 0 || (uint32_t)dx >= SCR_W)
+                    continue;
                 bgbuf[dy * SCR_W + dx] = img[y * bw + x] | 0xFF000000;
             }
         }
@@ -734,34 +849,49 @@ static void bake_dash_backdrop(void)
 {
     int dt = (int)SCR_H - DASH_MARGIN - DASH_H;
     int bw = (int)SCR_W, bh = DASH_H;
-    if (!bgbuf || dt < 0 || dt + bh > (int)SCR_H) return;
+    if (!bgbuf || dt < 0 || dt + bh > (int)SCR_H)
+        return;
     uint32_t *strip = (uint32_t *)malloc(bw * bh * 4);
-    uint32_t *tmp   = (uint32_t *)malloc(bw * bh * 4);
-    if (!strip || !tmp) { free(strip); free(tmp); return; }
+    uint32_t *tmp = (uint32_t *)malloc(bw * bh * 4);
+    if (!strip || !tmp)
+    {
+        free(strip);
+        free(tmp);
+        return;
+    }
     for (int y = 0; y < bh; y++)
         memcpy(strip + y * bw, bgbuf + (dt + y) * SCR_W, bw * 4);
     box_blur_h(strip, tmp, bw, bh, BLUR_R);
     box_blur_v(tmp, strip, bw, bh, BLUR_R);
     box_blur_h(strip, tmp, bw, bh, BLUR_R);
     box_blur_v(tmp, strip, bw, bh, BLUR_R);
-    for (int i = 0; i < bw * bh; i++) {
+    for (int i = 0; i < bw * bh; i++)
+    {
         uint32_t p = strip[i];
         uint32_t r = ((p >> 16) & 0xFF) * DARKEN_PCT / 255;
-        uint32_t g = ((p >>  8) & 0xFF) * DARKEN_PCT / 255;
+        uint32_t g = ((p >> 8) & 0xFF) * DARKEN_PCT / 255;
         uint32_t b = (p & 0xFF) * DARKEN_PCT / 255;
         strip[i] = 0xFF000000 | (r << 16) | (g << 8) | b;
     }
     free(tmp);
     dash_backdrop = strip;
-    dash_bd_y     = dt;
-    dash_bd_w     = bw;
+    dash_bd_y = dt;
+    dash_bd_w = bw;
 }
 
 static void reload_wallpaper(void)
 {
     load_bg_path();
-    if (bgbuf) { free(bgbuf); bgbuf = NULL; }
-    if (dash_backdrop) { free(dash_backdrop); dash_backdrop = NULL; }
+    if (bgbuf)
+    {
+        free(bgbuf);
+        bgbuf = NULL;
+    }
+    if (dash_backdrop)
+    {
+        free(dash_backdrop);
+        dash_backdrop = NULL;
+    }
     bake_bgbuf();
     bake_dash_backdrop();
     draw_init(backbuf, bgbuf, dash_backdrop, dash_bd_y, dash_bd_w, s_font);
@@ -770,84 +900,116 @@ static void reload_wallpaper(void)
 
 static void poll_ipc(void)
 {
-    if (!ev_sock) return;
+    if (!ev_sock)
+        return;
     wm_msg_t msg;
     uint32_t got = 0;
-    while (socket_available(ev_sock) >= sizeof(msg)) {
+    while (socket_available(ev_sock) >= sizeof(msg))
+    {
         socket_read(ev_sock, &msg, sizeof(msg), &got);
-        if (got < sizeof(msg)) break;
+        if (got < sizeof(msg))
+            break;
 
-        if (msg.type == WM_MSG_REGISTER) {
-            if (msg.w <= 0 || msg.h <= 0) continue;
+        if (msg.type == WM_MSG_REGISTER)
+        {
+            if (msg.w <= 0 || msg.h <= 0)
+                continue;
             int slot = -1;
             for (int i = 0; i < MAX_WINDOWS; i++)
-                if (!windows[i].active) { slot = i; break; }
-            if (slot < 0) continue;
+                if (!windows[i].active)
+                {
+                    slot = i;
+                    break;
+                }
+            if (slot < 0)
+                continue;
             window_t *w = &windows[slot];
             memset(w, 0, sizeof(*w));
             w->active = 1;
             w->pid = msg.pid;
-            w->x = msg.x; w->y = msg.y;
-            w->w = msg.w; w->h = msg.h;
-            strncpy(w->title, msg.title, 63); w->title[63] = 0;
+            w->x = msg.x;
+            w->y = msg.y;
+            w->w = msg.w;
+            w->h = msg.h;
+            strncpy(w->title, msg.title, 63);
+            w->title[63] = 0;
             snprintf(w->shmname, sizeof(w->shmname), "wm:shm_%u", msg.pid);
-            snprintf(w->evname,  sizeof(w->evname),  "wm:ev_%u",  msg.pid);
+            snprintf(w->evname, sizeof(w->evname), "wm:ev_%u", msg.pid);
             shm_info_t si;
+
             if (zen_shm_open(w->shmname, &si) == 0 && si.addr &&
-                si.size >= (uint64_t)(msg.w * msg.h * 4))
+                si.size >= (uint64_t)(msg.w * msg.h * 4) * 2)
                 w->shmbuf = (uint8_t *)si.addr;
+            w->read_index = 0;
             socket_open(w->evname, &w->evsock);
             w->dirty_valid = 0;
             clamp_window(w);
             z_raise(slot);
             set_focused_window(slot);
             request_full_redraw();
-
-        } else if (msg.type == WM_MSG_DIRTY) {
-            for (int i = 0; i < MAX_WINDOWS; i++) {
-                if (!windows[i].active || windows[i].pid != msg.pid) continue;
+        }
+        else if (msg.type == WM_MSG_DIRTY)
+        {
+            for (int i = 0; i < MAX_WINDOWS; i++)
+            {
+                if (!windows[i].active || windows[i].pid != msg.pid)
+                    continue;
+                windows[i].read_index = msg.buf_index;
                 mark_window_dirty(&windows[i], msg.x, msg.y, msg.w, msg.h);
                 request_window_redraw(i, 0);
                 break;
             }
-
-        } else if (msg.type == WM_MSG_RETITLE) {
-            for (int i = 0; i < MAX_WINDOWS; i++) {
-                if (!windows[i].active || windows[i].pid != msg.pid) continue;
+        }
+        else if (msg.type == WM_MSG_RETITLE)
+        {
+            for (int i = 0; i < MAX_WINDOWS; i++)
+            {
+                if (!windows[i].active || windows[i].pid != msg.pid)
+                    continue;
                 strncpy(windows[i].title, msg.title, 63);
                 windows[i].title[63] = 0;
                 request_full_redraw();
                 break;
             }
-
-        } else if (msg.type == WM_MSG_UNREGISTER) {
-            for (int i = 0; i < MAX_WINDOWS; i++) {
-                if (!windows[i].active || windows[i].pid != msg.pid) continue;
+        }
+        else if (msg.type == WM_MSG_UNREGISTER)
+        {
+            for (int i = 0; i < MAX_WINDOWS; i++)
+            {
+                if (!windows[i].active || windows[i].pid != msg.pid)
+                    continue;
                 wm_close_window(i);
                 request_full_redraw();
                 break;
             }
-
-        } else if (msg.type == WM_MSG_CAPTURE) {
-            for (int i = 0; i < MAX_WINDOWS; i++) {
-                if (!windows[i].active || windows[i].pid != msg.pid) continue;
-                if (msg.x && focused_win == i) {
+        }
+        else if (msg.type == WM_MSG_CAPTURE)
+        {
+            for (int i = 0; i < MAX_WINDOWS; i++)
+            {
+                if (!windows[i].active || windows[i].pid != msg.pid)
+                    continue;
+                if (msg.x && focused_win == i)
+                {
                     captured_win = i;
-                } else if (captured_win == i) {
+                }
+                else if (captured_win == i)
+                {
                     captured_win = -1;
                 }
                 break;
             }
-
-        } else if (msg.type == WM_MSG_RELOAD_BG) {
+        }
+        else if (msg.type == WM_MSG_RELOAD_BG)
+        {
             reload_wallpaper();
-
-        } else if (msg.type == WM_MSG_RELOAD_DOCK) {
+        }
+        else if (msg.type == WM_MSG_RELOAD_DOCK)
+        {
             load_launcher_cfg();
-            pending_full_redraw = 0;
-            pending_from_z = MAX_WINDOWS;
-            pending_dash_redraw = 0;
-            request_full_redraw();
+            dirty_all();
+            draw_dash();
+            push_to_fb((uint32_t *)(uintptr_t)fb.addr, input_ptr_x(), input_ptr_y(), fb.pitch);
         }
     }
 }
@@ -860,7 +1022,8 @@ static int task_alive(uint32_t pid)
     if (count <= 0)
         return 0;
 
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i < count; i++)
+    {
         if (infos[i].pid == pid)
             return 1;
     }
@@ -872,7 +1035,8 @@ static void reap_dead_windows(void)
 {
     int changed = 0;
 
-    for (int i = 0; i < MAX_WINDOWS; i++) {
+    for (int i = 0; i < MAX_WINDOWS; i++)
+    {
         if (!windows[i].active)
             continue;
         if (task_alive(windows[i].pid))
@@ -888,13 +1052,15 @@ static void reap_dead_windows(void)
 static void reap_spawned_children(void)
 {
     int status = 0;
-    while (waitpid(-1, &status, WNOHANG) > 0) {
+    while (waitpid(-1, &status, WNOHANG) > 0)
+    {
     }
 }
 
-int main(int argc, char* argv[])
+int main(int argc, char *argv[])
 {
-    if (argc > 2) {
+    if (argc > 2)
+    {
         printf("Invalid number of arguments passed.\n1 || 2 args expected.");
         return 1;
     }
@@ -904,25 +1070,37 @@ int main(int argc, char* argv[])
     build_bg_cfg_path();
     ensure_launcher_cfg();
     load_launcher_cfg();
-    if (argc == 2) {
+    if (argc == 2)
+    {
         strncpy(bg_path, argv[1], sizeof(bg_path) - 1);
         bg_path[sizeof(bg_path) - 1] = '\0';
         save_bg_path(bg_path);
-    } else {
+    }
+    else
+    {
         load_bg_path();
     }
-    if (zen_fbinfo(&fb) != 0) return 1;
+    if (zen_fbinfo(&fb) != 0)
+        return 1;
     SCR_W = (uint32_t)fb.width;
     SCR_H = (uint32_t)fb.height;
-    if (SCR_W == 0 || SCR_H == 0) return 1;
+    if (SCR_W == 0 || SCR_H == 0)
+        return 1;
 
     backbuf = (uint32_t *)malloc(SCR_W * SCR_H * 4);
-    if (!backbuf) return 1;
+    if (!backbuf)
+        return 1;
 
     wm_init();
 
-    if (socket_create(WM_SOCK) < 0) { free(backbuf); write(STDERR_FILENO, "Harp is already running.\nMultiple instances cannot be run.", 58); return 1; }
-    if (socket_open(WM_SOCK, &ev_sock) < 0 || !ev_sock) {
+    if (socket_create(WM_SOCK) < 0)
+    {
+        free(backbuf);
+        write(STDERR_FILENO, "Harp is already running.\nMultiple instances cannot be run.", 58);
+        return 1;
+    }
+    if (socket_open(WM_SOCK, &ev_sock) < 0 || !ev_sock)
+    {
         socket_delete(WM_SOCK);
         free(backbuf);
         return 1;
@@ -934,9 +1112,12 @@ int main(int argc, char* argv[])
     s_font = font_load(font_path);
     if (!s_font && strcmp(font_path, "/mnt/drv0/lib/fonts/default.ttf") != 0)
         s_font = font_load("/mnt/drv0/lib/fonts/default.ttf");
-    if (!s_font) {
+    if (!s_font)
+    {
         fprintf(stderr, "harp: failed to load font: %s\n", font_path);
-        socket_close(ev_sock); socket_delete(WM_SOCK); free(backbuf);
+        socket_close(ev_sock);
+        socket_delete(WM_SOCK);
+        free(backbuf);
         return 1;
     }
     font_prime_ascii(s_font, 11);
@@ -945,10 +1126,14 @@ int main(int argc, char* argv[])
     draw_init(backbuf, bgbuf, dash_backdrop,
               dash_bd_y, dash_bd_w, s_font);
 
-    int kbd_fd   = open("/dev/input/event0", O_RDONLY);
+    int kbd_fd = open("/dev/input/event0", O_RDONLY);
     int mouse_fd = open("/dev/input/event1", O_RDONLY);
-    if (kbd_fd < 0 || mouse_fd < 0) {
-        socket_close(ev_sock); socket_delete(WM_SOCK); free(backbuf); return 1;
+    if (kbd_fd < 0 || mouse_fd < 0)
+    {
+        socket_close(ev_sock);
+        socket_delete(WM_SOCK);
+        free(backbuf);
+        return 1;
     }
     input_init(kbd_fd, mouse_fd, SCR_W / 2, SCR_H / 2);
 
@@ -959,26 +1144,34 @@ int main(int argc, char* argv[])
     int clock_tick = 0;
     int reap_tick = 0;
 
-    while (1) {
+    while (1)
+    {
         reap_spawned_children();
         poll_ipc();
         input_pump_keyboard();
         input_pump_mouse();
 
-        uint32_t mx  = input_ptr_x();
-        uint32_t my  = input_ptr_y();
-        uint8_t  btn = input_ptr_btn();
+        uint32_t mx = input_ptr_x();
+        uint32_t my = input_ptr_y();
+        uint8_t btn = input_ptr_btn();
         uint32_t mods = input_modifiers();
         int moved = ((int)mx != prev_mx || (int)my != prev_my);
 
-        if (input_consume_tab()) {
+        if (input_consume_tab())
+        {
             int start = -1;
             for (int i = 0; i < zcount; i++)
-                if (zstack[i] == focused_win) { start = i; break; }
-            for (int n = 1; n < zcount; n++) {
+                if (zstack[i] == focused_win)
+                {
+                    start = i;
+                    break;
+                }
+            for (int n = 1; n < zcount; n++)
+            {
                 int i = (start + n) % zcount;
                 int idx = zstack[i];
-                if (windows[idx].active && !windows[idx].minimized) {
+                if (windows[idx].active && !windows[idx].minimized)
+                {
                     z_raise(idx);
                     set_focused_window(idx);
                     request_full_redraw();
@@ -987,7 +1180,8 @@ int main(int argc, char* argv[])
             }
         }
 
-        if ((btn & 1) && !(prev_btn & 1)) {
+        if ((btn & 1) && !(prev_btn & 1))
+        {
             drag_win = -1;
             int clicked = win_at((int)mx, (int)my);
             int sb = screenshot_btn_at((int)mx, (int)my);
@@ -995,91 +1189,129 @@ int main(int argc, char* argv[])
             int lb = launcher_btn_at((int)mx, (int)my);
             int db = dash_btn_at((int)mx, (int)my);
 
-            if (sb >= 0) {
+            if (sb >= 0)
+            {
                 save_screenshot();
-            } else if (pb >= 0) {
+            }
+            else if (pb >= 0)
+            {
                 zen_shutdown();
-            } else if (lb >= 0) {
+            }
+            else if (lb >= 0)
+            {
                 launch_launcher_app(lb);
-            } else if (db >= 0) {
-                if (db == focused_win) {
+            }
+            else if (db >= 0)
+            {
+                if (db == focused_win)
+                {
                     windows[db].minimized ^= 1;
-                    if (windows[db].minimized) set_focused_window(z_top());
-                } else {
+                    if (windows[db].minimized)
+                        set_focused_window(z_top());
+                }
+                else
+                {
                     windows[db].minimized = 0;
                     z_raise(db);
                     set_focused_window(db);
                 }
                 request_full_redraw();
-            } else if (clicked >= 0) {
+            }
+            else if (clicked >= 0)
+            {
                 int already = (clicked == focused_win);
                 z_raise(clicked);
                 set_focused_window(clicked);
                 request_full_redraw();
-                if (close_btn_at(clicked, (int)mx, (int)my) && already) {
+                if (close_btn_at(clicked, (int)mx, (int)my) && already)
+                {
                     send_close_req(clicked);
-                } else if (titlebar_at(clicked, (int)mx, (int)my) && already) {
-                    drag_win     = clicked;
-                    drag_start_x = (int)mx; drag_start_y = (int)my;
-                    drag_base_x  = windows[clicked].x;
-                    drag_base_y  = windows[clicked].y;
+                }
+                else if (titlebar_at(clicked, (int)mx, (int)my) && already)
+                {
+                    drag_win = clicked;
+                    drag_start_x = (int)mx;
+                    drag_start_y = (int)my;
+                    drag_base_x = windows[clicked].x;
+                    drag_base_y = windows[clicked].y;
                 }
             }
         }
 
-        if ((btn & 1) && drag_win >= 0 && moved) {
+        if ((btn & 1) && drag_win >= 0 && moved)
+        {
             int limit_y = dash_area_top() - TITLEBAR_H;
             int nx = drag_base_x + ((int)mx - drag_start_x);
             int ny = drag_base_y + ((int)my - drag_start_y);
-            if (ny < 0) ny = 0;
-            if (ny > limit_y) ny = limit_y;
+            if (ny < 0)
+                ny = 0;
+            if (ny > limit_y)
+                ny = limit_y;
             windows[drag_win].x = nx;
             windows[drag_win].y = ny;
             dragging = 1;
             dirty_all();
             draw_desktop();
             for (int i = 0; i < zcount; i++)
-                if (zstack[i] != drag_win) draw_window(zstack[i], 1);
+                if (zstack[i] != drag_win)
+                    draw_window(zstack[i], 1);
             draw_drag_outline();
             draw_dash();
             push_to_fb((uint32_t *)(uintptr_t)fb.addr, mx, my, fb.pitch);
         }
 
-        if (!(btn & 1) && (prev_btn & 1)) {
-            if (drag_win >= 0) {
+        if (!(btn & 1) && (prev_btn & 1))
+        {
+            if (drag_win >= 0)
+            {
                 clamp_window(&windows[drag_win]);
                 request_full_redraw();
             }
-            drag_win = -1; dragging = 0;
+            drag_win = -1;
+            dragging = 0;
         }
 
         int cw = (captured_win >= 0 && windows[captured_win].active && !windows[captured_win].minimized)
-                     ? captured_win : client_window_at((int)mx, (int)my);
+                     ? captured_win
+                     : client_window_at((int)mx, (int)my);
 
-        if (captured_win >= 0 && cw == captured_win) {
-            if (!dragging && moved) {
+        if (captured_win >= 0 && cw == captured_win)
+        {
+            if (!dragging && moved)
+            {
                 int32_t dx = (int32_t)mx - prev_mx;
                 int32_t dy = (int32_t)my - prev_my;
                 send_mouse_raw_event(cw, dx, dy, mods);
             }
-            if (!dragging) {
+            if (!dragging)
+            {
                 uint8_t changed = btn ^ prev_btn;
-                if (changed & 1) send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_LEFT,   (btn&1)?1:0, (int)mx, (int)my, mods);
-                if (changed & 2) send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_MIDDLE, (btn&2)?1:0, (int)mx, (int)my, mods);
-                if (changed & 4) send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_RIGHT,  (btn&4)?1:0, (int)mx, (int)my, mods);
+                if (changed & 1)
+                    send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_LEFT, (btn & 1) ? 1 : 0, (int)mx, (int)my, mods);
+                if (changed & 2)
+                    send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_MIDDLE, (btn & 2) ? 1 : 0, (int)mx, (int)my, mods);
+                if (changed & 4)
+                    send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_RIGHT, (btn & 4) ? 1 : 0, (int)mx, (int)my, mods);
             }
-        } else {
+        }
+        else
+        {
             if (!dragging && moved && cw >= 0)
                 send_mouse_event(cw, HARP_EVENT_MOUSE_MOVE, 0, 0, (int)mx, (int)my, mods);
-            if (!dragging && cw >= 0) {
+            if (!dragging && cw >= 0)
+            {
                 uint8_t changed = btn ^ prev_btn;
-                if (changed & 1) send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_LEFT,   (btn&1)?1:0, (int)mx, (int)my, mods);
-                if (changed & 2) send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_MIDDLE, (btn&2)?1:0, (int)mx, (int)my, mods);
-                if (changed & 4) send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_RIGHT,  (btn&4)?1:0, (int)mx, (int)my, mods);
+                if (changed & 1)
+                    send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_LEFT, (btn & 1) ? 1 : 0, (int)mx, (int)my, mods);
+                if (changed & 2)
+                    send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_MIDDLE, (btn & 2) ? 1 : 0, (int)mx, (int)my, mods);
+                if (changed & 4)
+                    send_mouse_event(cw, HARP_EVENT_MOUSE_BUTTON, BTN_RIGHT, (btn & 4) ? 1 : 0, (int)mx, (int)my, mods);
             }
         }
 
-        if (captured_win >= 0 && moved) {
+        if (captured_win >= 0 && moved)
+        {
             window_t *cwin = &windows[captured_win];
             uint32_t center_x = (uint32_t)(cwin->x + cwin->w / 2);
             uint32_t center_y = (uint32_t)(cwin->y + TITLEBAR_H + cwin->h / 2);
@@ -1090,20 +1322,24 @@ int main(int argc, char* argv[])
 
         flush_pending_redraw(mx, my);
 
-        if (!dragging && ++clock_tick >= 200) {
+        if (!dragging && ++clock_tick >= 200)
+        {
             clock_tick = 0;
             draw_dash();
             push_to_fb((uint32_t *)(uintptr_t)fb.addr, mx, my, fb.pitch);
-        } else if (!dragging && moved) {
+        }
+        else if (!dragging && moved)
+        {
             uint32_t *fb_addr = (uint32_t *)(uintptr_t)fb.addr;
             push_to_fb(fb_addr, mx, my, fb.pitch);
         }
 
         prev_btn = btn;
-        prev_mx  = (int)mx;
-        prev_my  = (int)my;
+        prev_mx = (int)mx;
+        prev_my = (int)my;
 
-        if (++reap_tick >= 64) {
+        if (++reap_tick >= 64)
+        {
             reap_tick = 0;
             reap_dead_windows();
         }

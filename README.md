@@ -60,15 +60,15 @@ The project focuses on clean design, correctness, and real hardware interaction.
 
 - [mlibc](https://github.com/managarm/mlibc) C library.
 - ELF64 userspace programs.
-- Dynamic ELF loader : `ld.so`.
+- Dynamic ELF loading.
 
 ### Applications
 
-- **Shell & Core Utils** — shell, echo, yes, sleep, cat, ls, touch, rm, stat, wc, mkdir, rmdir, pwd, mv, cp, rename
+- **Shell & Core Utils** — shell, echo, yes, sleep, cat, ls, touch, rm, stat, wc, mkdir, rmdir, pwd, mv, cp, rename, settings (Settings GUI)
 - **Process Utils** — ps, kill
-- **System Info** — uname, time
+- **System Info** — uname, time, sysinfo (System About)
 - **Math** — calc, primes, fibonacci, counter
-- **Text & UI** — [Harp](https://github.com/Z-Proj/ZenOS/blob/main/userland/files/harp/harp_main.c) (Custom compositor and server for Zen), terminal (PTY terminal emulator), edit (non-harp text editor), clock, beep, mouse, [FIGlet](https://github.com/cmatsuoka/figlet), [Kilo](https://github.com/antirez/kilo), [DOOM](https://github.com/ozkl/doomgeneric), [ClassiCube](https://www.classicube.net).
+- **Text & UI** — [Harp](https://github.com/Z-Proj/ZenOS/blob/main/userland/files/harp/harp_main.c) (Custom compositor and server for Zen), terminal (PTY terminal emulator), clock, beep, imgview (Image Viewer), nk_widgets (Nuklear Demo), notepad, paint, [FIGlet](https://github.com/cmatsuoka/figlet), [Kilo](https://github.com/antirez/kilo), [DOOM](https://github.com/ozkl/doomgeneric), [ClassiCube](https://www.classicube.net).
 - **Compilers** — [TinyCC](https://github.com/TinyCC/tinycc), [SmallerC](https://github.com/alexfru/SmallerC)
 - **Scripting** — [Lua 5.5.0](https://www.lua.org/)
 - **Networking** — wget, zen package manager

@@ -773,7 +773,8 @@ int main(void)
         dup2(slave_fd, 2);
         if (slave_fd > 2) close(slave_fd);
         if (master_fd > 2) close(master_fd);
-        execv("/mnt/drv0/bin/shell", (char *[]){"/mnt/drv0/bin/shell", NULL});
+        execv("/mnt/drv0/bin/ash", (char *[]){"/mnt/drv0/bin/ash", NULL});
+        execv("/mnt/drv0/bin/shell",    (char *[]){"/mnt/drv0/bin/shell",    NULL});
         execv("/mnt/drv0/bin/sh",    (char *[]){"/mnt/drv0/bin/sh",    NULL});
         write(1, "shell not found\n", 16);
         _exit(1);

@@ -55,6 +55,7 @@ typedef struct {
     uint32_t pid;
     int32_t  x, y, w, h;
     int32_t  dirty_x, dirty_y, dirty_w, dirty_h;
+    int      read_index;  /* which shm half (0/1) currently holds the ready frame */
     char     title[64];
     char     shmname[32];
     char     evname[32];

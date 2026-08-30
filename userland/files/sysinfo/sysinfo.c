@@ -5,8 +5,8 @@
 #include "../../userlib.h"
 #include "nk_harp.h"
 
-#define WIN_W 440
-#define WIN_H 300
+#define WIN_W 250
+#define WIN_H 180
 
 int main(void)
 {
@@ -61,6 +61,7 @@ int main(void)
 
         nk_harp_render(nh);
         harp_flush(nh->win);
+        zen_sleep_ms(20);
     }
     nk_harp_free(nh);
     return 0;

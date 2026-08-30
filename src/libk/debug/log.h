@@ -19,7 +19,7 @@
 #include "stdbool.h"
 #include "../spinlock.h"
 
-#define env 0
+#define env 2
 extern spinlock_t loglock;
 extern char* os_version;
 

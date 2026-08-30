@@ -1,13 +1,35 @@
 /**
  *
  * @file : settings.c
- * @brief : ZenOS Settings - a KDE-style left-nav / right-content Nuklear app
+ * @brief : ZenOS Settings - Nuklear app
  *          for managing boot apps, the Harp wallpaper + dock, power, and
  *          basic system info.
  *
  * MIT License
+ * 
  * Copyright (c) 2026 Rishies2010
- *
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ * 
+ * @author : Rishies2010
+ * @copyright (c) 2026
+ * 
  */
 
 #include <stdio.h>
@@ -141,6 +163,7 @@ static const char *page_names[PAGE_COUNT] = {
     "Boot Apps", "Wallpaper", "Dock", "Power", "About PC"};
 
 static int page = PAGE_BOOT;
+static int about_redraw_tick = 0;
 
 typedef struct
 {
@@ -788,7 +811,7 @@ static void render_nav(nk_harp_t *nh)
     for (int i = 0; i < PAGE_COUNT; i++)
     {
         char buf[24];
-        snprintf(buf, sizeof(buf), "%s %s", page == i ? "- " : " ", page_names[i]);
+        snprintf(buf, sizeof(buf), "%s %s", page == i ? "- " : "", page_names[i]);
         if (nk_button_label(ctx, buf))
             page = i;
     }
@@ -831,6 +854,19 @@ int main(void)
     {
         nk_harp_feed_events(nh);
         g_preview_show = 0;
+
+        if (page == PAGE_ABOUT)
+        {
+            if (++about_redraw_tick >= 50)
+            {
+                about_redraw_tick = 0;
+                nk_harp_request_redraw(nh);
+            }
+        }
+        else
+        {
+            about_redraw_tick = 0;
+        }
 
         if (nk_begin(&nh->ctx, "Settings",
                      nk_rect(0, 0, WIN_W, WIN_H),
