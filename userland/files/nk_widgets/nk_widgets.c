@@ -6,8 +6,8 @@
 #include "nk_harp.h"
 
 
-#define WIN_W 620
-#define WIN_H 700
+#define WIN_W 500
+#define WIN_H 640
 
 static float   slider_r     = 0.5f;
 static float   slider_g     = 0.7f;
@@ -21,7 +21,7 @@ static char    edit_buf[128];
 static nk_size edit_len     = 0;
 static int     click_count  = 0;
 
-static const char *combo_items[]  = { "Harp WM", "Nuklear", "Pixman", "SSFN" };
+static const char *combo_items[]  = { "Harp WM", "Nuklear", "Pixman", "ZenOS" };
 static const int   combo_count    = 4;
 static const char *radio_labels[] = { "Alpha", "Beta", "Gamma" };
 
@@ -36,7 +36,6 @@ static void do_ui(nk_harp_t *nh)
     }
 
     nk_layout_row_dynamic(&nh->ctx, 8, 1);
-    nk_spacing(&nh->ctx, 1);
 
     nk_layout_row_dynamic(&nh->ctx, 22, 1);
     nk_label(&nh->ctx, "Buttons & Counter", NK_TEXT_LEFT);
@@ -53,7 +52,6 @@ static void do_ui(nk_harp_t *nh)
     nk_label(&nh->ctx, cnt_buf, NK_TEXT_LEFT);
 
     nk_layout_row_dynamic(&nh->ctx, 8, 1);
-    nk_spacing(&nh->ctx, 1);
 
     nk_layout_row_dynamic(&nh->ctx, 22, 1);
     nk_label(&nh->ctx, "RGB Sliders", NK_TEXT_LEFT);
@@ -71,7 +69,6 @@ static void do_ui(nk_harp_t *nh)
     nk_slider_float(&nh->ctx, 0.0f, &slider_b, 1.0f, 0.01f);
 
     nk_layout_row_dynamic(&nh->ctx, 8, 1);
-    nk_spacing(&nh->ctx, 1);
 
     nk_layout_row_dynamic(&nh->ctx, 22, 1);
     nk_label(&nh->ctx, "Progress Bar", NK_TEXT_LEFT);
@@ -80,7 +77,6 @@ static void do_ui(nk_harp_t *nh)
     nk_progress(&nh->ctx, &progress_val, 100, NK_MODIFIABLE);
 
     nk_layout_row_dynamic(&nh->ctx, 8, 1);
-    nk_spacing(&nh->ctx, 1);
 
     nk_layout_row_dynamic(&nh->ctx, 22, 1);
     nk_label(&nh->ctx, "Checkboxes & Radio Buttons", NK_TEXT_LEFT);
@@ -88,7 +84,6 @@ static void do_ui(nk_harp_t *nh)
     nk_layout_row_static(&nh->ctx, 22, 140, 3);
     nk_checkbox_label(&nh->ctx, "Enable fog",  &check_a);
     nk_checkbox_label(&nh->ctx, "Show grid",   &check_b);
-    nk_spacing(&nh->ctx, 1);
 
     nk_layout_row_static(&nh->ctx, 22, 100, 3);
     for (int i = 0; i < 3; i++)
@@ -96,7 +91,6 @@ static void do_ui(nk_harp_t *nh)
             radio_sel = i;
 
     nk_layout_row_dynamic(&nh->ctx, 8, 1);
-    nk_spacing(&nh->ctx, 1);
 
     nk_layout_row_dynamic(&nh->ctx, 22, 1);
     nk_label(&nh->ctx, "Combo Box", NK_TEXT_LEFT);
@@ -106,7 +100,6 @@ static void do_ui(nk_harp_t *nh)
                          combo_sel, 22, nk_vec2(180, 120));
 
     nk_layout_row_dynamic(&nh->ctx, 8, 1);
-    nk_spacing(&nh->ctx, 1);
 
     nk_layout_row_dynamic(&nh->ctx, 22, 1);
     nk_label(&nh->ctx, "Text Input", NK_TEXT_LEFT);
@@ -117,7 +110,6 @@ static void do_ui(nk_harp_t *nh)
                    nk_filter_default);
 
     nk_layout_row_dynamic(&nh->ctx, 8, 1);
-    nk_spacing(&nh->ctx, 1);
 
     nk_layout_row_dynamic(&nh->ctx, 20, 1);
     char state_buf[128];
