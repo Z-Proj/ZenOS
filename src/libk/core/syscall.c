@@ -2854,7 +2854,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         }
 
         strncpy(shm_table[slot].name, name, SHM_NAME_MAX - 1);
-        shm_table[slot].name[SHM_NAME_MAX - 1] = '\\0';
+        shm_table[slot].name[SHM_NAME_MAX - 1] = '\0';
         shm_table[slot].phys   = phys;
         shm_table[slot].pages  = pages;
         shm_table[slot].refs   = 1;
