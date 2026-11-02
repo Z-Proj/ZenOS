@@ -2674,7 +2674,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         int how = (int)arg1;
         task_t *cur = sched_current_task();
         uint64_t set_value = 0;
-        if (!cur || (how < 0 || how > 2) && arg2)
+        if (!cur || ((how < 0 || how > 2) && arg2))
             return -1;
         if (arg2 && copy_from_user(cur, &set_value, arg2, sizeof(set_value)) < 0)
             return -14;
