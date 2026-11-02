@@ -375,7 +375,7 @@ static void handle_transfer_event(xhci_controller_t *hc, xhci_event_t *ev)
     submit_intr(hc, dev);
 }
 
-static void release_device(xhci_controller_t *hc, xhci_device_t *dev);
+static int release_device(xhci_controller_t *hc, xhci_device_t *dev);
 
 static void disconnect_port(xhci_controller_t *hc, uint8_t port)
 {
@@ -766,18 +766,16 @@ static int enumerate_port(xhci_controller_t *hc, uint8_t port)
 
     memset(&dd, 0, sizeof(dd));
     if (control_transfer(hc, dev, 0x80, USB_REQ_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0, &dd, sizeof(dd)) < 0) {
-        if (port <= XHCI_MAX_PORTS)
+        if (release_device(hc, dev) == 0 && port <= XHCI_MAX_PORTS)
             hc->port_slot[port - 1] = 0;
-        release_device(hc, dev);
         return -1;
     }
 
     uint8_t cfg_buf[XHCI_CFG_BUF_SIZE];
     memset(cfg_buf, 0, sizeof(cfg_buf));
     if (control_transfer(hc, dev, 0x80, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0, cfg_buf, 9) < 0) {
-        if (port <= XHCI_MAX_PORTS)
+        if (release_device(hc, dev) == 0 && port <= XHCI_MAX_PORTS)
             hc->port_slot[port - 1] = 0;
-        release_device(hc, dev);
         return -1;
     }
 
@@ -785,9 +783,8 @@ static int enumerate_port(xhci_controller_t *hc, uint8_t port)
     if (total > sizeof(cfg_buf))
         total = sizeof(cfg_buf);
     if (control_transfer(hc, dev, 0x80, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0, cfg_buf, total) < 0) {
-        if (port <= XHCI_MAX_PORTS)
+        if (release_device(hc, dev) == 0 && port <= XHCI_MAX_PORTS)
             hc->port_slot[port - 1] = 0;
-        release_device(hc, dev);
         return -1;
     }
 
@@ -804,9 +801,8 @@ static int enumerate_port(xhci_controller_t *hc, uint8_t port)
     control_transfer(hc, dev, 0x21, USB_REQ_SET_IDLE, 0, dev->hid_iface, NULL, 0);
 
     if (configure_intr_ep(hc, dev, &ep) < 0) {
-        if (port <= XHCI_MAX_PORTS)
+        if (release_device(hc, dev) == 0 && port <= XHCI_MAX_PORTS)
             hc->port_slot[port - 1] = 0;
-        release_device(hc, dev);
         return -1;
     }
 
