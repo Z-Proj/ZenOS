@@ -297,7 +297,15 @@ static void tcp_handle(const uint8_t src_ip[4], const tcp_header_t *tcp,
     uint32_t seq = ntohl(tcp->seq);
     uint32_t ack_num = ntohl(tcp->ack);
     uint8_t flags = tcp->flags;
-    size_t hdr_len = (tcp->data_off >> 4) * 4;
+    /*
+     * The IP layer guarantees that the fixed TCP header is present. Validate
+     * the variable-length TCP header before subtracting its size or reading
+     * any TCP options/payload.
+     */
+    size_t hdr_len = (size_t)(tcp->data_off >> 4) * 4;
+    if (hdr_len < sizeof(tcp_header_t) || hdr_len > total_ip_payload_len)
+        return;
+
     size_t data_len = total_ip_payload_len - hdr_len;
     const uint8_t *data = (const uint8_t *)tcp + hdr_len;
 
@@ -372,17 +380,32 @@ static void tcp_handle(const uint8_t src_ip[4], const tcp_header_t *tcp,
 
 static void ip_handle(const uint8_t *pkt, size_t len)
 {
-    if (len < sizeof(ip_header_t))
+    if (!pkt || len < sizeof(ip_header_t))
         return;
+
     const ip_header_t *ip = (const ip_header_t *)pkt;
     if ((ip->ver_ihl >> 4) != 4)
         return;
-    if (memcmp(ip->dst, my_ip, 4) != 0)
+
+    /* IHL is measured in 32-bit words and must include the fixed header. */
+    size_t ip_hdr_len = (size_t)(ip->ver_ihl & 0x0F) * 4;
+    if (ip_hdr_len < sizeof(ip_header_t) || ip_hdr_len > len)
         return;
 
-    size_t ip_hdr_len = (ip->ver_ihl & 0xF) * 4;
     size_t total = ntohs(ip->total_len);
-    if (total > len)
+    if (total < ip_hdr_len || total > len)
+        return;
+
+    /* This stack has no IP fragment reassembly; drop fragmented datagrams. */
+    uint16_t frag = ntohs(ip->flags_frag);
+    if (frag & 0x3FFF)
+        return;
+
+    /* Reject corrupt IPv4 headers, including any options covered by IHL. */
+    if (ip_checksum(pkt, ip_hdr_len) != 0)
+        return;
+
+    if (memcmp(ip->dst, my_ip, 4) != 0)
         return;
 
     const uint8_t *payload = pkt + ip_hdr_len;
@@ -399,11 +422,15 @@ static void ip_handle(const uint8_t *pkt, size_t len)
         if (payload_len < sizeof(udp_header_t))
             return;
         const udp_header_t *udph = (const udp_header_t *)payload;
+        size_t udp_len = ntohs(udph->length);
+        if (udp_len < sizeof(udp_header_t) || udp_len > payload_len)
+            return;
+
         uint16_t dst_port = ntohs(udph->dst_port);
         if (dst_port == DNS_LOCAL_PORT)
         {
             udp_dns_handle(payload + sizeof(udp_header_t),
-                           payload_len - sizeof(udp_header_t));
+                           udp_len - sizeof(udp_header_t));
         }
     }
 }
