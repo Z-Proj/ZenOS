@@ -1,13 +1,13 @@
-# ZenOS&nbsp;&nbsp;[![ZenOS Build Check](https://github.com/Rishies2010/ZenOS/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/Rishies2010/ZenOS/actions/workflows/c-cpp.yml)
+# D3X8&nbsp;&nbsp;[![D3X8 Build Check](https://github.com/jadeking5128-beep/D3X8/actions/workflows/c-cpp.yml/badge.svg)](https://github.com/jadeking5128-beep/D3X8/actions/workflows/c-cpp.yml)
 
-<img width="100%" alt="ZenOS Logo" src="https://github.com/user-attachments/assets/4a3141c6-4223-465a-9b38-9f5d851f0b83" />
+<img width="100%" alt="D3X8 Logo" src="https://github.com/user-attachments/assets/4a3141c6-4223-465a-9b38-9f5d851f0b83" />
 
 > [!WARNING]
 > There might be dragons and bugs.
 
 ## Overview
 
-**ZenOS** is a 64-bit SMP preemptive operating system built from scratch in **C** and **x86_64 assembly**, bootstrapped with the **Limine** bootloader.
+**D3X8** is a 64-bit SMP preemptive operating system built from scratch in **C** and **x86_64 assembly**, bootstrapped with the **Limine** bootloader.
 
 The project focuses on clean design, correctness, and real hardware interaction.
 
@@ -68,7 +68,7 @@ The project focuses on clean design, correctness, and real hardware interaction.
 - **Process Utils** — ps, kill
 - **System Info** — uname, time, sysinfo (System About)
 - **Math** — calc, primes, fibonacci, counter
-- **Text & UI** — [Harp](https://github.com/Z-Proj/ZenOS/blob/main/userland/files/harp/harp_main.c) (Custom compositor and server for Zen), terminal (PTY terminal emulator), clock, beep, imgview (Image Viewer), nk_widgets (Nuklear Demo), notepad, paint, [FIGlet](https://github.com/cmatsuoka/figlet), [Kilo](https://github.com/antirez/kilo), [DOOM](https://github.com/ozkl/doomgeneric), [ClassiCube](https://www.classicube.net).
+- **Text & UI** — [Harp](https://github.com/jadeking5128-beep/D3X8/blob/main/userland/files/harp/harp_main.c) (Custom compositor and server for Zen), terminal (PTY terminal emulator), clock, beep, imgview (Image Viewer), nk_widgets (Nuklear Demo), notepad, paint, [FIGlet](https://github.com/cmatsuoka/figlet), [Kilo](https://github.com/antirez/kilo), [DOOM](https://github.com/ozkl/doomgeneric), [ClassiCube](https://www.classicube.net).
 - **Compilers** — [TinyCC](https://github.com/TinyCC/tinycc), [SmallerC](https://github.com/alexfru/SmallerC)
 - **Scripting** — [Lua 5.5.0](https://www.lua.org/)
 - **Networking** — wget, zen package manager
@@ -100,7 +100,7 @@ Run `make help` first to see available build commands.
 
 ## Contributions
 
-All good contributions are welcome. Check [ISSUES.md](https://github.com/Z-Proj/ZenOS/blob/main/docs/ISSUES.md) for open problems, or add a feature, fix a bug, or improve the codebase.
+All good contributions are welcome. Check [ISSUES.md](https://github.com/jadeking5128-beep/D3X8/blob/main/docs/ISSUES.md) for open problems, or add a feature, fix a bug, or improve the codebase.
 
 ---
 
@@ -118,7 +118,7 @@ All good contributions are welcome. Check [ISSUES.md](https://github.com/Z-Proj/
   - [ ] Lightweight everyday utilities
   - [ ] Dual-boot support
 
-ZenOS is a learning-oriented project. Understanding the machine comes first for me.
+D3X8 is a learning-oriented project. Understanding the machine comes first for me.
 
 ---
 
@@ -141,13 +141,13 @@ socat
 
 ## Third Party
 
-- Check **[CREDITS.md](https://github.com/Z-Proj/ZenOS/blob/main/docs/CREDITS.md)** for the list of **third party apps and libraries**.
+- Check **[CREDITS.md](https://github.com/jadeking5128-beep/D3X8/blob/main/docs/CREDITS.md)** for the list of **third party apps and libraries**.
 
 ---
 
 ## License
 
-- **ZenOS** is released under the terms of the **MIT License** : Read **[LICENSE](https://github.com/Z-Proj/ZenOS/blob/main/LICENSE)** for the full document.
+- **D3X8** is released under the terms of the **MIT License** : Read **[LICENSE](https://github.com/jadeking5128-beep/D3X8/blob/main/LICENSE)** for the full document.
 
 ---
 
