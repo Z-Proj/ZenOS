@@ -623,6 +623,8 @@ void map_page(page_table_t *pml4, uint64_t virt, uint64_t phys, uint64_t flags)
             pd = (page_table_t *)(pd_phys + KERNEL_VIRT_OFFSET);
             uint64_t base = large & 0x000FFFFFC0000000ULL;
             uint64_t leaf_flags = large & 0x8000000000000FFFULL;
+            if (large & (1ULL << 12))
+                leaf_flags |= (1ULL << 12); /* Preserve large-page PAT. */
             for (size_t i = 0; i < 512; i++)
                 pd->entries[i] = (base + (uint64_t)i * 0x200000ULL) | leaf_flags;
 
