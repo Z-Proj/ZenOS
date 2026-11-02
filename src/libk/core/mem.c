@@ -630,25 +630,52 @@ void map_page(page_table_t *pml4, uint64_t virt, uint64_t phys, uint64_t flags)
         created_pd = 1;
     }
 
+    page_table_t *pt;
     if (pd->entries[pd_idx] & PAGE_PRESENT)
     {
-        /* Do not reinterpret or overwrite an existing 2 MiB large-page mapping. */
         if (pd->entries[pd_idx] & (1ULL << 7))
-            goto fail;
-        if (flags & PAGE_USER)
-            pd->entries[pd_idx] |= PAGE_USER;
+        {
+            /*
+             * Split a 2 MiB mapping before replacing one 4 KiB page.
+             * Preserve the other 511 mappings and their supervisor/user
+             * permissions; only the requested leaf receives new flags.
+             */
+            uint64_t large = pd->entries[pd_idx];
+            pt_phys = alloc_page();
+            if (!pt_phys)
+                goto fail;
+            pt = (page_table_t *)(pt_phys + KERNEL_VIRT_OFFSET);
+            uint64_t base = large & 0x000FFFFFFFE00000ULL;
+            uint64_t leaf_flags = large & 0x8000000000000FFFULL;
+            leaf_flags &= ~(1ULL << 7); /* PDE.PS is not PTE.PAT. */
+            if (large & (1ULL << 12))
+                leaf_flags |= (1ULL << 7); /* Translate large-page PAT. */
+            for (size_t i = 0; i < 512; i++)
+                pt->entries[i] = (base + (uint64_t)i * PAGE_SIZE) | leaf_flags;
+
+            uint64_t parent_flags = large & 0x8000000000000FFFULL;
+            parent_flags &= ~(1ULL << 7);
+            pd->entries[pd_idx] = pt_phys | parent_flags;
+        }
+        else
+        {
+            if (flags & PAGE_USER)
+                pd->entries[pd_idx] |= PAGE_USER;
+            pt = (page_table_t *)((pd->entries[pd_idx] & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+        }
     }
     else
     {
         pt_phys = alloc_page();
         if (!pt_phys)
             goto fail;
-        page_table_t *pt = (page_table_t *)(pt_phys + KERNEL_VIRT_OFFSET);
+        pt = (page_table_t *)(pt_phys + KERNEL_VIRT_OFFSET);
         memset(pt, 0, PAGE_SIZE);
         pd->entries[pd_idx] = pt_phys | PAGE_PRESENT | PAGE_WRITABLE | (flags & PAGE_USER);
     }
 
-    page_table_t *pt = (page_table_t *)((pd->entries[pd_idx] & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+    if (flags & PAGE_USER)
+        pd->entries[pd_idx] |= PAGE_USER;
     pt->entries[pt_idx] = (phys & 0x000FFFFFFFFFF000ULL) | (flags & 0x8000000000000FFFULL);
     __asm__ volatile("invlpg (%0)" : : "r"(virt) : "memory");
     return;
