@@ -333,36 +333,7 @@ static int copy_user_string(task_t *task, uint64_t src, char *dst, size_t capaci
 
 static int write_user_u64(task_t *task, uint64_t uaddr, uint64_t value)
 {
-    if (!task || !task->pml4)
-        return -14;
-
-    uint64_t page0 = uaddr & ~(uint64_t)(PAGE_SIZE - 1);
-    uint64_t off0 = uaddr & (PAGE_SIZE - 1);
-    uint64_t phys0 = virt_to_phys(task->pml4, page0);
-    if (!phys0)
-        return -14;
-
-    uint8_t bytes[sizeof(uint64_t)];
-    memcpy(bytes, &value, sizeof(uint64_t));
-
-    uint8_t *dst0 = (uint8_t *)(phys0 + KERNEL_VIRT_OFFSET + off0);
-    size_t first = PAGE_SIZE - off0;
-    if (first >= sizeof(uint64_t))
-    {
-        memcpy(dst0, bytes, sizeof(uint64_t));
-        return 0;
-    }
-
-    memcpy(dst0, bytes, first);
-
-    uint64_t page1 = page0 + PAGE_SIZE;
-    uint64_t phys1 = virt_to_phys(task->pml4, page1);
-    if (!phys1)
-        return -14;
-
-    uint8_t *dst1 = (uint8_t *)(phys1 + KERNEL_VIRT_OFFSET);
-    memcpy(dst1, bytes + first, sizeof(uint64_t) - first);
-    return 0;
+    return copy_to_user(task, uaddr, &value, sizeof(value));
 }
 
 static int map_user_page_checked(page_table_t *pml4, uint64_t virt, uint64_t phys, uint64_t flags)
