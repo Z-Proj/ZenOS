@@ -396,8 +396,16 @@ static int load_elf_into_pml4(page_table_t *pml4, uint8_t *elf_data, uint32_t fi
     if (ehdr->e_ident[4] != ELF_CLASS_64 || ehdr->e_machine != EM_X86_64) return -1;
     if (ehdr->e_type != ET_EXEC && ehdr->e_type != ET_DYN) return -1;
 
-    uint64_t ph_table_end = ehdr->e_phoff + (uint64_t)ehdr->e_phnum * (uint64_t)ehdr->e_phentsize;
-    if (ph_table_end > filesize) return -1;
+    /* Validate the complete program-header table before forming pointers.
+     * ELF-controlled offsets and sizes must never be allowed to wrap. */
+    if (ehdr->e_phentsize < sizeof(elf64_phdr_t) ||
+        ehdr->e_phoff > filesize ||
+        (ehdr->e_phnum != 0 &&
+         (uint64_t)ehdr->e_phnum >
+             ((uint64_t)filesize - ehdr->e_phoff) / ehdr->e_phentsize))
+        return -1;
+    uint64_t ph_table_end = ehdr->e_phoff +
+        (uint64_t)ehdr->e_phnum * (uint64_t)ehdr->e_phentsize;
 
     uint64_t min_addr = UINT64_MAX;
     uint64_t max_addr = 0;
@@ -406,7 +414,9 @@ static int load_elf_into_pml4(page_table_t *pml4, uint8_t *elf_data, uint32_t fi
 
     for (int i = 0; i < ehdr->e_phnum; i++) {
         elf64_phdr_t *phdr = (elf64_phdr_t *)(elf_data + ehdr->e_phoff + (uint64_t)i * ehdr->e_phentsize);
-        if (phdr->p_offset + phdr->p_filesz > filesize) return -1;
+        if (phdr->p_offset > filesize ||
+            phdr->p_filesz > (uint64_t)filesize - phdr->p_offset)
+            return -1;
 
         if (phdr->p_type == PT_INTERP) {
             if (phdr->p_filesz == 0 || phdr->p_filesz >= sizeof(out->interp_path))
@@ -424,6 +434,15 @@ static int load_elf_into_pml4(page_table_t *pml4, uint8_t *elf_data, uint32_t fi
         if (phdr->p_type != PT_LOAD) continue;
 
         if (phdr->p_memsz < phdr->p_filesz) return -1;
+        if (phdr->p_memsz == 0) continue;
+        if (phdr->p_vaddr > 0x0000800000000000ULL ||
+            phdr->p_memsz > 0x0000800000000000ULL - phdr->p_vaddr)
+            return -1;
+        if (phdr->p_align > 1 &&
+            ((phdr->p_align & (phdr->p_align - 1)) != 0 ||
+             (phdr->p_vaddr & (phdr->p_align - 1)) !=
+             (phdr->p_offset & (phdr->p_align - 1))))
+            return -1;
 
         if (phdr->p_vaddr < min_addr) min_addr = phdr->p_vaddr;
         if (phdr->p_vaddr + phdr->p_memsz > max_addr) max_addr = phdr->p_vaddr + phdr->p_memsz;
@@ -436,6 +455,8 @@ static int load_elf_into_pml4(page_table_t *pml4, uint8_t *elf_data, uint32_t fi
     }
 
     if (min_addr == UINT64_MAX || max_addr <= min_addr) return -1;
+    if (max_addr > 0x0000800000000000ULL - (PAGE_SIZE - 1))
+        return -1;
     uint64_t map_start = min_addr & ~(uint64_t)(PAGE_SIZE - 1);
     uint64_t map_end = (max_addr + PAGE_SIZE - 1) & ~(uint64_t)(PAGE_SIZE - 1);
     uint64_t load_bias = 0;
@@ -445,6 +466,8 @@ static int load_elf_into_pml4(page_table_t *pml4, uint8_t *elf_data, uint32_t fi
         if (load_base < map_start)
             return -1;
         load_bias = load_base - map_start;
+        if (map_end > 0x0000800000000000ULL - load_bias)
+            return -1;
         map_end += load_bias;
         map_start = load_base;
     }
