@@ -11,6 +11,9 @@
 
 The project focuses on clean design, correctness, and real hardware interaction.
 
+> [!NOTE]
+> **Development status:** D3X8 is actively being developed. Some areas, including concurrent GUI application stability and process memory reclamation, are still under investigation. Recent kernel hardening changes have been committed, but they have not yet been verified by a complete build and runtime test suite. See [open issues](https://github.com/jadeking5128-beep/D3X8/blob/main/docs/ISSUES.md) before treating the system as production-ready.
+
 ---
 
 ## Key Features
@@ -31,6 +34,8 @@ The project focuses on clean design, correctness, and real hardware interaction.
 100+ POSIX-compatible / custom syscalls covering major app and C library needs.
 
 ### Hardware & Drivers
+
+- xHCI device cleanup now attempts to disable disconnected or failed device slots before releasing their DMA-backed pages.
 
 - Framebuffer output
 - PS/2 keyboard and mouse
@@ -94,7 +99,7 @@ Run `make help` first to see available build commands.
 - **Build everything:** `make all` from the repo root
 - Missing dependencies will be reported with clear errors
 - `make funcs` generates `funcs.txt` listing all defined functions in the codebase (kernel)
-- **Note:** When using VBox, I recommend you allocate max video memory, enable xHCI in USB, network adapter as `Intel PRO/1000 MT Desktop` and run `VBoxManage modifyvm "ZenOS" --hpet on`. You can also use both PS/2 / USB Tablet pointer mode.
+- **Note:** When using VBox, I recommend you allocate max video memory, enable xHCI in USB, network adapter as `Intel PRO/1000 MT Desktop` and run `VBoxManage modifyvm "D3X8" --hpet on`. You can also use both PS/2 / USB Tablet pointer mode.
 
 ---
 
@@ -167,5 +172,5 @@ socat
 ---
 
 <p align="center">
-  <b>ZenOS</b>
+  <b>D3X8</b>
 </p>
