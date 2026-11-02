@@ -1143,11 +1143,18 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_LS:
     {
-        char *buf = (char *)arg1;
+        task_t *cur = sched_current_task();
         size_t buf_size = (size_t)arg2;
-        if (!buf || buf_size == 0)
+        if (!cur || buf_size == 0 || buf_size > 65536)
             return -1;
-        return vfs_list(buf, buf_size);
+        char *buf = (char *)kmalloc(buf_size);
+        if (!buf)
+            return -12;
+        int ret = vfs_list(buf, buf_size);
+        if (ret >= 0 && copy_to_user(cur, arg1, buf, buf_size) < 0)
+            ret = -14;
+        kfree(buf);
+        return ret;
     }
 
     case SYSCALL_GETKEY:
@@ -1668,18 +1675,16 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         {
         case ZEN_PR_GET_NAME:
         {
-            char *name = (char *)arg2;
-            if (!name)
-                return -22;
-            strncpy(name, cur->name, 15);
-            name[15] = '\0';
-            return 0;
+            char name[16];
+            strncpy(name, cur->name, sizeof(name) - 1);
+            name[sizeof(name) - 1] = '\0';
+            return copy_to_user(cur, arg2, name, sizeof(name));
         }
         case ZEN_PR_SET_NAME:
         {
-            const char *name = (const char *)arg2;
-            if (!name)
-                return -22;
+            char name[sizeof(cur->name)];
+            if (copy_user_string(cur, arg2, name, sizeof(name)) < 0)
+                return -14;
             strncpy(cur->name, name, sizeof(cur->name) - 1);
             cur->name[sizeof(cur->name) - 1] = '\0';
             return 0;
@@ -1877,12 +1882,13 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_GETCWD:
     {
-        char *buffer = (char *)arg1;
+        task_t *cur = sched_current_task();
         size_t size = (size_t)arg2;
-        if (!buffer || size == 0)
+        if (!cur || size == 0 || size > 4096)
             return -22;
+        char buffer[4096];
         vfs_getcwd(buffer, size);
-        return 0;
+        return copy_to_user(cur, arg1, buffer, size);
     }
 
     case SYSCALL_MKDIR:
