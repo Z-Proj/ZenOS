@@ -36,6 +36,7 @@
 #include "mem.h"
 #include "socket.h"
 #include "unix_sock.h"
+#include "../spinlock.h"
 
 extern void syscall_entry(void);
 
@@ -61,6 +62,7 @@ typedef struct {
 } shm_region_t;
 
 static shm_region_t shm_table[SHM_MAX];
+static spinlock_t shm_lock = {0};
 
 #define MSR_EFER            0xC0000080
 #define MSR_STAR            0xC0000081
@@ -103,6 +105,7 @@ void syscall_retain_special_user_mappings(page_table_t *pml4)
     if (!pml4)
         return;
 
+    spinlock_acquire(&shm_lock);
     for (int i = 0; i < SHM_MAX; i++) {
         if (!shm_table[i].in_use)
             continue;
@@ -110,6 +113,7 @@ void syscall_retain_special_user_mappings(page_table_t *pml4)
         if (virt_to_phys(pml4, virt) == shm_table[i].phys)
             shm_table[i].refs++;
     }
+    spinlock_release(&shm_lock);
 }
 
 void syscall_release_special_user_mappings(page_table_t *pml4)
@@ -117,6 +121,7 @@ void syscall_release_special_user_mappings(page_table_t *pml4)
     if (!pml4)
         return;
 
+    spinlock_acquire(&shm_lock);
     for (int i = 0; i < SHM_MAX; i++) {
         if (!shm_table[i].in_use)
             continue;
@@ -130,6 +135,7 @@ void syscall_release_special_user_mappings(page_table_t *pml4)
             memset(&shm_table[i], 0, sizeof(shm_table[i]));
         }
     }
+    spinlock_release(&shm_lock);
 }
 
 static int unix_sock_copy_user_path(task_t *task, const sa_un_t *addr, char *out, size_t out_len)
@@ -2796,41 +2802,59 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         const char *name = (const char *)arg1;
         size_t size      = (size_t)arg2;
         shm_info_t *info = (shm_info_t *)arg3;
-        if (!name || size == 0 || !info)
-            return -1;
-
-        for (int i = 0; i < SHM_MAX; i++)
-            if (shm_table[i].in_use && strcmp(shm_table[i].name, name) == 0)
-                return -1;
-
-        int slot = -1;
-        for (int i = 0; i < SHM_MAX; i++)
-            if (!shm_table[i].in_use) { slot = i; break; }
-        if (slot < 0)
+        if (!name || size == 0 || !info || size > SIZE_MAX - (PAGE_SIZE - 1))
             return -1;
 
         size_t pages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
-        uint64_t phys = alloc_pages(pages);
-        if (!phys)
-            return -1;
+        spinlock_acquire(&shm_lock);
 
-        task_t *current = sched_current_task();
-        if (!current || !current->pml4) { free_pages(phys, pages); return -1; }
-
-        uint64_t virt = SHM_VIRT_BASE + (uint64_t)slot * 0x10000000ULL;
-        for (size_t i = 0; i < pages; i++)
-        {
-            if (map_user_page_checked(current->pml4, virt + i * PAGE_SIZE, phys + i * PAGE_SIZE,
-                                      PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER) < 0)
-            {
-                user_unmap_range(current, virt, i);
-                free_pages(phys, pages);
+        for (int i = 0; i < SHM_MAX; i++) {
+            if (shm_table[i].in_use && strcmp(shm_table[i].name, name) == 0) {
+                spinlock_release(&shm_lock);
                 return -1;
             }
         }
 
+        int slot = -1;
+        for (int i = 0; i < SHM_MAX; i++) {
+            if (!shm_table[i].in_use) { slot = i; break; }
+        }
+        if (slot < 0) {
+            spinlock_release(&shm_lock);
+            return -1;
+        }
+
+        uint64_t phys = alloc_pages(pages);
+        if (!phys) {
+            spinlock_release(&shm_lock);
+            return -1;
+        }
+
+        task_t *current = sched_current_task();
+        if (!current || !current->pml4) {
+            free_pages(phys, pages);
+            spinlock_release(&shm_lock);
+            return -1;
+        }
+
+        uint64_t virt = SHM_VIRT_BASE + (uint64_t)slot * 0x10000000ULL;
+        size_t mapped = 0;
+        for (; mapped < pages; mapped++) {
+            if (map_user_page_checked(current->pml4, virt + mapped * PAGE_SIZE,
+                                      phys + mapped * PAGE_SIZE,
+                                      PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER) < 0)
+                break;
+        }
+        if (mapped != pages) {
+            for (size_t i = 0; i < mapped; i++)
+                unmap_page(current->pml4, virt + i * PAGE_SIZE);
+            free_pages(phys, pages);
+            spinlock_release(&shm_lock);
+            return -1;
+        }
+
         strncpy(shm_table[slot].name, name, SHM_NAME_MAX - 1);
-        shm_table[slot].name[SHM_NAME_MAX - 1] = '\0';
+        shm_table[slot].name[SHM_NAME_MAX - 1] = '\\0';
         shm_table[slot].phys   = phys;
         shm_table[slot].pages  = pages;
         shm_table[slot].refs   = 1;
@@ -2838,6 +2862,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
         info->addr = virt;
         info->size = pages * PAGE_SIZE;
+        spinlock_release(&shm_lock);
         return 0;
     }
 
@@ -2848,26 +2873,42 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (!name || !info)
             return -1;
 
+        spinlock_acquire(&shm_lock);
         int slot = -1;
-        for (int i = 0; i < SHM_MAX; i++)
+        for (int i = 0; i < SHM_MAX; i++) {
             if (shm_table[i].in_use && strcmp(shm_table[i].name, name) == 0)
                 { slot = i; break; }
-        if (slot < 0)
+        }
+        if (slot < 0) {
+            spinlock_release(&shm_lock);
             return -1;
+        }
 
         task_t *current = sched_current_task();
-        if (!current || !current->pml4)
+        if (!current || !current->pml4) {
+            spinlock_release(&shm_lock);
             return -1;
+        }
 
         uint64_t virt = SHM_VIRT_BASE + (uint64_t)slot * 0x10000000ULL;
-        for (size_t i = 0; i < shm_table[slot].pages; i++)
-            map_page(current->pml4, virt + i * PAGE_SIZE,
-                     shm_table[slot].phys + i * PAGE_SIZE,
-                     PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+        size_t mapped = 0;
+        for (; mapped < shm_table[slot].pages; mapped++) {
+            if (map_user_page_checked(current->pml4, virt + mapped * PAGE_SIZE,
+                                      shm_table[slot].phys + mapped * PAGE_SIZE,
+                                      PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER) < 0)
+                break;
+        }
+        if (mapped != shm_table[slot].pages) {
+            for (size_t i = 0; i < mapped; i++)
+                unmap_page(current->pml4, virt + i * PAGE_SIZE);
+            spinlock_release(&shm_lock);
+            return -1;
+        }
 
         shm_table[slot].refs++;
         info->addr = virt;
         info->size = shm_table[slot].pages * PAGE_SIZE;
+        spinlock_release(&shm_lock);
         return 0;
     }
 
@@ -2877,13 +2918,14 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (!name)
             return -1;
 
-        for (int i = 0; i < SHM_MAX; i++)
-        {
-            if (shm_table[i].in_use && strcmp(shm_table[i].name, name) == 0)
-            {
+        spinlock_acquire(&shm_lock);
+        for (int i = 0; i < SHM_MAX; i++) {
+            if (shm_table[i].in_use && strcmp(shm_table[i].name, name) == 0) {
                 task_t *current = sched_current_task();
-                if (!current || !current->pml4)
+                if (!current || !current->pml4) {
+                    spinlock_release(&shm_lock);
                     return -1;
+                }
 
                 uint64_t virt = SHM_VIRT_BASE + (uint64_t)i * 0x10000000ULL;
                 for (size_t p = 0; p < shm_table[i].pages; p++)
@@ -2892,14 +2934,15 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                 if (shm_table[i].refs > 0)
                     shm_table[i].refs--;
 
-                if (shm_table[i].refs == 0)
-                {
+                if (shm_table[i].refs == 0) {
                     free_pages(shm_table[i].phys, shm_table[i].pages);
                     memset(&shm_table[i], 0, sizeof(shm_table[i]));
                 }
+                spinlock_release(&shm_lock);
                 return 0;
             }
         }
+        spinlock_release(&shm_lock);
         return -1;
     }
 
