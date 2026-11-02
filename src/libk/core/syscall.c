@@ -1593,38 +1593,35 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_STATFS:
     {
-        const char *path = (const char *)arg1;
-        statfs_t *buf = (statfs_t *)arg2;
-        if (!path || !buf)
-            return -22;
+        task_t *cur = sched_current_task();
+        char path[256];
+        if (!cur || copy_user_string(cur, arg1, path, sizeof(path)) < 0)
+            return -14;
 
         vfs_statfs_t st;
         memset(&st, 0, sizeof(st));
         if (vfs_statfs(path, &st) < 0)
             return -2;
 
-        memset(buf, 0, sizeof(*buf));
-        buf->f_type = st.f_type;
-        buf->f_bsize = st.f_bsize;
-        buf->f_blocks = st.f_blocks;
-        buf->f_bfree = st.f_bfree;
-        buf->f_bavail = st.f_bavail;
-        buf->f_files = st.f_files;
-        buf->f_ffree = st.f_ffree;
-        buf->f_fsid = st.f_fsid;
-        buf->f_namelen = st.f_namelen;
-        buf->f_frsize = st.f_frsize;
-        buf->f_flags = st.f_flags;
-        return 0;
+        statfs_t out;
+        memset(&out, 0, sizeof(out));
+        out.f_type = st.f_type;
+        out.f_bsize = st.f_bsize;
+        out.f_blocks = st.f_blocks;
+        out.f_bfree = st.f_bfree;
+        out.f_bavail = st.f_bavail;
+        out.f_files = st.f_files;
+        out.f_ffree = st.f_ffree;
+        out.f_fsid = st.f_fsid;
+        out.f_namelen = st.f_namelen;
+        out.f_frsize = st.f_frsize;
+        out.f_flags = st.f_flags;
+        return copy_to_user(cur, arg2, &out, sizeof(out));
     }
 
     case SYSCALL_FSTATFS:
     {
         int fd = (int)arg1;
-        statfs_t *buf = (statfs_t *)arg2;
-        if (!buf)
-            return -22;
-
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table || fd < 0 || fd >= TASK_MAX_FDS)
             return -9;
@@ -1632,31 +1629,32 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (!e->used)
             return -9;
 
-        memset(buf, 0, sizeof(*buf));
+        statfs_t out;
+        memset(&out, 0, sizeof(out));
         if (e->type == FD_FILE || e->type == FD_DIR)
         {
             uint64_t bsize = 0, blocks = 0, free_blocks = 0;
             if (fat_statfs_vol(0, &bsize, &blocks, &free_blocks) < 0)
                 return -5;
-            buf->f_type = 0x4D44;
-            buf->f_bsize = bsize;
-            buf->f_frsize = bsize;
-            buf->f_blocks = blocks;
-            buf->f_bfree = free_blocks;
-            buf->f_bavail = free_blocks;
-            buf->f_fsid = 0;
-            buf->f_namelen = 255;
-            return 0;
+            out.f_type = 0x4D44;
+            out.f_bsize = bsize;
+            out.f_frsize = bsize;
+            out.f_blocks = blocks;
+            out.f_bfree = free_blocks;
+            out.f_bavail = free_blocks;
+            out.f_fsid = 0;
+            out.f_namelen = 255;
         }
-        if (e->type == FD_DEV || e->type == FD_PTY_MASTER || e->type == FD_PTY_SLAVE)
+        else if (e->type == FD_DEV || e->type == FD_PTY_MASTER || e->type == FD_PTY_SLAVE)
         {
-            buf->f_type = 0xDEAF;
-            buf->f_bsize = 4096;
-            buf->f_frsize = 4096;
-            buf->f_namelen = 255;
-            return 0;
+            out.f_type = 0xDEAF;
+            out.f_bsize = 4096;
+            out.f_frsize = 4096;
+            out.f_namelen = 255;
         }
-        return -95;
+        else
+            return -95;
+        return copy_to_user(cur, arg2, &out, sizeof(out));
     }
 
     case SYSCALL_PRCTL:
