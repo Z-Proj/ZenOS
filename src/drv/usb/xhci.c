@@ -794,6 +794,8 @@ static int enumerate_port(xhci_controller_t *hc, uint8_t port)
     memset(&ep, 0, sizeof(ep));
     if (parse_hid_config(dev, cfg_buf, total, &config_value, &ep) < 0) {
         log("xHCI: slot %d non-HID device %04x:%04x", 2, 0, dev->slot_id, dd.vid, dd.pid);
+        if (release_device(hc, dev) == 0 && port <= XHCI_MAX_PORTS)
+            hc->port_slot[port - 1] = 0;
         return 0;
     }
 
