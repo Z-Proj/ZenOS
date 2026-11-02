@@ -95,6 +95,22 @@ typedef struct {
     int16_t revents;
 } pollfd_t;
 
+/*
+ * Keep long user sleeps cooperative. Timer interrupts that arrive while a
+ * task is inside this syscall return to the same kernel context, so a single
+ * long hlt-based sleep would otherwise hold the CPU away from other ready
+ * tasks for the entire interval. Yield at least once per millisecond.
+ */
+static void sleep_with_scheduler(uint32_t ms)
+{
+    while (ms > 0)
+    {
+        sleep_ms(1);
+        sched_yield();
+        ms--;
+    }
+}
+
 static inline void write_msr64(uint32_t msr, uint64_t value)
 {
     __asm__ volatile("wrmsr" : : "c"(msr), "a"((uint32_t)value), "d"((uint32_t)(value >> 32)));
@@ -2226,14 +2242,14 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         uint64_t ms64 = req.tv_sec * 1000ULL + req.tv_nsec / 1000000ULL;
         if (ms64 > UINT32_MAX)
             return -22;
-        sleep((uint32_t)ms64);
+        sleep_with_scheduler((uint32_t)ms64);
         return 0;
     }
 
     case SYSCALL_SLEEP:
     {
         uint32_t ms = (uint32_t)arg1;
-        sleep(ms);
+        sleep_with_scheduler(ms);
         return 0;
     }
 
