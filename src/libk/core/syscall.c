@@ -245,7 +245,8 @@ static int user_copy_validate(task_t *task, uint64_t uaddr, size_t len, int writ
             return -14;
         page_table_t *pdpt = (page_table_t *)((pml4e & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
         uint64_t pdpte = pdpt->entries[(page >> 30) & 0x1FF];
-        if (!(pdpte & PAGE_PRESENT) || !(pdpte & PAGE_USER))
+        if (!(pdpte & PAGE_PRESENT) || !(pdpte & PAGE_USER) ||
+            (write_access && !(pdpte & PAGE_WRITABLE)))
             return -14;
         if (pdpte & (1ULL << 7))
             return -14;
