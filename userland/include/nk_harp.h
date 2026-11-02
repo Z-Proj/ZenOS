@@ -457,18 +457,18 @@ static nk_harp_t *nk_harp_init(const char *title, int x, int y, int w, int h,
 
     struct nk_style *s = &nh->ctx.style;
 
-#define ZEN_BG nk_rgba(15, 15, 16, 235)
-#define ZEN_BG_SOLID nk_rgb(15, 15, 16)
-#define ZEN_SURFACE nk_rgb(26, 26, 28)
-#define ZEN_SURFACE_2 nk_rgb(36, 36, 39)
-#define ZEN_SURFACE_3 nk_rgb(48, 48, 52)
-#define ZEN_BORDER nk_rgba(255, 255, 255, 14)
-#define ZEN_ACCENT nk_rgb(10, 132, 255)
-#define ZEN_ACCENT_HI nk_rgb(50, 156, 255)
-#define ZEN_ACCENT_LO nk_rgb(0, 106, 220)
-#define ZEN_TEXT nk_rgb(230, 230, 235)
+#define ZEN_BG nk_rgba(17, 24, 36, 242)
+#define ZEN_BG_SOLID nk_rgb(17, 22, 31)
+#define ZEN_SURFACE nk_rgb(27, 37, 52)
+#define ZEN_SURFACE_2 nk_rgb(39, 52, 72)
+#define ZEN_SURFACE_3 nk_rgb(55, 71, 96)
+#define ZEN_BORDER nk_rgba(255, 255, 255, 28)
+#define ZEN_ACCENT nk_rgb(72, 150, 255)
+#define ZEN_ACCENT_HI nk_rgb(112, 178, 255)
+#define ZEN_ACCENT_LO nk_rgb(35, 112, 224)
+#define ZEN_TEXT nk_rgb(232, 239, 250)
 #define ZEN_TEXT_HI nk_rgb(255, 255, 255)
-#define ZEN_TEXT_DIM nk_rgb(142, 142, 150)
+#define ZEN_TEXT_DIM nk_rgb(157, 172, 194)
 
     s->window.background = ZEN_BG_SOLID;
     s->window.fixed_background = nk_style_item_color(ZEN_BG);
