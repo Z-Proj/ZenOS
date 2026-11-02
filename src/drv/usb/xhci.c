@@ -777,7 +777,7 @@ static int enumerate_port(xhci_controller_t *hc, uint8_t port)
     if (control_transfer(hc, dev, 0x80, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0, cfg_buf, 9) < 0) {
         if (port <= XHCI_MAX_PORTS)
             hc->port_slot[port - 1] = 0;
-        dev->used = 0;
+        release_device(hc, dev);
         return -1;
     }
 
@@ -787,7 +787,7 @@ static int enumerate_port(xhci_controller_t *hc, uint8_t port)
     if (control_transfer(hc, dev, 0x80, USB_REQ_GET_DESCRIPTOR, USB_DT_CONFIG << 8, 0, cfg_buf, total) < 0) {
         if (port <= XHCI_MAX_PORTS)
             hc->port_slot[port - 1] = 0;
-        dev->used = 0;
+        release_device(hc, dev);
         return -1;
     }
 
@@ -806,7 +806,7 @@ static int enumerate_port(xhci_controller_t *hc, uint8_t port)
     if (configure_intr_ep(hc, dev, &ep) < 0) {
         if (port <= XHCI_MAX_PORTS)
             hc->port_slot[port - 1] = 0;
-        dev->used = 0;
+        release_device(hc, dev);
         return -1;
     }
 
