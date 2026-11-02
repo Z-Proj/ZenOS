@@ -671,7 +671,14 @@ int elf_spawn(const char *filename, int argc, char **argv, task_t *parent)
     char *kfilename = NULL;
     char **kargv = NULL;
 
-    if (copy_user_string(filename, &kfilename) < 0) {
+    if ((uint64_t)(uintptr_t)filename >= 0x0000800000000000ULL) {
+        size_t len = bounded_strlen(filename, EXEC_MAX_STRLEN);
+        if (len >= EXEC_MAX_STRLEN || !(kfilename = (char *)kmalloc(len + 1))) {
+            spinlock_release_raw(&exec_lock);
+            return -1;
+        }
+        memcpy(kfilename, filename, len + 1);
+    } else if (copy_user_string(filename, &kfilename) < 0) {
         spinlock_release_raw(&exec_lock);
         return -1;
     }
