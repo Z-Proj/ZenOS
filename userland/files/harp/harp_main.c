@@ -906,17 +906,13 @@ static void poll_ipc(void)
     uint32_t got = 0;
     while (socket_available(ev_sock) >= sizeof(msg))
     {
-        socket_read(ev_sock, &msg, sizeof(msg), &got);
-        if (got < sizeof(msg))
+        got = 0;
+        if (socket_read(ev_sock, &msg, sizeof(msg), &got) < 0 || got < sizeof(msg))
             break;
 
         if (msg.type == WM_MSG_REGISTER)
         {
-            if (!msg.pid || msg.w <= 0 || msg.h <= 0)
-                continue;
-
-            /* One process owns one Harp window. Ignore duplicate registrations
-             * instead of allocating a second slot for the same shared buffer. */
+            /* A PID owns exactly one window. Ignore duplicate registrations. */
             int duplicate = 0;
             for (int i = 0; i < MAX_WINDOWS; i++)
                 if (windows[i].active && windows[i].pid == msg.pid)
@@ -924,13 +920,34 @@ static void poll_ipc(void)
                     duplicate = 1;
                     break;
                 }
-            if (duplicate)
+            if (duplicate || !msg.pid || msg.w <= 0 || msg.h <= 0 ||
+                msg.w > 8192 || msg.h > 8192)
                 continue;
 
             uint64_t pixels = (uint64_t)(uint32_t)msg.w * (uint64_t)(uint32_t)msg.h;
             if (pixels > UINT64_MAX / 8)
                 continue;
-            uint64_t required_size = pixels * 8;
+            uint64_t required_size = pixels * 8; /* two 32-bit buffers */
+
+            shm_info_t si;
+            memset(&si, 0, sizeof(si));
+            char shmname[32], evname[32];
+            snprintf(shmname, sizeof(shmname), "wm:shm_%u", msg.pid);
+            snprintf(evname, sizeof(evname), "wm:ev_%u", msg.pid);
+
+            if (zen_shm_open(shmname, &si) < 0 || !si.addr || si.size < required_size)
+            {
+                if (si.addr)
+                    zen_shm_close(shmname);
+                continue;
+            }
+
+            socket_file_t *events = NULL;
+            if (socket_open(evname, &events) < 0 || !events)
+            {
+                zen_shm_close(shmname);
+                continue;
+            }
 
             int slot = -1;
             for (int i = 0; i < MAX_WINDOWS; i++)
@@ -940,26 +957,8 @@ static void poll_ipc(void)
                     break;
                 }
             if (slot < 0)
-                continue;
-
-            char shmname[32];
-            char evname[32];
-            snprintf(shmname, sizeof(shmname), "wm:shm_%u", msg.pid);
-            snprintf(evname, sizeof(evname), "wm:ev_%u", msg.pid);
-
-            shm_info_t si;
-            memset(&si, 0, sizeof(si));
-            int shm_opened = (zen_shm_open(shmname, &si) == 0);
-            if (!shm_opened || !si.addr || si.size < required_size)
             {
-                if (shm_opened)
-                    zen_shm_close(shmname);
-                continue;
-            }
-
-            socket_file_t *evsock = NULL;
-            if (socket_open(evname, &evsock) < 0 || !evsock)
-            {
+                socket_close(events);
                 zen_shm_close(shmname);
                 continue;
             }
@@ -977,7 +976,7 @@ static void poll_ipc(void)
             strncpy(w->shmname, shmname, sizeof(w->shmname) - 1);
             strncpy(w->evname, evname, sizeof(w->evname) - 1);
             w->shmbuf = (uint8_t *)si.addr;
-            w->evsock = evsock;
+            w->evsock = events;
             w->read_index = 0;
             w->dirty_valid = 0;
             clamp_window(w);
@@ -991,6 +990,8 @@ static void poll_ipc(void)
             {
                 if (!windows[i].active || windows[i].pid != msg.pid)
                     continue;
+                if (msg.buf_index > 1)
+                    break;
                 windows[i].read_index = msg.buf_index;
                 mark_window_dirty(&windows[i], msg.x, msg.y, msg.w, msg.h);
                 request_window_redraw(i, 0);
@@ -1027,13 +1028,9 @@ static void poll_ipc(void)
                 if (!windows[i].active || windows[i].pid != msg.pid)
                     continue;
                 if (msg.x && focused_win == i)
-                {
                     captured_win = i;
-                }
                 else if (captured_win == i)
-                {
                     captured_win = -1;
-                }
                 break;
             }
         }
