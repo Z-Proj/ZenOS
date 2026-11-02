@@ -949,10 +949,10 @@ static void poll_ipc(void)
 
             shm_info_t si;
             memset(&si, 0, sizeof(si));
-            if (zen_shm_open(shmname, &si) < 0 || !si.addr ||
-                si.size < required_size)
+            int shm_opened = (zen_shm_open(shmname, &si) == 0);
+            if (!shm_opened || !si.addr || si.size < required_size)
             {
-                if (si.addr)
+                if (shm_opened)
                     zen_shm_close(shmname);
                 continue;
             }
