@@ -2638,19 +2638,16 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     case SYSCALL_SIGACTION:
     {
         int sig = (int)arg1;
-        zen_sigaction_t *act = (zen_sigaction_t *)arg2;
-        zen_sigaction_t *oldact = (zen_sigaction_t *)arg3;
-        if (sig <= 0 || sig >= NSIG)
-            return -1;
-        if (sig == SIGKILL || sig == SIGSTOP)
-            return -1;
         task_t *cur = sched_current_task();
-        if (!cur)
+        zen_sigaction_t new_action;
+        if (sig <= 0 || sig >= NSIG || sig == SIGKILL || sig == SIGSTOP || !cur)
             return -1;
-        if (oldact)
-            *oldact = cur->sighandlers[sig];
-        if (act)
-            cur->sighandlers[sig] = *act;
+        if (arg2 && copy_from_user(cur, &new_action, arg2, sizeof(new_action)) < 0)
+            return -14;
+        if (arg3 && copy_to_user(cur, arg3, &cur->sighandlers[sig], sizeof(cur->sighandlers[sig])) < 0)
+            return -14;
+        if (arg2)
+            cur->sighandlers[sig] = new_action;
         return 0;
     }
 
@@ -2660,14 +2657,16 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (!cur)
             return 0;
         uint64_t usp = cur->regs.userrsp;
-        uint64_t page_base = usp & ~(uint64_t)(PAGE_SIZE - 1);
-        uint64_t page_off = usp & (PAGE_SIZE - 1);
-        uint64_t phys = virt_to_phys(cur->pml4, page_base);
-        if (phys)
+        uint64_t saved_rip = 0;
+        if (copy_from_user(cur, &saved_rip, usp, sizeof(saved_rip)) == 0)
         {
-            uint64_t saved_rip = *(uint64_t *)(phys + KERNEL_VIRT_OFFSET + page_off);
             cur->regs.userrsp += sizeof(uint64_t);
             cur->regs.rip = saved_rip;
+        }
+        else
+        {
+            cur->state = TASK_DEAD;
+            cur->exit_code = 128 + SIGSEGV;
         }
         dispatch_pending_signals(cur);
         return 0;
@@ -2676,21 +2675,22 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     case SYSCALL_SIGPROCMASK:
     {
         int how = (int)arg1;
-        uint64_t *set = (uint64_t *)arg2;
-        uint64_t *oldset = (uint64_t *)arg3;
         task_t *cur = sched_current_task();
-        if (!cur)
+        uint64_t set_value = 0;
+        if (!cur || (how < 0 || how > 2) && arg2)
             return -1;
-        if (oldset)
-            *oldset = cur->sig_mask;
-        if (set)
+        if (arg2 && copy_from_user(cur, &set_value, arg2, sizeof(set_value)) < 0)
+            return -14;
+        if (arg3 && copy_to_user(cur, arg3, &cur->sig_mask, sizeof(cur->sig_mask)) < 0)
+            return -14;
+        if (arg2)
         {
             if (how == 0)
-                cur->sig_mask |= *set;
+                cur->sig_mask |= set_value;
             else if (how == 1)
-                cur->sig_mask &= ~(*set);
-            else if (how == 2)
-                cur->sig_mask = *set;
+                cur->sig_mask &= ~set_value;
+            else
+                cur->sig_mask = set_value;
         }
         return 0;
     }
