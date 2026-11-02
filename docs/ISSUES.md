@@ -6,7 +6,7 @@
 - **Application-launch stalls and progressive lag:** Reported when launching additional applications. Page-table allocation, syscall range handling and scheduler reaper workload have been improved, but runtime causality and complete resolution are not proven.
 - **Terminal input freeze on first launch:** Previously reported; not verified or fixed in this audit.
 - **Memory growth:** Empty intermediate page tables are reclaimed. Repeated mmap/munmap, heap growth/shrink, process exit, fork/exec and shared-memory lifecycle tests are still required.
-- **Remaining syscall pointer audit:** Read/write buffers, common filesystem paths and metadata, time calls, shared-memory names/results, signal actions/masks, directory entries, process names, prints and logs now use validation/copy helpers. Other handlers still need review, notably ioctl/device-specific buffers, socket object APIs, futex addresses, poll arrays, and several network/system-information calls.
+- **Remaining syscall pointer audit:** Read/write buffers, common filesystem paths and metadata, time calls, shared-memory names/results, signal actions/masks/return stack, directory entries, PTY ioctl structures, process names, prints and logs now use validation/copy helpers. Other handlers still need review, notably device-specific ioctl buffers, socket object APIs, futex addresses, poll arrays, and several network/system-information calls.
 - **Large-page ownership:** Teardown deliberately does not free physical frames behind large user mappings because the VM has no ownership metadata proving those frames belong to the process. This avoids freeing unrelated allocator-owned pages, but an owned large mapping can retain frames until ownership tracking is implemented.
 
 ## Fixes committed during the audit
@@ -21,6 +21,7 @@
 - c41dc2b, 0ccb693, b5a3215, 47c9d66, d7dfe59: directory/stat/statfs/process metadata and common filesystem paths use safe user copies.
 - b412495, 121b6b3, 876c4f6, 829c69f: ELF filename, argv and envp reads validate/copy userspace data; high-half pointers from user tasks are rejected.
 - f4bbff1: process exit uses the scheduler's locked abort path; print/log strings are copied before use.
+- cbf9f2f, 1ebdf16: PTY ioctl structures and file/device read/write transfers use validated user-memory copy helpers.
 - 1a6d728: large-page physical frames are not freed without proof of ownership.
 
 ## Additional audit observations
@@ -33,6 +34,6 @@
 ## Verification status
 
 - A GitHub Actions kernel-build workflow was added at .github/workflows/kernel-build.yml.
-- Kernel compilation passed on commit 47c9d66475cdd28e7d0e16d48453a6905dfe6521. Later user-copy and lifecycle changes are awaiting their own completed build result.
+- Kernel compilation passed on commit d18b8d9a49aa2d5ca8196e876d175ab88c4ac6c3. The later file-transfer and PTY ioctl commits are awaiting their own completed build result.
 - No boot or runtime stress-test result has been observed for these changes.
 - Do not mark concurrency, memory-growth, input-freeze or launch-latency issues closed until a current image boots and the stress tests pass.
