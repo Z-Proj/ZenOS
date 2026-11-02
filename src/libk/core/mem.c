@@ -614,10 +614,29 @@ void map_page(page_table_t *pml4, uint64_t virt, uint64_t phys, uint64_t flags)
     if (pdpt->entries[pdpt_idx] & PAGE_PRESENT)
     {
         if (pdpt->entries[pdpt_idx] & (1ULL << 7))
-            goto fail;
-        pd = (page_table_t *)((pdpt->entries[pdpt_idx] & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
-        if (flags & PAGE_USER)
-            pdpt->entries[pdpt_idx] |= PAGE_USER;
+        {
+            /* Split a 1 GiB mapping into 512 equivalent 2 MiB mappings. */
+            uint64_t large = pdpt->entries[pdpt_idx];
+            pd_phys = alloc_page();
+            if (!pd_phys)
+                goto fail;
+            pd = (page_table_t *)(pd_phys + KERNEL_VIRT_OFFSET);
+            uint64_t base = large & 0x000FFFFFC0000000ULL;
+            uint64_t leaf_flags = large & 0x8000000000000FFFULL;
+            for (size_t i = 0; i < 512; i++)
+                pd->entries[i] = (base + (uint64_t)i * 0x200000ULL) | leaf_flags;
+
+            uint64_t parent_flags = large & 0x8000000000000FFFULL;
+            parent_flags &= ~(1ULL << 7);
+            pdpt->entries[pdpt_idx] = pd_phys | parent_flags;
+            /* Keep this populated split table even if a later PT allocation fails. */
+        }
+        else
+        {
+            pd = (page_table_t *)((pdpt->entries[pdpt_idx] & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+            if (flags & PAGE_USER)
+                pdpt->entries[pdpt_idx] |= PAGE_USER;
+        }
     }
     else
     {
