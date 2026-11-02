@@ -1336,7 +1336,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                 d->read(kbuf, chunk, &got);
                 if (got == 0)
                     break;
-                memcpy((uint8_t *)buffer + total, kbuf, got);
+                if (copy_to_user(cur, (uint64_t)(uintptr_t)buffer + total, kbuf, got) < 0) {
+                    kfree(kbuf);
+                    return total > 0 ? (int64_t)total : -14;
+                }
                 total += got;
             }
             kfree(kbuf);
@@ -1365,7 +1368,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             }
             if (bytes_read == 0)
                 break;
-            memcpy(ubuf + total, kbuf, bytes_read);
+            if (copy_to_user(cur, (uint64_t)(uintptr_t)ubuf + total, kbuf, bytes_read) < 0) {
+                kfree(kbuf);
+                return total > 0 ? (int64_t)total : -14;
+            }
             total += bytes_read;
             if (bytes_read < chunk)
                 break;
@@ -1477,7 +1483,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             uint32_t chunk = size - total;
             if (chunk > 4096)
                 chunk = 4096;
-            memcpy(kbuf, ubuf + total, chunk);
+            if (copy_from_user(cur, kbuf, (uint64_t)(uintptr_t)ubuf + total, chunk) < 0) {
+                kfree(kbuf);
+                return total > 0 ? (int64_t)total : -14;
+            }
             int ret = vfs_write_entry(e, kbuf, chunk);
             if (ret < 0)
             {
