@@ -582,7 +582,13 @@ void draw_window(int idx, int full_frame)
     int tw = text_w(lbl);
     int lx = fx + (fw - tw) / 2;
     if (lx < fx + 4) lx = fx + 4;
-    uint32_t title_bg = s_backbuf[(fy + TITLEBAR_H/2) * SCR_W + fx + fw/2];
+    int title_x = fx + fw / 2;
+    int title_y = fy + TITLEBAR_H / 2;
+    if (title_x < 0) title_x = 0;
+    if (title_x >= (int)SCR_W) title_x = (int)SCR_W - 1;
+    if (title_y < 0) title_y = 0;
+    if (title_y >= (int)SCR_H) title_y = (int)SCR_H - 1;
+    uint32_t title_bg = s_backbuf[(size_t)title_y * SCR_W + (size_t)title_x];
     bb_text(lx, BASELINE(fy + 5), focused ? C_TITLE_ACT : C_TITLE_DIM, title_bg, lbl);
 
     int br = 10;
