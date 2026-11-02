@@ -137,14 +137,17 @@ int main(void)
             was_down = 0;
         }
 
+        int frame_dirty = nh->first_frame || nh->had_event || nh->force_redraw;
         nk_harp_render(nh);
 
-        for (int y = 0; y < CANVAS_H; y++) {
-            uint32_t *dst = nh->win->buf + (CANVAS_Y + y) * nh->win->w + CANVAS_X;
-            memcpy(dst, canvas[y], CANVAS_W * sizeof(uint32_t));
+        if (frame_dirty) {
+            for (int y = 0; y < CANVAS_H; y++) {
+                uint32_t *dst = nh->win->buf + (CANVAS_Y + y) * nh->win->w + CANVAS_X;
+                memcpy(dst, canvas[y], CANVAS_W * sizeof(uint32_t));
+            }
+            harp_flush(nh->win);
         }
-
-        harp_flush(nh->win);
+        sched_yield();
     }
     nk_harp_free(nh);
     return 0;
