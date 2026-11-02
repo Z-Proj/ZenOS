@@ -1770,17 +1770,18 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_STAT:
     {
-        const char *path = (const char *)arg1;
-        stat_t *st = (stat_t *)arg2;
-        if (!path || !st)
-            return -22;
+        task_t *cur = sched_current_task();
+        char path[256];
+        stat_t st;
+        if (!cur || copy_user_string(cur, arg1, path, sizeof(path)) < 0)
+            return -14;
+        memset(&st, 0, sizeof(st));
         if (unix_sock_path_exists(path))
         {
-            memset(st, 0, sizeof(*st));
-            st->st_mode = 0140666;
-            st->st_nlink = 1;
-            st->st_blksize = 512;
-            return 0;
+            st.st_mode = 0140666;
+            st.st_nlink = 1;
+            st.st_blksize = 512;
+            return copy_to_user(cur, arg2, &st, sizeof(st));
         }
         fd_entry_t tmp;
         memset(&tmp, 0, sizeof(tmp));
@@ -1792,39 +1793,36 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             is_dir = 1;
         }
         uint32_t sz = is_dir ? 0 : vfs_size_entry(&tmp);
-        int64_t  mt = is_dir ? 0 : vfs_mtime_entry(&tmp);
+        int64_t mt = is_dir ? 0 : vfs_mtime_entry(&tmp);
         if (is_dir) vfs_closedir_entry(&tmp);
-        else        vfs_close_entry(&tmp);
-       
-        memset(st, 0, sizeof(*st));
-        st->st_mode = is_dir ? 0040755 : 0100644;
-        st->st_nlink = 1;
-        st->st_size = sz;
-        st->st_blksize = 512;
-        st->st_blocks = (sz + 511) / 512;
-        st->st_atime = mt;
-        st->st_mtime = mt;
-        st->st_ctime = mt;
-        return 0;
+        else vfs_close_entry(&tmp);
+
+        st.st_mode = is_dir ? 0040755 : 0100644;
+        st.st_nlink = 1;
+        st.st_size = sz;
+        st.st_blksize = 512;
+        st.st_blocks = (sz + 511) / 512;
+        st.st_atime = mt;
+        st.st_mtime = mt;
+        st.st_ctime = mt;
+        return copy_to_user(cur, arg2, &st, sizeof(st));
     }
 
     case SYSCALL_FSTAT:
     {
         int fd = (int)arg1;
-        stat_t *st = (stat_t *)arg2;
-        if (!st)
-            return -22;
-        memset(st, 0, sizeof(*st));
-        if (fd == 0 || fd == 1 || fd == 2)
-        {
-            st->st_mode = 0020666;
-            st->st_nlink = 1;
-            st->st_blksize = 512;
-            return 0;
-        }
         task_t *cur = sched_current_task();
+        stat_t st;
         if (!cur || !cur->fd_table)
             return -9;
+        memset(&st, 0, sizeof(st));
+        if (fd == 0 || fd == 1 || fd == 2)
+        {
+            st.st_mode = 0020666;
+            st.st_nlink = 1;
+            st.st_blksize = 512;
+            return copy_to_user(cur, arg2, &st, sizeof(st));
+        }
         if (fd < 3 || fd >= TASK_MAX_FDS)
             return -9;
         fd_entry_t *e = &cur->fd_table->entries[fd];
@@ -1834,38 +1832,38 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             e->type == FD_PIPE_READ || e->type == FD_PIPE_WRITE ||
             e->type == FD_DEV || e->type == FD_STDIO)
         {
-            st->st_mode = 0020666;
-            st->st_nlink = 1;
-            st->st_blksize = 512;
-            return 0;
+            st.st_mode = 0020666;
+            st.st_nlink = 1;
+            st.st_blksize = 512;
         }
-        if (e->type == FD_UNIX_SOCK)
+        else if (e->type == FD_UNIX_SOCK)
         {
-            st->st_mode = 0140666;
-            st->st_nlink = 1;
-            st->st_blksize = 512;
-            return 0;
+            st.st_mode = 0140666;
+            st.st_nlink = 1;
+            st.st_blksize = 512;
         }
-        if (e->type == FD_DIR)
+        else if (e->type == FD_DIR)
         {
-            st->st_mode = 0040755;
-            st->st_nlink = 1;
-            st->st_blksize = 512;
-            return 0;
+            st.st_mode = 0040755;
+            st.st_nlink = 1;
+            st.st_blksize = 512;
         }
-        if (e->type != FD_FILE)
+        else if (e->type == FD_FILE)
+        {
+            uint32_t sz = vfs_size_entry(e);
+            int64_t mt = vfs_mtime_entry(e);
+            st.st_mode = 0100644;
+            st.st_nlink = 1;
+            st.st_size = sz;
+            st.st_blksize = 512;
+            st.st_blocks = (sz + 511) / 512;
+            st.st_atime = mt;
+            st.st_mtime = mt;
+            st.st_ctime = mt;
+        }
+        else
             return -9;
-        uint32_t sz = vfs_size_entry(e);
-        int64_t mt = vfs_mtime_entry(e);
-        st->st_mode = 0100644;
-        st->st_nlink = 1;
-        st->st_size = sz;
-        st->st_blksize = 512;
-        st->st_blocks = (sz + 511) / 512;
-        st->st_atime = mt;
-        st->st_mtime = mt;
-        st->st_ctime = mt;
-        return 0;
+        return copy_to_user(cur, arg2, &st, sizeof(st));
     }
 
     case SYSCALL_CHDIR:
