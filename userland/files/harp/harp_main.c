@@ -928,6 +928,8 @@ static void poll_ipc(void)
             if (pixels > UINT64_MAX / 8)
                 continue;
             uint64_t required_size = pixels * 8; /* two 32-bit buffers */
+            if (required_size > 128ULL * 1024 * 1024)
+                continue; /* Bound per-window shared memory use. */
 
             shm_info_t si;
             memset(&si, 0, sizeof(si));
