@@ -62,9 +62,9 @@
 #define LEFT_W      120
 
 #define C_BG         0xFF0E0E0E
-#define C_DASH       0xFF0A0A0A
-#define C_TITLEBAR   0xFF0A0A0A
-#define C_TITLEBAR_F 0xFF111111
+#define C_DASH       0xFF1A2433
+#define C_TITLEBAR   0xFF172131
+#define C_TITLEBAR_F 0xFF22334A
 #define C_TITLE_DIM  0xFF666666
 #define C_TITLE_ACT  0xFFDDDDDD
 #define C_CLOSE      0xFF3A1010
@@ -228,6 +228,50 @@ void bb_rrect_alpha(int x, int y, int w, int h, int r, uint32_t c, uint32_t a)
         if (x1 > (int)SCR_W) x1 = (int)SCR_W;
         if (x0 >= x1) continue;
         blend_span(s_backbuf + ay * SCR_W + x0, x1 - x0, src_color);
+    }
+}
+
+/*
+ * Draw a restrained specular rim around a glass surface. The compositor
+ * already has the blurred surface beneath translucent panels, so this adds
+ * depth without introducing another full-screen blur pass.
+ */
+static void bb_glass_edge(int x, int y, int w, int h, int r)
+{
+    if (w <= 0 || h <= 0) return;
+    if (r < 1) r = 1;
+    if (r > w / 2) r = w / 2;
+    if (r > h / 2) r = h / 2;
+
+    for (int row = 0; row < h; row++) {
+        int ay = y + row;
+        if (ay < 0 || (uint32_t)ay >= SCR_H) continue;
+
+        int x0 = x, x1 = x + w;
+        if (row < r || row >= h - r) {
+            int dy = row < r ? (r - row - 1) : (row - (h - r));
+            int dx = 0;
+            while (dx * dx + dy * dy < r * r) dx++;
+            int cut = r - dx;
+            x0 += cut;
+            x1 -= cut;
+        }
+        if (x0 < 0) x0 = 0;
+        if (x1 > (int)SCR_W) x1 = (int)SCR_W;
+        if (x0 >= x1) continue;
+
+        uint32_t edge = row == 0 ? 0x48FFFFFF :
+                        row == h - 1 ? 0x20FFFFFF : 0x28FFFFFF;
+        uint32_t *line = s_backbuf + (size_t)ay * SCR_W;
+        line[x0] = blend_px(line[x0], edge);
+        if (x1 - x0 > 1)
+            line[x1 - 1] = blend_px(line[x1 - 1], edge);
+
+        if (row == 0 || row == h - 1) {
+            uint32_t horizontal = row == 0 ? 0x38FFFFFF : 0x18FFFFFF;
+            for (int px = x0 + 1; px < x1 - 1; px++)
+                line[px] = blend_px(line[px], horizontal);
+        }
     }
 }
 
@@ -532,6 +576,7 @@ void draw_window(int idx, int full_frame)
     uint32_t tc = focused ? C_TITLEBAR_F : C_TITLEBAR;
 
     bb_rrect_alpha_top(fx, fy, fw, TITLEBAR_H, WIN_R, tc, 150);
+    bb_glass_edge(fx, fy, fw, TITLEBAR_H, WIN_R);
     uint32_t corner_save[WIN_R * WIN_R * 2];
     int cs_idx = 0;
     for (int row = 0; row < WIN_R; row++) {
@@ -577,6 +622,7 @@ void draw_window(int idx, int full_frame)
             cs_idx++;
         }
     }
+    bb_glass_edge(fx, fy, fw, fh, WIN_R);
     char lbl[48];
     __builtin_strncpy(lbl, w->title, 47); lbl[47] = 0;
     int tw = text_w(lbl);
@@ -636,6 +682,7 @@ void draw_dash(void)
 
     dash_blit_backdrop(lx, LEFT_W);
     bb_rrect_alpha(lx, ly, LEFT_W, DASH_H, DASH_R, C_DASH, TILE_ALPHA);
+    bb_glass_edge(lx, ly, LEFT_W, DASH_H, DASH_R);
 
     struct timeval tv;
     gettimeofday(&tv, NULL);
@@ -653,6 +700,7 @@ void draw_dash(void)
     if (screenshot_dash_layout(&shot_x, &shot_y, &shot_w)) {
         dash_blit_backdrop(shot_x, shot_w);
         bb_rrect_alpha(shot_x, shot_y, shot_w, DASH_H, DASH_R, C_DASH, TILE_ALPHA);
+        bb_glass_edge(shot_x, shot_y, shot_w, DASH_H, DASH_R);
         int ix = shot_x + LAUNCH_PAD;
         int iy = shot_y + (DASH_H - LAUNCH_ICON) / 2;
         draw_plus_icon(ix, iy, LAUNCH_ICON);
@@ -663,6 +711,7 @@ void draw_dash(void)
     if (power_dash_layout(&power_x, &power_y, &power_w)) {
         dash_blit_backdrop(power_x, power_w);
         bb_rrect_alpha(power_x, power_y, power_w, DASH_H, DASH_R, C_DASH, TILE_ALPHA);
+        bb_glass_edge(power_x, power_y, power_w, DASH_H, DASH_R);
         int ix = power_x + LAUNCH_PAD;
         int iy = power_y + (DASH_H - LAUNCH_ICON) / 2;
         draw_power_icon(ix, iy, LAUNCH_ICON);
@@ -673,6 +722,7 @@ void draw_dash(void)
     if (launcher_dash_layout(&launch_x, &launch_y, &launch_w)) {
         dash_blit_backdrop(launch_x, launch_w);
         bb_rrect_alpha(launch_x, launch_y, launch_w, DASH_H, DASH_R, C_DASH, TILE_ALPHA);
+        bb_glass_edge(launch_x, launch_y, launch_w, DASH_H, DASH_R);
         int ix = launch_x + LAUNCH_PAD;
         int iy = launch_y + (DASH_H - LAUNCH_ICON) / 2;
         for (int i = 0; i < launcher_app_count; i++) {
@@ -700,6 +750,7 @@ void draw_dash(void)
 
     dash_blit_backdrop(rx, total_w);
     bb_rrect_alpha(rx, ry, total_w, DASH_H, DASH_R, C_DASH, TILE_ALPHA);
+    bb_glass_edge(rx, ry, total_w, DASH_H, DASH_R);
 
     int bx = rx + DASH_PAD;
     int top = z_top();
