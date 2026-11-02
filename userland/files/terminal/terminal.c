@@ -659,6 +659,10 @@ static int pump_window_events(void)
 
 static void cleanup_terminal(void)
 {
+    if (master_fd >= 0) {
+        close(master_fd);
+        master_fd = -1;
+    }
     free(screen);
     screen = NULL;
     if (font) {
@@ -737,12 +741,14 @@ int main(void)
 
     int slave_fd = -1;
     master_fd = zen_pty_open(&slave_fd);
-    if (master_fd < 0) {
-        const char *msg = "pty_open failed\n";
+    if (master_fd < 0 || slave_fd < 0) {
+        const char *msg = "pty_open failed\r\n";
         for (const char *p = msg; *p; p++) put_raw(*p);
         flush_dirty();
-        for (;;)
-            sched_yield();
+        if (slave_fd >= 0)
+            close(slave_fd);
+        cleanup_terminal();
+        return 1;
     }
 
     zen_winsize_t ws = {
@@ -768,19 +774,28 @@ int main(void)
 
     shell_pid = fork();
     if (shell_pid == 0) {
-        dup2(slave_fd, 0);
-        dup2(slave_fd, 1);
-        dup2(slave_fd, 2);
+        if (dup2(slave_fd, 0) < 0 ||
+            dup2(slave_fd, 1) < 0 ||
+            dup2(slave_fd, 2) < 0) {
+            write(2, "terminal: failed to attach PTY\n", 31);
+            _exit(1);
+        }
         if (slave_fd > 2) close(slave_fd);
         if (master_fd > 2) close(master_fd);
         execv("/mnt/drv0/bin/ash", (char *[]){"/mnt/drv0/bin/ash", NULL});
-        execv("/mnt/drv0/bin/shell",    (char *[]){"/mnt/drv0/bin/shell",    NULL});
-        execv("/mnt/drv0/bin/sh",    (char *[]){"/mnt/drv0/bin/sh",    NULL});
+        execv("/mnt/drv0/bin/shell", (char *[]){"/mnt/drv0/bin/shell", NULL});
+        execv("/mnt/drv0/bin/sh", (char *[]){"/mnt/drv0/bin/sh", NULL});
         write(1, "shell not found\n", 16);
         _exit(1);
     }
-    if (slave_fd >= 0)
-        close(slave_fd);
+    close(slave_fd);
+    if (shell_pid < 0) {
+        const char *msg = "fork failed; could not start shell\r\n";
+        for (const char *p = msg; *p; p++) put_raw(*p);
+        flush_dirty();
+        cleanup_terminal();
+        return 1;
+    }
 
     while (1) {
         if (close_requested) {
