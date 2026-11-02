@@ -921,7 +921,8 @@ static void poll_ipc(void)
                     break;
                 }
             if (duplicate || !msg.pid || msg.w <= 0 || msg.h <= 0 ||
-                msg.w > 8192 || msg.h > 8192)
+                msg.w > 8192 || msg.h > 8192 ||
+                msg.w > (int)SCR_W || msg.h > (int)SCR_H)
                 continue;
 
             uint64_t pixels = (uint64_t)(uint32_t)msg.w * (uint64_t)(uint32_t)msg.h;
