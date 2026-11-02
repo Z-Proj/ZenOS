@@ -935,9 +935,10 @@ static void poll_ipc(void)
             snprintf(shmname, sizeof(shmname), "wm:shm_%u", msg.pid);
             snprintf(evname, sizeof(evname), "wm:ev_%u", msg.pid);
 
-            if (zen_shm_open(shmname, &si) < 0 || !si.addr || si.size < required_size)
+            int shm_opened = zen_shm_open(shmname, &si);
+            if (shm_opened < 0 || !si.addr || si.size < required_size)
             {
-                if (si.addr)
+                if (shm_opened == 0)
                     zen_shm_close(shmname);
                 continue;
             }
