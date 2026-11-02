@@ -240,17 +240,17 @@ static int user_copy_validate(task_t *task, uint64_t uaddr, size_t len, int writ
     uint64_t end = uaddr + len;
     for (uint64_t page = uaddr & ~(uint64_t)(PAGE_SIZE - 1); page < end; page += PAGE_SIZE)
     {
-        uint64_t pml4e = task->pml4->entries[get_pml4_index(page)];
+        uint64_t pml4e = task->pml4->entries[(page >> 39) & 0x1FF];
         if (!(pml4e & PAGE_PRESENT) || !(pml4e & PAGE_USER))
             return -14;
         page_table_t *pdpt = (page_table_t *)((pml4e & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
-        uint64_t pdpte = pdpt->entries[get_pdpt_index(page)];
+        uint64_t pdpte = pdpt->entries[(page >> 30) & 0x1FF];
         if (!(pdpte & PAGE_PRESENT) || !(pdpte & PAGE_USER))
             return -14;
         if (pdpte & (1ULL << 7))
             return -14;
         page_table_t *pd = (page_table_t *)((pdpte & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
-        uint64_t pde = pd->entries[get_pd_index(page)];
+        uint64_t pde = pd->entries[(page >> 21) & 0x1FF];
         if (!(pde & PAGE_PRESENT) || !(pde & PAGE_USER))
             return -14;
         if (pde & (1ULL << 7))
@@ -261,7 +261,7 @@ static int user_copy_validate(task_t *task, uint64_t uaddr, size_t len, int writ
         else
         {
             page_table_t *pt = (page_table_t *)((pde & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
-            uint64_t pte = pt->entries[get_pt_index(page)];
+            uint64_t pte = pt->entries[(page >> 12) & 0x1FF];
             if (!(pte & PAGE_PRESENT) || !(pte & PAGE_USER) ||
                 (write_access && !(pte & PAGE_WRITABLE)))
                 return -14;
