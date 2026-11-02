@@ -909,12 +909,15 @@ int main(void)
         }
         nk_end(&nh->ctx);
 
+        int frame_dirty = nh->first_frame || nh->had_event || nh->force_redraw;
         nk_harp_render(nh);
 
-        if (page == PAGE_WALLPAPER && g_preview_show && thumb_valid)
-            blit_thumbnail(nh, g_preview_rect);
-
-        harp_flush(nh->win);
+        if (frame_dirty)
+        {
+            if (page == PAGE_WALLPAPER && g_preview_show && thumb_valid)
+                blit_thumbnail(nh, g_preview_rect);
+            harp_flush(nh->win);
+        }
         zen_sleep_ms(10);
     }
 
