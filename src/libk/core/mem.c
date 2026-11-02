@@ -651,6 +651,9 @@ void map_page(page_table_t *pml4, uint64_t virt, uint64_t phys, uint64_t flags)
         created_pd = 1;
     }
 
+    if (flags & PAGE_USER)
+        pdpt->entries[pdpt_idx] |= PAGE_USER;
+
     page_table_t *pt;
     if (pd->entries[pd_idx] & PAGE_PRESENT)
     {
