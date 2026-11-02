@@ -228,6 +228,109 @@ static uint64_t user_find_mmap_range(task_t *task, uint64_t hint, size_t pages)
     return 0;
 }
 
+static int user_copy_validate(task_t *task, uint64_t uaddr, size_t len, int write_access)
+{
+    if (!len)
+        return 0;
+    if (!task || !task->pml4 || uaddr < PAGE_SIZE ||
+        uaddr >= 0x0000800000000000ULL ||
+        len - 1 > 0x00007FFFFFFFFFFFULL - uaddr)
+        return -14;
+
+    uint64_t end = uaddr + len;
+    for (uint64_t page = uaddr & ~(uint64_t)(PAGE_SIZE - 1); page < end; page += PAGE_SIZE)
+    {
+        uint64_t pml4e = task->pml4->entries[get_pml4_index(page)];
+        if (!(pml4e & PAGE_PRESENT) || !(pml4e & PAGE_USER))
+            return -14;
+        page_table_t *pdpt = (page_table_t *)((pml4e & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+        uint64_t pdpte = pdpt->entries[get_pdpt_index(page)];
+        if (!(pdpte & PAGE_PRESENT) || !(pdpte & PAGE_USER))
+            return -14;
+        if (pdpte & (1ULL << 7))
+            return -14;
+        page_table_t *pd = (page_table_t *)((pdpte & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+        uint64_t pde = pd->entries[get_pd_index(page)];
+        if (!(pde & PAGE_PRESENT) || !(pde & PAGE_USER))
+            return -14;
+        if (pde & (1ULL << 7))
+        {
+            if (write_access && !(pde & PAGE_WRITABLE))
+                return -14;
+        }
+        else
+        {
+            page_table_t *pt = (page_table_t *)((pde & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+            uint64_t pte = pt->entries[get_pt_index(page)];
+            if (!(pte & PAGE_PRESENT) || !(pte & PAGE_USER) ||
+                (write_access && !(pte & PAGE_WRITABLE)))
+                return -14;
+        }
+        if (write_access && !(pml4e & PAGE_WRITABLE))
+            return -14;
+    }
+    return 0;
+}
+
+static int copy_from_user(task_t *task, void *dst, uint64_t src, size_t len)
+{
+    if (!dst || user_copy_validate(task, src, len, 0) < 0)
+        return -14;
+    uint8_t *out = (uint8_t *)dst;
+    while (len)
+    {
+        size_t offset = (size_t)(src & (PAGE_SIZE - 1));
+        size_t chunk = PAGE_SIZE - offset;
+        if (chunk > len)
+            chunk = len;
+        uint64_t phys = virt_to_phys(task->pml4, src);
+        if (!phys)
+            return -14;
+        memcpy(out, (void *)(phys + KERNEL_VIRT_OFFSET), chunk);
+        out += chunk;
+        src += chunk;
+        len -= chunk;
+    }
+    return 0;
+}
+
+static int copy_to_user(task_t *task, uint64_t dst, const void *src, size_t len)
+{
+    if (!src || user_copy_validate(task, dst, len, 1) < 0)
+        return -14;
+    const uint8_t *in = (const uint8_t *)src;
+    while (len)
+    {
+        size_t offset = (size_t)(dst & (PAGE_SIZE - 1));
+        size_t chunk = PAGE_SIZE - offset;
+        if (chunk > len)
+            chunk = len;
+        uint64_t phys = virt_to_phys(task->pml4, dst);
+        if (!phys)
+            return -14;
+        memcpy((void *)(phys + KERNEL_VIRT_OFFSET), in, chunk);
+        in += chunk;
+        dst += chunk;
+        len -= chunk;
+    }
+    return 0;
+}
+
+static int copy_user_string(task_t *task, uint64_t src, char *dst, size_t capacity)
+{
+    if (!dst || capacity == 0)
+        return -22;
+    for (size_t i = 0; i < capacity; i++)
+    {
+        if (copy_from_user(task, &dst[i], src + i, 1) < 0)
+            return -14;
+        if (dst[i] == '\0')
+            return 0;
+    }
+    dst[capacity - 1] = '\0';
+    return -36;
+}
+
 static int write_user_u64(task_t *task, uint64_t uaddr, uint64_t value)
 {
     if (!task || !task->pml4)
