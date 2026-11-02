@@ -747,16 +747,7 @@ void sched_yield(void)
     if (++reap_schedule_counter >= 32)
     {
         reap_schedule_counter = 0;
-        /*
-     * Reaping can release address spaces, descriptor tables and sockets.
-     * Do not walk and destroy every dead process on every context switch.
-     * Bound the work to one reaper pass per 32 scheduling opportunities.
-     */
-    if (++reap_schedule_counter >= 32)
-    {
-        reap_schedule_counter = 0;
         reap_dead_tasks();
-    }
     }
 
     task_t *old_task = cpu_state->current_task;
@@ -866,8 +857,13 @@ void sched_tick(registers_t *irq_regs)
         if (cpu_state->switching_from && cpu_state->switching_from != cpu_state->current_task)
             cpu_state->switching_from = NULL;
 
-        reap_dead_tasks();
-
+        /*
+         * Do not reclaim processes from the timer interrupt path. Reaping can
+         * free page tables, walk user address spaces, and close descriptors or
+         * sockets, making timer latency depend on the amount of dead-process
+         * cleanup. Reaping is instead performed from the bounded sched_yield
+         * path.
+         */
         current->regs = *irq_regs;
 
         if (current->state == TASK_RUNNING)
