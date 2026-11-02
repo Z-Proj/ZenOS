@@ -385,8 +385,8 @@ static void disconnect_port(xhci_controller_t *hc, uint8_t port)
     if (!slot)
         return;
     xhci_device_t *dev = device_by_slot(slot);
-    if (dev)
-        release_device(hc, dev);
+    if (dev && release_device(hc, dev) < 0)
+        return; /* Keep the slot mapping so cleanup can be retried. */
     hc->port_slot[port - 1] = 0;
     log("xHCI: port %d disconnected", 2, 0, port);
 }
@@ -449,10 +449,10 @@ static int command_trb(xhci_controller_t *hc, xhci_trb_t trb, uint8_t *slot_out)
 /* Release DMA-visible device resources only after the controller has
  * successfully disabled the slot. If that command fails, keep the pages
  * reserved rather than allowing the controller to DMA into reused memory. */
-static void release_device(xhci_controller_t *hc, xhci_device_t *dev)
+static int release_device(xhci_controller_t *hc, xhci_device_t *dev)
 {
     if (!hc || !dev || !dev->used)
-        return;
+        return 0;
 
     dev->intr.active = 0;
     if (dev->slot_id) {
@@ -463,7 +463,7 @@ static void release_device(xhci_controller_t *hc, xhci_device_t *dev)
         if (command_trb(hc, cmd, NULL) < 0) {
             log("xHCI: slot %d disable failed; retaining DMA memory", 2, 0,
                 dev->slot_id);
-            return;
+            return -1;
         }
         if (hc->dcbaa)
             hc->dcbaa[dev->slot_id] = 0;
@@ -475,6 +475,7 @@ static void release_device(xhci_controller_t *hc, xhci_device_t *dev)
     if (dev->device_ctx_phys) free_page(dev->device_ctx_phys);
     if (dev->ctrl_ring_phys) free_page(dev->ctrl_ring_phys);
     memset(dev, 0, sizeof(*dev));
+    return 0;
 }
 
 static int wait_transfer(xhci_controller_t *hc, xhci_device_t *dev, xhci_trb_t *last)
@@ -753,9 +754,8 @@ static int enumerate_port(xhci_controller_t *hc, uint8_t port)
     usb_device_desc_t dd;
     memset(&dd, 0, sizeof(dd));
     if (control_transfer(hc, dev, 0x80, USB_REQ_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0, &dd, 8) < 0) {
-        if (port <= XHCI_MAX_PORTS)
+        if (release_device(hc, dev) == 0 && port <= XHCI_MAX_PORTS)
             hc->port_slot[port - 1] = 0;
-        release_device(hc, dev);
         return -1;
     }
     uint16_t real_mps = dd.mps0;
