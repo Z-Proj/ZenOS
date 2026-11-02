@@ -574,67 +574,97 @@ page_table_t *create_page_directory(void)
     return pml4;
 }
 
+static int page_table_is_empty(const page_table_t *table);
+
 void map_page(page_table_t *pml4, uint64_t virt, uint64_t phys, uint64_t flags)
 {
+    if (!pml4 || !phys)
+        return;
+
     uint64_t pml4_idx = get_pml4_index(virt);
     uint64_t pdpt_idx = get_pdpt_index(virt);
     uint64_t pd_idx = get_pd_index(virt);
     uint64_t pt_idx = get_pt_index(virt);
 
+    int created_pdpt = 0;
+    int created_pd = 0;
+    uint64_t pdpt_phys = 0;
+    uint64_t pd_phys = 0;
+    uint64_t pt_phys = 0;
+    page_table_t *pdpt = NULL;
+    page_table_t *pd = NULL;
+
     if (!(pml4->entries[pml4_idx] & PAGE_PRESENT))
     {
-        uint64_t pdpt_phys = alloc_page();
+        pdpt_phys = alloc_page();
         if (!pdpt_phys)
             return;
-        page_table_t *pdpt = (page_table_t *)(pdpt_phys + KERNEL_VIRT_OFFSET);
+        pdpt = (page_table_t *)(pdpt_phys + KERNEL_VIRT_OFFSET);
         memset(pdpt, 0, PAGE_SIZE);
         pml4->entries[pml4_idx] = pdpt_phys | PAGE_PRESENT | PAGE_WRITABLE | (flags & PAGE_USER);
+        created_pdpt = 1;
     }
-    else if (flags & PAGE_USER)
+    else
     {
-        pml4->entries[pml4_idx] |= PAGE_USER;
+        pdpt = (page_table_t *)((pml4->entries[pml4_idx] & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+        if (flags & PAGE_USER)
+            pml4->entries[pml4_idx] |= PAGE_USER;
     }
-    page_table_t *pdpt = (page_table_t *)((pml4->entries[pml4_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
-    if (!(pdpt->entries[pdpt_idx] & PAGE_PRESENT))
+
+    if (pdpt->entries[pdpt_idx] & PAGE_PRESENT)
     {
-        uint64_t pd_phys = alloc_page();
+        if (pdpt->entries[pdpt_idx] & (1ULL << 7))
+            goto fail;
+        pd = (page_table_t *)((pdpt->entries[pdpt_idx] & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+        if (flags & PAGE_USER)
+            pdpt->entries[pdpt_idx] |= PAGE_USER;
+    }
+    else
+    {
+        pd_phys = alloc_page();
         if (!pd_phys)
-            return;
-        page_table_t *pd = (page_table_t *)(pd_phys + KERNEL_VIRT_OFFSET);
+            goto fail;
+        pd = (page_table_t *)(pd_phys + KERNEL_VIRT_OFFSET);
         memset(pd, 0, PAGE_SIZE);
         pdpt->entries[pdpt_idx] = pd_phys | PAGE_PRESENT | PAGE_WRITABLE | (flags & PAGE_USER);
+        created_pd = 1;
     }
-    else if (flags & PAGE_USER)
+
+    if (pd->entries[pd_idx] & PAGE_PRESENT)
     {
-        pdpt->entries[pdpt_idx] |= PAGE_USER;
+        /* Do not reinterpret or overwrite an existing 2 MiB large-page mapping. */
+        if (pd->entries[pd_idx] & (1ULL << 7))
+            goto fail;
+        if (flags & PAGE_USER)
+            pd->entries[pd_idx] |= PAGE_USER;
     }
-    page_table_t *pd = (page_table_t *)((pdpt->entries[pdpt_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
-    if (!(pd->entries[pd_idx] & PAGE_PRESENT))
+    else
     {
-        uint64_t pt_phys = alloc_page();
+        pt_phys = alloc_page();
         if (!pt_phys)
-            return;
+            goto fail;
         page_table_t *pt = (page_table_t *)(pt_phys + KERNEL_VIRT_OFFSET);
         memset(pt, 0, PAGE_SIZE);
         pd->entries[pd_idx] = pt_phys | PAGE_PRESENT | PAGE_WRITABLE | (flags & PAGE_USER);
     }
-    else if (flags & PAGE_USER)
-    {
-            if (pd->entries[pd_idx] & (1ULL << 7)) {
-                uint64_t pt_phys = alloc_page();
-                if (!pt_phys)
-                    return;
-                page_table_t *pt = (page_table_t *)(pt_phys + KERNEL_VIRT_OFFSET);
-                memset(pt, 0, PAGE_SIZE);
-                pd->entries[pd_idx] = pt_phys | PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER;
-            } else {
-                pd->entries[pd_idx] |= PAGE_USER;
-            }
-    }
 
-    page_table_t *pt = (page_table_t *)((pd->entries[pd_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
-    pt->entries[pt_idx] = (phys & 0x000FFFFFFFFFF000) | (flags & 0x8000000000000FFF);
+    page_table_t *pt = (page_table_t *)((pd->entries[pd_idx] & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+    pt->entries[pt_idx] = (phys & 0x000FFFFFFFFFF000ULL) | (flags & 0x8000000000000FFFULL);
     __asm__ volatile("invlpg (%0)" : : "r"(virt) : "memory");
+    return;
+
+fail:
+    /* Roll back only page-table pages allocated by this invocation. */
+    if (created_pd)
+    {
+        pdpt->entries[pdpt_idx] = 0;
+        free_page(pd_phys);
+    }
+    if (created_pdpt && page_table_is_empty(pdpt))
+    {
+        pml4->entries[pml4_idx] = 0;
+        free_page(pdpt_phys);
+    }
 }
 
 int protect_page(page_table_t *pml4, uint64_t virt, uint64_t flags)
