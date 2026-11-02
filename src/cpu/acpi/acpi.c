@@ -180,6 +180,46 @@ typedef struct {
     uint32_t acpiId;
 } __attribute__((__packed__)) ApicLocalX2Apic;
 
+/* Minimum sizes from the ACPI MADT entry layouts. Unknown entry types
+ * are accepted only when their common two-byte header is present. */
+static uint8_t AcpiMadtEntryMinLength(uint8_t type) {
+    switch (type) {
+        case APIC_TYPE_LOCAL_APIC: return 8;
+        case APIC_TYPE_IO_APIC: return 12;
+        case APIC_TYPE_INTERRUPT_OVERRIDE: return 10;
+        case APIC_TYPE_NMI_SOURCE: return 8;
+        case APIC_TYPE_LOCAL_APIC_NMI: return 6;
+        case APIC_TYPE_LOCAL_APIC_OVERRIDE: return 12;
+        case APIC_TYPE_IO_SAPIC: return 16;
+        case APIC_TYPE_LOCAL_SAPIC: return 16;
+        case APIC_TYPE_PLATFORM_INTERRUPT: return 16;
+        case APIC_TYPE_LOCAL_X2APIC: return 16;
+        case APIC_TYPE_LOCAL_X2APIC_NMI: return 12;
+        default: return sizeof(ApicHeader);
+    }
+}
+
+static bool AcpiValidateMadtEntries(AcpiMadt *madt) {
+    if (!madt || madt->header.length < sizeof(AcpiMadt))
+        return false;
+
+    uint8_t *p = (uint8_t *)(madt + 1);
+    uint8_t *end = (uint8_t *)madt + madt->header.length;
+    while (p < end) {
+        size_t remaining = (size_t)(end - p);
+        if (remaining < sizeof(ApicHeader))
+            return false;
+
+        ApicHeader *entry = (ApicHeader *)p;
+        uint8_t minimum = AcpiMadtEntryMinLength(entry->type);
+        if (entry->length < minimum || entry->length > remaining)
+            return false;
+
+        p += entry->length;
+    }
+    return p == end;
+}
+
 static AcpiFadt *s_fadt;
 static AcpiMadt *s_madt;
 static uint16_t s_slp_typa = 0;
@@ -340,8 +380,16 @@ void AcpiReboot(void) {
 }
 
 static void AcpiParseApic(AcpiMadt *madt) {
+    if (!madt || madt->header.length < sizeof(AcpiMadt)) {
+        log("MADT header length invalid", 2, 1);
+        return;
+    }
     if (!ValidateChecksum(madt, madt->header.length)) {
         log("MADT checksum invalid", 2, 1);
+        return;
+    }
+    if (!AcpiValidateMadtEntries(madt)) {
+        log("MADT contains malformed entry", 2, 1);
         return;
     }
 
@@ -497,6 +545,9 @@ bool AcpiGetIrqOverride(int irq, int *gsi, uint16_t *flags) {
 
     uint8_t *p = (uint8_t *)(s_madt + 1);
     uint8_t *end = (uint8_t *)s_madt + s_madt->header.length;
+
+    if (!AcpiValidateMadtEntries(s_madt))
+        return false;
 
     while (p < end) {
         ApicHeader *header = (ApicHeader *)p;
