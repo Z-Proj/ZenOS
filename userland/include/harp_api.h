@@ -88,6 +88,9 @@ static inline bool harp_online(void)
 
 static inline harp_window_t *harp_open(const char *title, int x, int y, int w, int h)
 {
+    if (w <= 0 || h <= 0 || (size_t)w > SIZE_MAX / (size_t)h / 8)
+        return NULL;
+
     for (int retry = 0; retry < 3000; retry++)
     {
         if (socket_exists(WM_SOCK))
