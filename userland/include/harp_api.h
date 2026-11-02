@@ -100,6 +100,13 @@ static inline harp_window_t *harp_open(const char *title, int x, int y, int w, i
             return NULL;
     }
 
+    if (w <= 0 || h <= 0 || w > 8192 || h > 8192)
+        return NULL;
+    size_t pixels = (size_t)w * (size_t)h;
+    if (pixels > (size_t)-1 / 8 || pixels * 8 > 128u * 1024u * 1024u)
+        return NULL;
+    size_t shm_size = pixels * 8;
+
     harp_window_t *gw = (harp_window_t *)malloc(sizeof(harp_window_t));
     if (!gw)
         return NULL;
@@ -115,7 +122,7 @@ static inline harp_window_t *harp_open(const char *title, int x, int y, int w, i
 
     shm_info_t si;
 
-    if (zen_shm_create(gw->shmname, (size_t)(w * h * 4) * 2, &si) < 0)
+    if (zen_shm_create(gw->shmname, shm_size, &si) < 0)
     {
         free(gw);
         return NULL;
@@ -123,7 +130,7 @@ static inline harp_window_t *harp_open(const char *title, int x, int y, int w, i
     gw->buf_base = (uint32_t *)si.addr;
     gw->cur_index = 0;
     gw->buf = gw->buf_base;
-    memset(gw->buf_base, 0, (size_t)(w * h * 4) * 2);
+    memset(gw->buf_base, 0, shm_size);
 
     socket_delete(gw->evname);
     if (socket_create(gw->evname) < 0)
