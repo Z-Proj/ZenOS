@@ -405,24 +405,28 @@ size_t kbd_pending_chars(void)
 
 void read_line(char *buffer, size_t max_size, bool print)
 {
+    /* A zero-sized buffer cannot hold even the terminator. */
+    if (!buffer || max_size == 0)
+        return;
+
     size_t pos = 0;
     char c;
     while (pos < max_size - 1) {
         c = wait_for_key();
-        asm volatile("cli");
+        /* The input queue handles its own locking. Disabling interrupts
+         * here made the newline path return with IF cleared. */
         if (c == 10) {
             buffer[pos] = '\0';
             return;
         } else if (c == 8) {
             if (pos > 0) pos--;
-            if (print) printc('\b');
+            if (print) printc('\\b');
         } else if (c >= 32 && c <= 126) {
             if (print) printc(c);
             buffer[pos++] = c;
         }
-        asm volatile("sti");
     }
-    buffer[max_size - 1] = '\0';
+    buffer[pos] = '\0';
 }
 
 bool is_key_pressed(uint8_t scancode)  { return key_states[scancode]; }
