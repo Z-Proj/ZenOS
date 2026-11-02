@@ -46,20 +46,20 @@
 #define LAUNCH_BASELINE(y) ((y) + LAUNCH_FONT_SIZE + 1)
 #define TITLEBAR_H   28
 #define WIN_R         12
-#define DASH_H       36
-#define DASH_MARGIN   8
-#define DASH_GAP      8
-#define DASH_PAD     10
-#define DASH_R       10
-#define LAUNCH_PAD    6
-#define LAUNCH_ICON  24
-#define LAUNCH_GAP    6
-#define LAUNCH_R      7
-#define BTN_H        24
-#define BTN_W        96
-#define BTN_R         6
-#define BTN_GAP       6
-#define LEFT_W      120
+#define DASH_H       56
+#define DASH_MARGIN  12
+#define DASH_GAP     10
+#define DASH_PAD     14
+#define DASH_R       16
+#define LAUNCH_PAD    8
+#define LAUNCH_ICON  40
+#define LAUNCH_GAP    8
+#define LAUNCH_R      10
+#define BTN_H        38
+#define BTN_W       112
+#define BTN_R         9
+#define BTN_GAP      10
+#define LEFT_W      144
 
 #define C_BG         0xFF0E0E0E
 #define C_DASH       0xFF1A2433
@@ -236,6 +236,49 @@ void bb_rrect_alpha(int x, int y, int w, int h, int r, uint32_t c, uint32_t a)
  * already has the blurred surface beneath translucent panels, so this adds
  * depth without introducing another full-screen blur pass.
  */
+static void bb_glass_edge_top(int x, int y, int w, int h, int r)
+{
+    if (w <= 0 || h <= 0) return;
+    if (r < 1) r = 1;
+    if (r > w / 2) r = w / 2;
+    if (r > h / 2) r = h / 2;
+
+    for (int row = 0; row < h; row++) {
+        int ay = y + row;
+        if (ay < 0 || (uint32_t)ay >= SCR_H) continue;
+        int x0 = x, x1 = x + w;
+        if (row < r) {
+            int dy = r - row - 1, dx = 0;
+            while (dx * dx + dy * dy < r * r) dx++;
+            int cut = r - dx;
+            x0 += cut;
+            x1 -= cut;
+        }
+        if (x0 < 0) x0 = 0;
+        if (x1 > (int)SCR_W) x1 = (int)SCR_W;
+        if (x0 >= x1) continue;
+
+        uint32_t edge = row == 0 ? 0x48FFFFFF : 0x28FFFFFF;
+        uint32_t *line = s_backbuf + (size_t)ay * SCR_W;
+        line[x0] = blend_px(line[x0], edge);
+        if (x1 - x0 > 1)
+            line[x1 - 1] = blend_px(line[x1 - 1], edge);
+        if (row == 0) {
+            for (int px = x0 + 1; px < x1 - 1; px++)
+                line[px] = blend_px(line[px], 0x38FFFFFF);
+        }
+    }
+
+    int bottom_y = y + h - 1;
+    if (bottom_y >= 0 && (uint32_t)bottom_y < SCR_H) {
+        int x0 = x < 0 ? 0 : x;
+        int x1 = x + w > (int)SCR_W ? (int)SCR_W : x + w;
+        uint32_t *line = s_backbuf + (size_t)bottom_y * SCR_W;
+        for (int px = x0; px < x1; px++)
+            line[px] = blend_px(line[px], 0x18FFFFFF);
+    }
+}
+
 static void bb_glass_edge(int x, int y, int w, int h, int r)
 {
     if (w <= 0 || h <= 0) return;
@@ -576,7 +619,7 @@ void draw_window(int idx, int full_frame)
     uint32_t tc = focused ? C_TITLEBAR_F : C_TITLEBAR;
 
     bb_rrect_alpha_top(fx, fy, fw, TITLEBAR_H, WIN_R, tc, 150);
-    bb_glass_edge(fx, fy, fw, TITLEBAR_H, WIN_R);
+    bb_glass_edge_top(fx, fy, fw, TITLEBAR_H, WIN_R);
     uint32_t corner_save[WIN_R * WIN_R * 2];
     int cs_idx = 0;
     for (int row = 0; row < WIN_R; row++) {
