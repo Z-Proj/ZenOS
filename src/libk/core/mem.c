@@ -86,6 +86,35 @@ static inline blk_hdr_t *blk_prev(blk_hdr_t *b)
     return (blk_hdr_t *)((uint8_t *)b - BLK_OVERHEAD - *prev_foot);
 }
 
+/* Validate a caller-supplied heap payload before deriving or modifying its
+ * block header. This rejects out-of-heap, interior, and already-freed pointers. */
+static blk_hdr_t *heap_block_from_payload(const void *ptr)
+{
+    if (!heap_base || !heap_end || !ptr)
+        return NULL;
+
+    uintptr_t address = (uintptr_t)ptr;
+    uintptr_t base = (uintptr_t)heap_base;
+    uintptr_t end = (uintptr_t)heap_end;
+    if (address < base + sizeof(blk_hdr_t) || address >= end)
+        return NULL;
+
+    uintptr_t header_address = address - sizeof(blk_hdr_t);
+    if (header_address < base ||
+        ((header_address - base) & (HEAP_ALIGN - 1)) != 0)
+        return NULL;
+
+    blk_hdr_t *b = (blk_hdr_t *)header_address;
+    if (!b->used || b->size < HEAP_MIN_BLOCK ||
+        b->size > end - header_address - BLK_OVERHEAD)
+        return NULL;
+    if ((b->size & (HEAP_ALIGN - 1)) != 0 ||
+        *blk_footer(b) != b->size)
+        return NULL;
+
+    return b;
+}
+
 static void fl_insert(blk_hdr_t *b)
 {
     int c = size_class(b->size);
@@ -416,6 +445,9 @@ void *kmalloc(size_t size)
     if (!heap_base || size == 0)
         return NULL;
 
+    /* Prevent wraparound before rounding the request up to alignment. */
+    if (size > SIZE_MAX - (HEAP_ALIGN - 1))
+        return NULL;
     size = (size + HEAP_ALIGN - 1) & ~(size_t)(HEAP_ALIGN - 1);
     if (size < HEAP_MIN_BLOCK)
         size = HEAP_MIN_BLOCK;
@@ -458,12 +490,17 @@ void *kmalloc(size_t size)
 
 void kfree(void *ptr)
 {
-    if (!ptr)
+    if (!ptr || !heap_base)
         return;
 
     spinlock_acquire(&heap_lock);
 
-    blk_hdr_t *b = (blk_hdr_t *)((uint8_t *)ptr - sizeof(blk_hdr_t));
+    blk_hdr_t *b = heap_block_from_payload(ptr);
+    if (!b) {
+        spinlock_release(&heap_lock);
+        return;
+    }
+
     b->used = 0;
     b = coalesce(b);
     fl_insert(b);
@@ -479,17 +516,25 @@ void *krealloc(void *ptr, size_t size)
         kfree(ptr);
         return NULL;
     }
+    if (size > SIZE_MAX - (HEAP_ALIGN - 1))
+        return NULL;
 
-    blk_hdr_t *b = (blk_hdr_t *)((uint8_t *)ptr - sizeof(blk_hdr_t));
+    spinlock_acquire(&heap_lock);
+    blk_hdr_t *b = heap_block_from_payload(ptr);
+    if (!b) {
+        spinlock_release(&heap_lock);
+        return NULL;
+    }
+    size_t old_size = b->size;
     size_t aligned = (size + HEAP_ALIGN - 1) & ~(size_t)(HEAP_ALIGN - 1);
+    spinlock_release(&heap_lock);
 
-    if (b->size >= aligned)
+    if (old_size >= aligned)
         return ptr;
 
     void *new_mem = kmalloc(size);
     if (new_mem) {
-        size_t copy_size = b->size < aligned ? b->size : aligned;
-        memcpy(new_mem, ptr, copy_size);
+        memcpy(new_mem, ptr, old_size);
         kfree(ptr);
     }
     return new_mem;
