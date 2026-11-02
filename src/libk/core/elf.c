@@ -78,20 +78,81 @@ static size_t bounded_strlen(const char *s, size_t max)
     return max;
 }
 
+static int elf_copy_in(void *dst, const void *src, size_t len)
+{
+    if (!dst || !src)
+        return -1;
+    uint64_t address = (uint64_t)(uintptr_t)src;
+    if (address >= 0x0000800000000000ULL)
+    {
+        memcpy(dst, src, len);
+        return 0;
+    }
+
+    task_t *task = sched_current_task();
+    if (!task || !task->pml4 || address < PAGE_SIZE ||
+        len > 0x0000800000000000ULL - address)
+        return -1;
+
+    uint8_t *out = (uint8_t *)dst;
+    while (len)
+    {
+        uint64_t page = address & ~(uint64_t)(PAGE_SIZE - 1);
+        uint64_t pml4e = task->pml4->entries[(page >> 39) & 0x1FF];
+        if (!(pml4e & PAGE_PRESENT) || !(pml4e & PAGE_USER))
+            return -1;
+        page_table_t *pdpt = (page_table_t *)((pml4e & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+        uint64_t pdpte = pdpt->entries[(page >> 30) & 0x1FF];
+        if (!(pdpte & PAGE_PRESENT) || !(pdpte & PAGE_USER) || (pdpte & (1ULL << 7)))
+            return -1;
+        page_table_t *pd = (page_table_t *)((pdpte & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+        uint64_t pde = pd->entries[(page >> 21) & 0x1FF];
+        if (!(pde & PAGE_PRESENT) || !(pde & PAGE_USER))
+            return -1;
+        uint64_t phys;
+        if (pde & (1ULL << 7))
+            phys = (pde & 0x000FFFFFFFE00000ULL) + (address & 0x1FFFFFULL);
+        else
+        {
+            page_table_t *pt = (page_table_t *)((pde & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+            uint64_t pte = pt->entries[(page >> 12) & 0x1FF];
+            if (!(pte & PAGE_PRESENT) || !(pte & PAGE_USER))
+                return -1;
+            phys = (pte & 0x000FFFFFFFFFF000ULL) + (address & (PAGE_SIZE - 1));
+        }
+        size_t chunk = PAGE_SIZE - (size_t)(address & (PAGE_SIZE - 1));
+        if (chunk > len)
+            chunk = len;
+        memcpy(out, (void *)(phys + KERNEL_VIRT_OFFSET), chunk);
+        out += chunk;
+        address += chunk;
+        len -= chunk;
+    }
+    return 0;
+}
+
 static int copy_user_string(const char *src, char **out)
 {
     if (!src || !out) return -1;
 
-    size_t len = bounded_strlen(src, EXEC_MAX_STRLEN);
-    if (len >= EXEC_MAX_STRLEN) return -1;
-
-    char *dst = (char *)kmalloc(len + 1);
+    char *dst = (char *)kmalloc(EXEC_MAX_STRLEN);
     if (!dst) return -1;
-
-    memcpy(dst, src, len);
-    dst[len] = '\0';
-    *out = dst;
-    return 0;
+    size_t len = 0;
+    for (; len < EXEC_MAX_STRLEN; len++)
+    {
+        if (elf_copy_in(&dst[len], src + len, 1) < 0)
+        {
+            kfree(dst);
+            return -1;
+        }
+        if (dst[len] == '\0')
+        {
+            *out = dst;
+            return 0;
+        }
+    }
+    kfree(dst);
+    return -1;
 }
 
 static int copy_user_argv(int argc, char **argv, char ***out_argv)
