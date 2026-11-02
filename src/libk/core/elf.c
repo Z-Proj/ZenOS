@@ -83,14 +83,14 @@ static int elf_copy_in(void *dst, const void *src, size_t len)
     if (!dst || !src)
         return -1;
     uint64_t address = (uint64_t)(uintptr_t)src;
-    if (address >= 0x0000800000000000ULL)
+    task_t *task = sched_current_task();
+    if (!task || task->is_kernel_task)
     {
         memcpy(dst, src, len);
         return 0;
     }
-
-    task_t *task = sched_current_task();
-    if (!task || !task->pml4 || address < PAGE_SIZE ||
+    if (!task->pml4 || address < PAGE_SIZE ||
+        address >= 0x0000800000000000ULL ||
         len > 0x0000800000000000ULL - address)
         return -1;
 
