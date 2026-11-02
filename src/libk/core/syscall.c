@@ -1851,7 +1851,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (!current || !current->pml4)
             return -1;
 
-        if (new_brk < USER_HEAP_START)
+        if (new_brk < USER_HEAP_START || new_brk >= USER_MMAP_START ||
+            new_brk > UINT64_MAX - (PAGE_SIZE - 1) ||
+            current->heap_brk < USER_HEAP_START ||
+            current->heap_brk >= USER_MMAP_START)
             return -1;
 
         uint64_t old_brk = current->heap_brk;
@@ -1899,9 +1902,25 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return -1;
 
         uint64_t old_brk = current->heap_brk;
-        uint64_t new_brk = current->heap_brk + increment;
+        if (old_brk < USER_HEAP_START || old_brk >= USER_MMAP_START)
+            return -1;
 
-        if (new_brk < USER_HEAP_START)
+        uint64_t new_brk;
+        if (increment > 0) {
+            uint64_t delta = (uint64_t)increment;
+            if (delta >= USER_MMAP_START - old_brk)
+                return -1;
+            new_brk = old_brk + delta;
+        } else if (increment < 0) {
+            uint64_t delta = (uint64_t)(-(increment + 1)) + 1;
+            if (delta > old_brk - USER_HEAP_START)
+                return -1;
+            new_brk = old_brk - delta;
+        } else {
+            new_brk = old_brk;
+        }
+
+        if (new_brk > UINT64_MAX - (PAGE_SIZE - 1))
             return -1;
 
         if (increment > 0)
@@ -1947,10 +1966,14 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         int flags = (int)arg4;
 
         task_t *current = sched_current_task();
-        if (!current || !current->pml4 || length == 0)
+        if (!current || !current->pml4 || length == 0 ||
+            length > SIZE_MAX - (PAGE_SIZE - 1))
             return -1;
 
         size_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
+        if (pages == 0 ||
+            pages > (USER_MMAP_END - USER_MMAP_START) / PAGE_SIZE)
+            return -1;
         uint64_t virt_start = 0;
         uint64_t page_flags = user_page_flags_from_prot(prot);
 
@@ -1959,7 +1982,9 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             if (!addr || ((uint64_t)addr & (PAGE_SIZE - 1)))
                 return -1;
             virt_start = (uint64_t)addr;
-            if (virt_start < USER_MMAP_START || virt_start + (uint64_t)pages * PAGE_SIZE > USER_MMAP_END)
+            uint64_t map_size = (uint64_t)pages * PAGE_SIZE;
+            if (virt_start < USER_MMAP_START || virt_start >= USER_MMAP_END ||
+                map_size > USER_MMAP_END - virt_start)
                 return -1;
             user_unmap_range(current, virt_start, pages);
         }
@@ -2004,11 +2029,18 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (!current || !current->pml4)
             return -1;
 
-        if (((uint64_t)addr & (PAGE_SIZE - 1)) || length == 0)
+        if (((uint64_t)addr & (PAGE_SIZE - 1)) || length == 0 ||
+            length > SIZE_MAX - (PAGE_SIZE - 1))
             return -1;
 
         uint64_t virt_start = (uint64_t)addr;
         size_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
+        if (pages == 0 ||
+            pages > (USER_MMAP_END - USER_MMAP_START) / PAGE_SIZE ||
+            virt_start < USER_MMAP_START || virt_start >= USER_MMAP_END ||
+            (uint64_t)pages * PAGE_SIZE > USER_MMAP_END - virt_start)
+            return -1;
+
         user_unmap_range(current, virt_start, pages);
         return 0;
     }
@@ -2020,15 +2052,23 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         int prot = (int)arg3;
 
         task_t *current = sched_current_task();
-        if (!current || !current->pml4 || ((uint64_t)addr & (PAGE_SIZE - 1)) || length == 0)
+        if (!current || !current->pml4 ||
+            ((uint64_t)addr & (PAGE_SIZE - 1)) || length == 0 ||
+            length > SIZE_MAX - (PAGE_SIZE - 1))
             return -1;
 
+        uint64_t virt_start = (uint64_t)addr;
         size_t pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
+        if (pages == 0 ||
+            pages > (USER_MMAP_END - USER_MMAP_START) / PAGE_SIZE ||
+            virt_start < USER_MMAP_START || virt_start >= USER_MMAP_END ||
+            (uint64_t)pages * PAGE_SIZE > USER_MMAP_END - virt_start)
+            return -1;
         uint64_t page_flags = user_page_flags_from_prot(prot);
 
         for (size_t i = 0; i < pages; i++)
         {
-            if (protect_page(current->pml4, (uint64_t)addr + i * PAGE_SIZE, page_flags) < 0)
+            if (protect_page(current->pml4, virt_start + i * PAGE_SIZE, page_flags) < 0)
                 return -1;
         }
 
