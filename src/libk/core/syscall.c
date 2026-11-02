@@ -2596,9 +2596,6 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     case SYSCALL_READDIR:
     {
         int fd = (int)arg1;
-        zen_dirent_t *dent = (zen_dirent_t *)arg2;
-        if (!dent)
-            return -22;
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table)
             return -9;
@@ -2607,12 +2604,15 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         fd_entry_t *e = &cur->fd_table->entries[fd];
         if (!e->used || e->type != FD_DIR)
             return -20;
+        zen_dirent_t dent;
         int is_dir = 0;
-        int ret = vfs_readdir_entry(e, dent->d_name, &is_dir);
+        int ret = vfs_readdir_entry(e, dent.d_name, &is_dir);
         if (ret <= 0)
             return ret;
-        dent->d_ino = 1;
-        dent->d_type = is_dir ? 4 : 8;
+        dent.d_ino = 1;
+        dent.d_type = is_dir ? 4 : 8;
+        if (copy_to_user(cur, arg2, &dent, sizeof(dent)) < 0)
+            return -14;
         return 1;
     }
 
