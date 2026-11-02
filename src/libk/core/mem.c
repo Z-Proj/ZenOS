@@ -104,6 +104,9 @@ static blk_hdr_t *heap_block_from_payload(const void *ptr)
         ((header_address - base) & (HEAP_ALIGN - 1)) != 0)
         return NULL;
 
+    if (end - header_address < BLK_OVERHEAD)
+        return NULL;
+
     blk_hdr_t *b = (blk_hdr_t *)header_address;
     if (!b->used || b->size < HEAP_MIN_BLOCK ||
         b->size > end - header_address - BLK_OVERHEAD)
