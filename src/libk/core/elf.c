@@ -166,7 +166,9 @@ static int copy_user_argv(int argc, char **argv, char ***out_argv)
     memset(kargv, 0, sizeof(char *) * (size_t)(argc + 1));
 
     for (int i = 0; i < argc; i++) {
-        if (!argv[i] || copy_user_string(argv[i], &kargv[i]) < 0) {
+        char *user_arg = NULL;
+        if (elf_copy_in(&user_arg, &argv[i], sizeof(user_arg)) < 0 ||
+            !user_arg || copy_user_string(user_arg, &kargv[i]) < 0) {
             free_string_vector(kargv, argc);
             return -1;
         }
@@ -188,17 +190,24 @@ static int copy_user_envp(char **envp, char ***out_envp, int *out_envc)
     }
 
     int envc = 0;
-    while (envp[envc]) {
-        envc++;
-        if (envc > EXEC_MAX_ENVP) return -1;
+    for (; envc <= EXEC_MAX_ENVP; envc++) {
+        char *entry = NULL;
+        if (elf_copy_in(&entry, &envp[envc], sizeof(entry)) < 0)
+            return -1;
+        if (!entry)
+            break;
     }
+    if (envc > EXEC_MAX_ENVP)
+        return -1;
 
     char **kenvp = (char **)kmalloc(sizeof(char *) * (size_t)(envc + 1));
     if (!kenvp) return -1;
     memset(kenvp, 0, sizeof(char *) * (size_t)(envc + 1));
 
     for (int i = 0; i < envc; i++) {
-        if (copy_user_string(envp[i], &kenvp[i]) < 0) {
+        char *user_entry = NULL;
+        if (elf_copy_in(&user_entry, &envp[i], sizeof(user_entry)) < 0 ||
+            !user_entry || copy_user_string(user_entry, &kenvp[i]) < 0) {
             free_string_vector(kenvp, envc);
             return -1;
         }
