@@ -1292,8 +1292,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (!buffer)
             return -22;
         task_t *cur = sched_current_task();
+        if (!cur || user_copy_validate(cur, (uint64_t)buffer, size, 1) < 0)
+            return -14;
         fd_entry_t *e = NULL;
-        if (cur && cur->fd_table && fd >= 0 && fd < TASK_MAX_FDS)
+        if (cur->fd_table && fd >= 0 && fd < TASK_MAX_FDS)
         {
             fd_entry_t *cand = &cur->fd_table->entries[fd];
             if (cand->used)
@@ -1413,8 +1415,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (!buffer)
             return -22;
         task_t *cur = sched_current_task();
+        if (!cur || user_copy_validate(cur, (uint64_t)buffer, size, 0) < 0)
+            return -14;
         fd_entry_t *e = NULL;
-        if (cur && cur->fd_table && fd >= 0 && fd < TASK_MAX_FDS)
+        if (cur->fd_table && fd >= 0 && fd < TASK_MAX_FDS)
         {
             fd_entry_t *cand = &cur->fd_table->entries[fd];
             if (cand->used)
