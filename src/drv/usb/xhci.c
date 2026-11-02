@@ -41,6 +41,7 @@
 #define XHCI_TRB_STATUS 4
 #define XHCI_TRB_LINK 6
 #define XHCI_TRB_ENABLE_SLOT 9
+#define XHCI_TRB_DISABLE_SLOT 10
 #define XHCI_TRB_ADDRESS_DEVICE 11
 #define XHCI_TRB_CONFIGURE_ENDPOINT 12
 #define XHCI_TRB_EVALUATE_CONTEXT 13
@@ -382,15 +383,14 @@ static void disconnect_port(xhci_controller_t *hc, uint8_t port)
     if (!slot)
         return;
     xhci_device_t *dev = device_by_slot(slot);
-    if (dev) {
-        dev->intr.active = 0;
-        dev->used = 0;
-    }
+    if (dev)
+        release_device(hc, dev);
     hc->port_slot[port - 1] = 0;
     log("xHCI: port %d disconnected", 2, 0, port);
 }
 
 static int enumerate_port(xhci_controller_t *hc, uint8_t port);
+static void release_device(xhci_controller_t *hc, xhci_device_t *dev);
 
 static void handle_port_change(xhci_controller_t *hc, uint8_t port)
 {
@@ -443,6 +443,37 @@ static int command_trb(xhci_controller_t *hc, xhci_trb_t trb, uint8_t *slot_out)
     hc->db[0] = 0;
     int code = wait_command(hc, cmd, slot_out);
     return code == XHCI_CC_SUCCESS ? 0 : -1;
+}
+
+/* Release DMA-visible device resources only after the controller has
+ * successfully disabled the slot. If that command fails, keep the pages
+ * reserved rather than allowing the controller to DMA into reused memory. */
+static void release_device(xhci_controller_t *hc, xhci_device_t *dev)
+{
+    if (!hc || !dev || !dev->used)
+        return;
+
+    dev->intr.active = 0;
+    if (dev->slot_id) {
+        xhci_trb_t cmd;
+        memset(&cmd, 0, sizeof(cmd));
+        cmd.control = (XHCI_TRB_DISABLE_SLOT << 10) |
+                      ((uint32_t)dev->slot_id << 24);
+        if (command_trb(hc, cmd, NULL) < 0) {
+            log("xHCI: slot %d disable failed; retaining DMA memory", 2, 0,
+                dev->slot_id);
+            return;
+        }
+        if (hc->dcbaa)
+            hc->dcbaa[dev->slot_id] = 0;
+    }
+
+    if (dev->intr.ring_phys) free_page(dev->intr.ring_phys);
+    if (dev->intr.buf_phys) free_page(dev->intr.buf_phys);
+    if (dev->input_ctx_phys) free_page(dev->input_ctx_phys);
+    if (dev->device_ctx_phys) free_page(dev->device_ctx_phys);
+    if (dev->ctrl_ring_phys) free_page(dev->ctrl_ring_phys);
+    memset(dev, 0, sizeof(*dev));
 }
 
 static int wait_transfer(xhci_controller_t *hc, xhci_device_t *dev, xhci_trb_t *last)
@@ -712,7 +743,7 @@ static int enumerate_port(xhci_controller_t *hc, uint8_t port)
     dev->ep0_mps = default_mps(dev->speed);
 
     if (alloc_device_memory(hc, dev) < 0 || address_device(hc, dev) < 0) {
-        dev->used = 0;
+        release_device(hc, dev);
         return -1;
     }
     if (port <= XHCI_MAX_PORTS)
