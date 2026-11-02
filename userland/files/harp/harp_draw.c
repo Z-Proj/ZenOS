@@ -495,7 +495,7 @@ void draw_window(int idx, int full_frame)
     int fx = w->x, fy = w->y, fw = w->w, fh = w->h + TITLEBAR_H;
     if (fx >= (int)SCR_W || fy >= (int)SCR_H || fx + fw <= 0 || fy + fh <= 0) return;
 
-    uint32_t *src_buf = (uint32_t *)w->shmbuf + (size_t)w->read_index * (size_t)w->w * (size_t)w->h;
+    uint32_t *src_buf = w->shmbuf ? (uint32_t *)w->shmbuf + (size_t)w->read_index * (size_t)w->w * (size_t)w->h : NULL;
 
     int use_partial = !full_frame && w->dirty_valid;
     if (use_partial && !w->shmbuf)
