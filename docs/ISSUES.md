@@ -2,19 +2,27 @@
 
 ## Open runtime issues
 
-- **Settings + Terminal concurrency crash:** Still reproducible according to the reported behavior, but the exact faulting component has not been isolated. Harp IPC, shared-memory registration, terminal/shell process lifecycle, and kernel memory management remain areas to test together.
-- **Terminal input freeze on first launch:** Reported previously; not verified or fixed in this audit.
-- **Memory growth while opening apps:** Some growth is expected because each live process has its own address space, kernel stack, file descriptors, and application buffers. Memory should be reclaimed when a process exits and is reaped. A runtime measurement is still needed to distinguish normal per-process allocation from a leak.
+- **Settings + Terminal concurrency:** Both were observed running together in the latest user test, so the previous immediate-crash behavior is not currently confirmed. Stress testing with repeated launches, closes, and concurrent I/O is still required.
+- **Application-launch stalls and progressive lag:** Reported when launching additional applications. The static audit found page-table allocation and user-range handling defects and committed fixes, but runtime causality and complete resolution are not yet proven.
+- **Terminal input freeze on first launch:** Previously reported; not verified or fixed in this audit.
+- **Memory growth:** The original empty-page-table leak is addressed by bottom-up PT/PD/PDPT reclamation. Repeated mmap/munmap, heap growth/shrink, process exit, and shared-memory lifetime tests are still required to verify that physical memory returns to baseline.
+- **Syscall user-pointer safety:** Many syscall handlers still dereference user pointers directly in kernel mode after checking only for null. Invalid or unmapped user addresses can fault while the CPU is executing kernel code. A consistent copyin/copyout and range-validation layer is still needed.
 
-## Changes from the static audit
+## Fixes committed during the static audit
 
-- Harp now rejects invalid window dimensions, duplicate registrations from the same PID, missing/undersized shared-memory buffers, and failed event-socket opens before activating a window.
-- Harp closes a successfully opened shared-memory reference when registration validation fails.
-- The compositor renderer no longer performs pointer arithmetic on a null shared-memory buffer.
-- xHCI device cleanup now routes failed enumeration and disconnect cleanup through a slot-disable-before-free helper. If the controller refuses to disable a slot, DMA-visible pages are deliberately retained rather than reused unsafely.
-- The Nuklear Harp initialization font-load failure path frees its back buffer before returning.
-- PTY descriptor cloning and closing use matching reference-count increments/decrements in the current implementation; no clear PTY refcount leak was found by static inspection.
+- ea9bb58: unmap_page() now reclaims empty PT, PD, and PDPT levels bottom-up and avoids treating large-page entries as page-table pointers.
+- e5e06d2: brk/sbrk arithmetic is bounded against overflow and the mmap region; mmap, munmap, and mprotect validate rounded lengths and user mapping bounds. This also prevents generic munmap from freeing shared-memory or framebuffer mappings.
+- 8eba383: map_page() rolls back page-table levels allocated by a failed mapping attempt instead of leaking partially built hierarchies.
+- bdb3a37: Splitting an existing 2 MiB mapping now preserves the other 511 4 KiB mappings and their original permissions when one page is replaced.
+
+## Additional audit observations
+
+- Process teardown reaps dead tasks and releases descriptor tables, owned user pages, special shared-memory references, kernel stacks, and page-directory structures. This path still needs repeated lifecycle tests under load.
+- free_user_pages() deliberately skips the shared-memory and framebuffer PML4 slots; those mappings rely on their dedicated reference-counted cleanup path.
+- Harp validates window dimensions and shared-memory registration before activating windows. Its close/reap lifecycle still needs stress testing with applications exiting unexpectedly.
+- PTY reference-count increments and decrements appeared paired in the inspected clone/close paths. No confirmed PTY leak was found in this pass.
+- xHCI cleanup includes slot-disable safeguards; DMA-visible pages are intentionally retained if the controller cannot safely disable a slot.
 
 ## Verification status
 
-These changes have **not** been compiled or runtime-tested yet. The GitHub Actions workflow currently has no recorded workflow runs, so there is no CI build result to rely on. The concurrency crash and memory-growth behavior remain open until tested on the OS.
+These are static source changes only. No successful kernel build, boot, or runtime stress-test result has been observed for the commits above. GitHub Actions currently reports no workflow runs for this repository, so CI cannot yet be treated as a passing signal. Do not mark the concurrency, memory-growth, input-freeze, or launch-latency issues closed until the tests pass on a booted image.
