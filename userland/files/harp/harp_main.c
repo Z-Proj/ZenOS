@@ -912,8 +912,26 @@ static void poll_ipc(void)
 
         if (msg.type == WM_MSG_REGISTER)
         {
-            if (msg.w <= 0 || msg.h <= 0)
+            if (!msg.pid || msg.w <= 0 || msg.h <= 0)
                 continue;
+
+            /* One process owns one Harp window. Ignore duplicate registrations
+             * instead of allocating a second slot for the same shared buffer. */
+            int duplicate = 0;
+            for (int i = 0; i < MAX_WINDOWS; i++)
+                if (windows[i].active && windows[i].pid == msg.pid)
+                {
+                    duplicate = 1;
+                    break;
+                }
+            if (duplicate)
+                continue;
+
+            uint64_t pixels = (uint64_t)(uint32_t)msg.w * (uint64_t)(uint32_t)msg.h;
+            if (pixels > UINT64_MAX / 8)
+                continue;
+            uint64_t required_size = pixels * 8;
+
             int slot = -1;
             for (int i = 0; i < MAX_WINDOWS; i++)
                 if (!windows[i].active)
@@ -923,6 +941,29 @@ static void poll_ipc(void)
                 }
             if (slot < 0)
                 continue;
+
+            char shmname[32];
+            char evname[32];
+            snprintf(shmname, sizeof(shmname), "wm:shm_%u", msg.pid);
+            snprintf(evname, sizeof(evname), "wm:ev_%u", msg.pid);
+
+            shm_info_t si;
+            memset(&si, 0, sizeof(si));
+            if (zen_shm_open(shmname, &si) < 0 || !si.addr ||
+                si.size < required_size)
+            {
+                if (si.addr)
+                    zen_shm_close(shmname);
+                continue;
+            }
+
+            socket_file_t *evsock = NULL;
+            if (socket_open(evname, &evsock) < 0 || !evsock)
+            {
+                zen_shm_close(shmname);
+                continue;
+            }
+
             window_t *w = &windows[slot];
             memset(w, 0, sizeof(*w));
             w->active = 1;
@@ -933,15 +974,11 @@ static void poll_ipc(void)
             w->h = msg.h;
             strncpy(w->title, msg.title, 63);
             w->title[63] = 0;
-            snprintf(w->shmname, sizeof(w->shmname), "wm:shm_%u", msg.pid);
-            snprintf(w->evname, sizeof(w->evname), "wm:ev_%u", msg.pid);
-            shm_info_t si;
-
-            if (zen_shm_open(w->shmname, &si) == 0 && si.addr &&
-                si.size >= (uint64_t)(msg.w * msg.h * 4) * 2)
-                w->shmbuf = (uint8_t *)si.addr;
+            strncpy(w->shmname, shmname, sizeof(w->shmname) - 1);
+            strncpy(w->evname, evname, sizeof(w->evname) - 1);
+            w->shmbuf = (uint8_t *)si.addr;
+            w->evsock = evsock;
             w->read_index = 0;
-            socket_open(w->evname, &w->evsock);
             w->dirty_valid = 0;
             clamp_window(w);
             z_raise(slot);
