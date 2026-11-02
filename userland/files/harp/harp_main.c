@@ -1381,6 +1381,10 @@ int main(int argc, char *argv[])
             reap_tick = 0;
             reap_dead_windows();
         }
+
+        /* HARP is the always-running desktop process. Do not busy-poll input
+         * and IPC at full CPU speed when the desktop is idle. */
+        sched_yield();
     }
     return 0;
 }
