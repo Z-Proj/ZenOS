@@ -1099,24 +1099,20 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     {
     case SYSCALL_EXEC:
     {
-        const char *filename = (const char *)arg1;
-        int argc = (int)arg2;
-        char **argv = (char **)arg3;
-        char **envp = (char **)arg4;
-        if (!filename)
-            return -1;
-        return elf_execve_replace(filename, argc, argv, envp);
+        task_t *current = sched_current_task();
+        char filename[256];
+        if (!current || copy_user_string(current, arg1, filename, sizeof(filename)) < 0)
+            return -14;
+        return elf_execve_replace(filename, (int)arg2, (char **)arg3, (char **)arg4);
     }
 
     case SYSCALL_SPAWN:
     {
-        const char *filename = (const char *)arg1;
-        int argc = (int)arg2;
-        char **argv = (char **)arg3;
         task_t *current = sched_current_task();
-        if (!filename || !current)
-            return -1;
-        return elf_spawn(filename, argc, argv, current);
+        char filename[256];
+        if (!current || copy_user_string(current, arg1, filename, sizeof(filename)) < 0)
+            return -14;
+        return elf_spawn(filename, (int)arg2, (char **)arg3, current);
     }
 
     case SYSCALL_EXIT:
@@ -1199,13 +1195,13 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_OPEN:
     {
-        const char *filename = (const char *)arg1;
+        char filename[256];
         int flags = (int)arg2;
-        if (!filename)
-            return -22;
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table)
             return -9;
+        if (copy_user_string(cur, arg1, filename, sizeof(filename)) < 0)
+            return -14;
 
         if (flags & 0200000)
         {
@@ -1531,9 +1527,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_CREATE:
     {
-        const char *filename = (const char *)arg1;
-        if (!filename)
-            return -22;
+        task_t *cur = sched_current_task();
+        char filename[256];
+        if (!cur || copy_user_string(cur, arg1, filename, sizeof(filename)) < 0)
+            return -14;
         if (vfs_stat(filename) == 0)
             return -17;
         return vfs_create(filename) < 0 ? -2 : 0;
@@ -1541,9 +1538,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_DELETE:
     {
-        const char *filename = (const char *)arg1;
-        if (!filename)
-            return -22;
+        task_t *cur = sched_current_task();
+        char filename[256];
+        if (!cur || copy_user_string(cur, arg1, filename, sizeof(filename)) < 0)
+            return -14;
         int ret = vfs_delete(filename);
         if (ret == 0)
             return 0;
@@ -1558,10 +1556,11 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_RENAME:
     {
-        const char *old_path = (const char *)arg1;
-        const char *new_path = (const char *)arg2;
-        if (!old_path || !new_path)
-            return -22;
+        task_t *cur = sched_current_task();
+        char old_path[256], new_path[256];
+        if (!cur || copy_user_string(cur, arg1, old_path, sizeof(old_path)) < 0 ||
+            copy_user_string(cur, arg2, new_path, sizeof(new_path)) < 0)
+            return -14;
         int ret = vfs_rename(old_path, new_path);
         if (ret == 0 || ret < -1)
             return ret;
@@ -1876,9 +1875,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_CHDIR:
     {
-        const char *path = (const char *)arg1;
-        if (!path)
-            return -22;
+        task_t *cur = sched_current_task();
+        char path[256];
+        if (!cur || copy_user_string(cur, arg1, path, sizeof(path)) < 0)
+            return -14;
         if (vfs_chdir(path) == 0)
             return 0;
         return vfs_stat(path) < 0 ? -2 : -20;
@@ -1896,9 +1896,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_MKDIR:
     {
-        const char *path = (const char *)arg1;
-        if (!path)
-            return -22;
+        task_t *cur = sched_current_task();
+        char path[256];
+        if (!cur || copy_user_string(cur, arg1, path, sizeof(path)) < 0)
+            return -14;
         if (vfs_mkdir(path) == 0)
             return 0;
         return vfs_stat(path) == 0 ? -17 : -2;
@@ -1906,9 +1907,10 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_RMDIR:
     {
-        const char *path = (const char *)arg1;
-        if (!path)
-            return -22;
+        task_t *cur = sched_current_task();
+        char path[256];
+        if (!cur || copy_user_string(cur, arg1, path, sizeof(path)) < 0)
+            return -14;
         if (vfs_rmdir(path) == 0)
             return 0;
         if (vfs_stat(path) < 0)
@@ -2576,12 +2578,12 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_OPENDIR:
     {
-        const char *path = (const char *)arg1;
-        if (!path)
-            return -22;
         task_t *cur = sched_current_task();
+        char path[256];
         if (!cur || !cur->fd_table)
             return -9;
+        if (copy_user_string(cur, arg1, path, sizeof(path)) < 0)
+            return -14;
         if (vfs_stat(path) < 0)
             return -2;
         int fd = fd_alloc(cur->fd_table);
