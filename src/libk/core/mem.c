@@ -695,27 +695,68 @@ uint64_t virt_to_phys(page_table_t *pml4, uint64_t virt) {
     return (pt->entries[pt_idx] & 0xFFFFFFFFFFFFF000) + (virt & 0xFFF);
 }
 
+static int page_table_is_empty(const page_table_t *table)
+{
+    if (!table)
+        return 1;
+
+    for (size_t i = 0; i < 512; i++)
+    {
+        if (table->entries[i] != 0)
+            return 0;
+    }
+
+    return 1;
+}
+
 void unmap_page(page_table_t *pml4, uint64_t virt)
 {
+    if (!pml4)
+        return;
+
     uint64_t pml4_idx = get_pml4_index(virt);
     uint64_t pdpt_idx = get_pdpt_index(virt);
     uint64_t pd_idx = get_pd_index(virt);
     uint64_t pt_idx = get_pt_index(virt);
 
-    if (!(pml4->entries[pml4_idx] & PAGE_PRESENT))
+    uint64_t pml4e = pml4->entries[pml4_idx];
+    if (!(pml4e & PAGE_PRESENT))
         return;
-    page_table_t *pdpt = (page_table_t *)((pml4->entries[pml4_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
 
-    if (!(pdpt->entries[pdpt_idx] & PAGE_PRESENT))
+    page_table_t *pdpt = (page_table_t *)((pml4e & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+    uint64_t pdpte = pdpt->entries[pdpt_idx];
+    if (!(pdpte & PAGE_PRESENT) || (pdpte & (1ULL << 7)))
         return;
-    page_table_t *pd = (page_table_t *)((pdpt->entries[pdpt_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
 
-    if (!(pd->entries[pd_idx] & PAGE_PRESENT))
+    page_table_t *pd = (page_table_t *)((pdpte & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+    uint64_t pde = pd->entries[pd_idx];
+    if (!(pde & PAGE_PRESENT) || (pde & (1ULL << 7)))
         return;
-    page_table_t *pt = (page_table_t *)((pd->entries[pd_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
+
+    page_table_t *pt = (page_table_t *)((pde & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+    if (!(pt->entries[pt_idx] & PAGE_PRESENT))
+        return;
 
     pt->entries[pt_idx] = 0;
     __asm__ volatile("invlpg (%0)" : : "r"(virt) : "memory");
+
+    if (!page_table_is_empty(pt))
+        return;
+
+    pd->entries[pd_idx] = 0;
+    free_page((uint64_t)pt - KERNEL_VIRT_OFFSET);
+
+    if (!page_table_is_empty(pd))
+        return;
+
+    pdpt->entries[pdpt_idx] = 0;
+    free_page((uint64_t)pd - KERNEL_VIRT_OFFSET);
+
+    if (!page_table_is_empty(pdpt))
+        return;
+
+    pml4->entries[pml4_idx] = 0;
+    free_page((uint64_t)pdpt - KERNEL_VIRT_OFFSET);
 }
 
 page_table_t *clone_page_directory(page_table_t *src)
