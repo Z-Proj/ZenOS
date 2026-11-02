@@ -2929,11 +2929,12 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_SHM_CREATE:
     {
-        const char *name = (const char *)arg1;
-        size_t size      = (size_t)arg2;
-        shm_info_t *info = (shm_info_t *)arg3;
-        if (!name || size == 0 || !info || size > SIZE_MAX - (PAGE_SIZE - 1))
-            return -1;
+        task_t *current = sched_current_task();
+        char name[SHM_NAME_MAX];
+        size_t size = (size_t)arg2;
+        if (!current || copy_user_string(current, arg1, name, sizeof(name)) < 0 ||
+            size == 0 || size > SIZE_MAX - (PAGE_SIZE - 1))
+            return -14;
 
         size_t pages = (size + PAGE_SIZE - 1) / PAGE_SIZE;
         spinlock_acquire(&shm_lock);
@@ -2960,8 +2961,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return -1;
         }
 
-        task_t *current = sched_current_task();
-        if (!current || !current->pml4) {
+        if (!current->pml4) {
             free_pages(phys, pages);
             spinlock_release(&shm_lock);
             return -1;
@@ -2983,6 +2983,15 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return -1;
         }
 
+        shm_info_t info = { .addr = virt, .size = pages * PAGE_SIZE };
+        if (copy_to_user(current, arg3, &info, sizeof(info)) < 0) {
+            for (size_t i = 0; i < mapped; i++)
+                unmap_page(current->pml4, virt + i * PAGE_SIZE);
+            free_pages(phys, pages);
+            spinlock_release(&shm_lock);
+            return -14;
+        }
+
         strncpy(shm_table[slot].name, name, SHM_NAME_MAX - 1);
         shm_table[slot].name[SHM_NAME_MAX - 1] = '\0';
         shm_table[slot].phys   = phys;
@@ -2990,18 +2999,16 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         shm_table[slot].refs   = 1;
         shm_table[slot].in_use = true;
 
-        info->addr = virt;
-        info->size = pages * PAGE_SIZE;
         spinlock_release(&shm_lock);
         return 0;
     }
 
     case SYSCALL_SHM_OPEN:
     {
-        const char *name = (const char *)arg1;
-        shm_info_t *info = (shm_info_t *)arg2;
-        if (!name || !info)
-            return -1;
+        task_t *current = sched_current_task();
+        char name[SHM_NAME_MAX];
+        if (!current || copy_user_string(current, arg1, name, sizeof(name)) < 0)
+            return -14;
 
         spinlock_acquire(&shm_lock);
         int slot = -1;
@@ -3014,8 +3021,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return -1;
         }
 
-        task_t *current = sched_current_task();
-        if (!current || !current->pml4) {
+        if (!current->pml4) {
             spinlock_release(&shm_lock);
             return -1;
         }
@@ -3035,24 +3041,30 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             return -1;
         }
 
+        shm_info_t info = { .addr = virt, .size = shm_table[slot].pages * PAGE_SIZE };
+        if (copy_to_user(current, arg2, &info, sizeof(info)) < 0) {
+            for (size_t i = 0; i < mapped; i++)
+                unmap_page(current->pml4, virt + i * PAGE_SIZE);
+            spinlock_release(&shm_lock);
+            return -14;
+        }
+
         shm_table[slot].refs++;
-        info->addr = virt;
-        info->size = shm_table[slot].pages * PAGE_SIZE;
         spinlock_release(&shm_lock);
         return 0;
     }
 
     case SYSCALL_SHM_CLOSE:
     {
-        const char *name = (const char *)arg1;
-        if (!name)
-            return -1;
+        task_t *current = sched_current_task();
+        char name[SHM_NAME_MAX];
+        if (!current || copy_user_string(current, arg1, name, sizeof(name)) < 0)
+            return -14;
 
         spinlock_acquire(&shm_lock);
         for (int i = 0; i < SHM_MAX; i++) {
             if (shm_table[i].in_use && strcmp(shm_table[i].name, name) == 0) {
-                task_t *current = sched_current_task();
-                if (!current || !current->pml4) {
+                if (!current->pml4) {
                     spinlock_release(&shm_lock);
                     return -1;
                 }
