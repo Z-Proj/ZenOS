@@ -745,7 +745,8 @@ static int enumerate_port(xhci_controller_t *hc, uint8_t port)
     dev->ep0_mps = default_mps(dev->speed);
 
     if (alloc_device_memory(hc, dev) < 0 || address_device(hc, dev) < 0) {
-        release_device(hc, dev);
+        if (release_device(hc, dev) < 0 && port <= XHCI_MAX_PORTS)
+            hc->port_slot[port - 1] = dev->slot_id;
         return -1;
     }
     if (port <= XHCI_MAX_PORTS)
