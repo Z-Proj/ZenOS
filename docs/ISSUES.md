@@ -13,7 +13,7 @@
 - ea9bb58: unmap_page() now reclaims empty PT, PD, and PDPT levels bottom-up and avoids treating large-page entries as page-table pointers.
 - e5e06d2: brk/sbrk arithmetic is bounded against overflow and the mmap region; mmap, munmap, and mprotect validate rounded lengths and user mapping bounds. This also prevents generic munmap from freeing shared-memory or framebuffer mappings.
 - 8eba383: map_page() rolls back page-table levels allocated by a failed mapping attempt instead of leaking partially built hierarchies.
-- bdb3a37: Splitting an existing 2 MiB mapping now preserves the other 511 4 KiB mappings and their original permissions when one page is replaced.
+- bdb3a37, f8ca9a1, a424c7a, e2e43f7: 2 MiB and 1 GiB large mappings are split into smaller mappings without discarding neighboring mappings; PAT and user/supervisor permission propagation are preserved.
 
 ## Additional audit observations
 
