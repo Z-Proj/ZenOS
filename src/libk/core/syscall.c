@@ -2180,58 +2180,74 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_GETTIMEOFDAY:
     {
-        timeval_t *tv = (timeval_t *)arg1;
-        if (!tv)
-            return -1;
+        task_t *current = sched_current_task();
+        timeval_t tv;
+        if (!current || copy_from_user(current, &tv, arg1, sizeof(tv)) == 0)
+        {
+            /* The output pointer is validated independently below. */
+        }
+        else
+            return -14;
 
         static const uint16_t days_before_month[12] = {0,31,59,90,120,151,181,212,243,273,304,334};
         rtc_time_t t = rtc_get_time();
+        if (t.month < 1 || t.month > 12 || t.day < 1)
+            return -5;
         uint32_t year = 2000 + t.year;
         uint32_t yday = days_before_month[t.month - 1] + t.day - 1;
         if (t.month > 2 && (year % 4 == 0))
             yday++;
         uint32_t days = (year - 1970) * 365 + (year - 1969) / 4 + yday;
-        tv->tv_sec  = (uint64_t)days * 86400ULL + t.hours * 3600ULL + t.minutes * 60ULL + t.seconds;
-        tv->tv_usec = (uint64_t)t.milliseconds * 1000ULL;
-        return 0;
+        tv.tv_sec  = (uint64_t)days * 86400ULL + t.hours * 3600ULL + t.minutes * 60ULL + t.seconds;
+        tv.tv_usec = (uint64_t)t.milliseconds * 1000ULL;
+        return copy_to_user(current, arg1, &tv, sizeof(tv));
     }
 
     case SYSCALL_CLOCK_GETTIME:
     {
         int clk_id = (int)arg1;
-        timespec_t *tp = (timespec_t *)arg2;
-        if (!tp)
-            return -1;
+        task_t *current = sched_current_task();
+        timespec_t tp;
+        if (!current)
+            return -14;
 
         if (clk_id == 0 || clk_id == 5 || clk_id == 11)
         {
             static const uint16_t days_before_month[12] = {0,31,59,90,120,151,181,212,243,273,304,334};
             rtc_time_t t = rtc_get_time();
+            if (t.month < 1 || t.month > 12 || t.day < 1)
+                return -5;
             uint32_t year = 2000 + t.year;
             uint32_t yday = days_before_month[t.month - 1] + t.day - 1;
             if (t.month > 2 && (year % 4 == 0))
                 yday++;
             uint32_t days = (year - 1970) * 365 + (year - 1969) / 4 + yday;
-            tp->tv_sec  = (uint64_t)days * 86400ULL + t.hours * 3600ULL + t.minutes * 60ULL + t.seconds;
-            tp->tv_nsec = (uint64_t)t.milliseconds * 1000000ULL;
+            tp.tv_sec  = (uint64_t)days * 86400ULL + t.hours * 3600ULL + t.minutes * 60ULL + t.seconds;
+            tp.tv_nsec = (uint64_t)t.milliseconds * 1000000ULL;
         }
         else
         {
             uint64_t ns = hpet_monotonic_ns();
-            tp->tv_sec  = ns / 1000000000ULL;
-            tp->tv_nsec = ns % 1000000000ULL;
+            tp.tv_sec  = ns / 1000000000ULL;
+            tp.tv_nsec = ns % 1000000000ULL;
         }
-        return 0;
+        return copy_to_user(current, arg2, &tp, sizeof(tp));
     }
 
     case SYSCALL_NANOSLEEP:
     {
-        const timespec_t *req = (const timespec_t *)arg1;
-        if (!req)
-            return -1;
-
-        uint32_t ms = req->tv_sec * 1000 + req->tv_nsec / 1000000;
-        sleep(ms);
+        task_t *current = sched_current_task();
+        timespec_t req;
+        if (!current || copy_from_user(current, &req, arg1, sizeof(req)) < 0)
+            return -14;
+        if (req.tv_nsec >= 1000000000ULL)
+            return -22;
+        if (req.tv_sec > UINT32_MAX / 1000ULL)
+            return -22;
+        uint64_t ms64 = req.tv_sec * 1000ULL + req.tv_nsec / 1000000ULL;
+        if (ms64 > UINT32_MAX)
+            return -22;
+        sleep((uint32_t)ms64);
         return 0;
     }
 
