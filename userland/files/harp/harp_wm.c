@@ -284,11 +284,11 @@ int running_dash_layout(int *x, int *y, int *w, int *visible_count)
 void clamp_window(window_t *w)
 {
     if (w->w <= 0 || w->h <= 0) return;
-    int limit_y = dash_area_top() - (w->h + TITLEBAR_H);
+    int64_t limit_y = (int64_t)dash_area_top() - ((int64_t)w->h + TITLEBAR_H);
     if (limit_y < 0) limit_y = 0;
-    if (w->y > limit_y) w->y = limit_y;
+    if ((int64_t)w->y > limit_y) w->y = (int)limit_y;
     if (w->y < 0) w->y = 0;
-    if (w->x + w->w < 8) w->x = 8 - w->w;
+    if ((int64_t)w->x + w->w < 8) w->x = 8 - w->w;
     if (w->x > (int)SCR_W - 8) w->x = (int)SCR_W - 8;
 }
 
