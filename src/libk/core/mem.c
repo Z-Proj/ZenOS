@@ -947,30 +947,18 @@ void free_user_pages(page_table_t *pml4)
         for (int pdpt_idx = 0; pdpt_idx < 512; pdpt_idx++)
         {
             uint64_t pdpte = pdpt->entries[pdpt_idx];
-            if (!(pdpte & PAGE_PRESENT) || !(pdpte & PAGE_USER))
-                continue;
-            if (pdpte & (1ULL << 7))
-            {
-                /* A user 1 GiB leaf owns 262144 contiguous 4 KiB frames. */
-                free_pages(pdpte & 0x000FFFFFC0000000ULL, 262144);
-                pdpt->entries[pdpt_idx] = 0;
-                continue;
-            }
+            if (!(pdpte & PAGE_PRESENT) || !(pdpte & PAGE_USER) ||
+                (pdpte & (1ULL << 7)))
+                continue; /* Large mappings may reference non-owned physical memory. */
 
             page_table_t *pd = (page_table_t *)((pdpte & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
 
             for (int pd_idx = 0; pd_idx < 512; pd_idx++)
             {
                 uint64_t pde = pd->entries[pd_idx];
-                if (!(pde & PAGE_PRESENT) || !(pde & PAGE_USER))
-                    continue;
-                if (pde & (1ULL << 7))
-                {
-                    /* A user 2 MiB leaf owns 512 contiguous 4 KiB frames. */
-                    free_pages(pde & 0x000FFFFFFFE00000ULL, 512);
-                    pd->entries[pd_idx] = 0;
-                    continue;
-                }
+                if (!(pde & PAGE_PRESENT) || !(pde & PAGE_USER) ||
+                    (pde & (1ULL << 7)))
+                    continue; /* Large mappings may reference non-owned physical memory. */
 
                 page_table_t *pt = (page_table_t *)((pde & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
 
