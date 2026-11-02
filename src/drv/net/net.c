@@ -348,6 +348,13 @@ static void tcp_handle(const uint8_t src_ip[4], const tcp_header_t *tcp,
 
         if (data_len > 0)
         {
+            /* Accept only in-order data. For duplicates or gaps, repeat the
+             * current ACK rather than corrupting the receive sequence. */
+            if (seq != c->ack) {
+                tcp_send_seg(c, TCP_FLAG_ACK, NULL, 0);
+                break;
+            }
+
             uint32_t free_space = TCP_RX_BUF_SIZE - c->rx_avail;
             size_t to_copy = data_len < free_space ? data_len : free_space;
             for (size_t i = 0; i < to_copy; i++)
@@ -355,15 +362,26 @@ static void tcp_handle(const uint8_t src_ip[4], const tcp_header_t *tcp,
                 c->rx_buf[c->rx_tail] = data[i];
                 c->rx_tail = (c->rx_tail + 1) % TCP_RX_BUF_SIZE;
             }
-            c->rx_avail += to_copy;
-            c->ack = seq + (uint32_t)data_len;
+            c->rx_avail += (uint32_t)to_copy;
 
+            /* Never ACK bytes that did not fit in the receive buffer. The
+             * sender can retransmit the unaccepted suffix after space frees. */
+            c->ack = seq + (uint32_t)to_copy;
             tcp_send_seg(c, TCP_FLAG_ACK, NULL, 0);
+
+            /* A FIN follows the complete data payload, not the truncated
+             * prefix. Leave it unacknowledged until all preceding bytes fit. */
+            if (to_copy != data_len)
+                break;
         }
         if (flags & TCP_FLAG_FIN)
         {
+            if (seq + (uint32_t)data_len != c->ack) {
+                tcp_send_seg(c, TCP_FLAG_ACK, NULL, 0);
+                break;
+            }
 
-            c->ack = seq + (uint32_t)data_len + 1;
+            c->ack++;
             c->fin_received = true;
             tcp_send_seg(c, TCP_FLAG_ACK, NULL, 0);
             if (c->state == TCP_STATE_FIN_WAIT)
