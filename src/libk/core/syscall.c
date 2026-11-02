@@ -2182,11 +2182,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     {
         task_t *current = sched_current_task();
         timeval_t tv;
-        if (!current || copy_from_user(current, &tv, arg1, sizeof(tv)) == 0)
-        {
-            /* The output pointer is validated independently below. */
-        }
-        else
+        if (!current)
             return -14;
 
         static const uint16_t days_before_month[12] = {0,31,59,90,120,151,181,212,243,273,304,334};
