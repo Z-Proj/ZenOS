@@ -34,17 +34,17 @@
 #include <string.h>
 #include <stdlib.h>
 
-#define DASH_H      36
-#define DASH_MARGIN  8
-#define DASH_GAP     8
-#define LAUNCH_PAD   6
-#define LAUNCH_ICON  24
-#define LAUNCH_GAP   6
-#define BTN_W       96
-#define BTN_H       24
-#define BTN_GAP      6
-#define DASH_PAD    10
-#define LEFT_W     120
+#define DASH_H      56
+#define DASH_MARGIN 12
+#define DASH_GAP    10
+#define LAUNCH_PAD  8
+#define LAUNCH_ICON 40
+#define LAUNCH_GAP  8
+#define BTN_W      112
+#define BTN_H       38
+#define BTN_GAP    10
+#define DASH_PAD    14
+#define LEFT_W     144
 
 window_t windows[MAX_WINDOWS];
 int      zstack[MAX_WINDOWS];
