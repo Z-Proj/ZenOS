@@ -375,6 +375,8 @@ static void handle_transfer_event(xhci_controller_t *hc, xhci_event_t *ev)
     submit_intr(hc, dev);
 }
 
+static void release_device(xhci_controller_t *hc, xhci_device_t *dev);
+
 static void disconnect_port(xhci_controller_t *hc, uint8_t port)
 {
     if (!port || port > XHCI_MAX_PORTS)
@@ -390,7 +392,6 @@ static void disconnect_port(xhci_controller_t *hc, uint8_t port)
 }
 
 static int enumerate_port(xhci_controller_t *hc, uint8_t port);
-static void release_device(xhci_controller_t *hc, xhci_device_t *dev);
 
 static void handle_port_change(xhci_controller_t *hc, uint8_t port)
 {
@@ -754,7 +755,7 @@ static int enumerate_port(xhci_controller_t *hc, uint8_t port)
     if (control_transfer(hc, dev, 0x80, USB_REQ_GET_DESCRIPTOR, USB_DT_DEVICE << 8, 0, &dd, 8) < 0) {
         if (port <= XHCI_MAX_PORTS)
             hc->port_slot[port - 1] = 0;
-        dev->used = 0;
+        release_device(hc, dev);
         return -1;
     }
     uint16_t real_mps = dd.mps0;
