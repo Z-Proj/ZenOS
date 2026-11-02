@@ -306,8 +306,12 @@ static int task_is_switching_from_locked(task_t *task)
 void task_exit(void)
 {
     task_t *current = sched_current_task();
-    if (!current) // this shouldnt ever happen
-        log("A Task exit function returned.", 0, 1);
+    if (!current) {
+        log("task_exit called without a current task.", 0, 1);
+        /* There is no valid task context to schedule away from. */
+        for (;;)
+            __asm__ volatile("cli; hlt" ::: "memory");
+    }
 
     __asm__ volatile("cli" ::: "memory");
     current->state = TASK_DEAD;
