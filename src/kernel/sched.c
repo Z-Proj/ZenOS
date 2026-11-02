@@ -31,6 +31,7 @@ static spinlock_t sched_lock = {0};
 static spinlock_t process_lock = {0};
 static volatile int scheduler_enabled = 0;
 static uint32_t next_user_cpu = 0;
+static uint32_t reap_schedule_counter = 0;
 
 #define USER_SHM_PML4_INDEX ((0x0000500000000000ULL >> 39) & 0x1FF)
 #define USER_FB_PML4_INDEX  ((0x0000600000000000ULL >> 39) & 0x1FF)
@@ -739,7 +740,25 @@ void sched_yield(void)
     if (cpu_state->switching_from && cpu_state->switching_from != cpu_state->current_task)
         cpu_state->switching_from = NULL;
 
-    reap_dead_tasks();
+    /*
+     * Reaping can release address spaces, descriptor tables and sockets.
+     * Do not walk and destroy every dead process on every context switch.
+     * Bound the work to one reaper pass per 32 scheduling opportunities.
+     */
+    if (++reap_schedule_counter >= 32)
+    {
+        reap_schedule_counter = 0;
+        /*
+     * Reaping can release address spaces, descriptor tables and sockets.
+     * Do not walk and destroy every dead process on every context switch.
+     * Bound the work to one reaper pass per 32 scheduling opportunities.
+     */
+    if (++reap_schedule_counter >= 32)
+    {
+        reap_schedule_counter = 0;
+        reap_dead_tasks();
+    }
+    }
 
     task_t *old_task = cpu_state->current_task;
     if (old_task && old_task->state == TASK_RUNNING)
