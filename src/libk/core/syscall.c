@@ -1118,14 +1118,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_EXIT:
     {
-        task_t *current = sched_current_task();
-        if (current)
-        {
-            current->exit_code = (int)arg1;
-            current->state = TASK_DEAD;
-        }
-        sched_yield();
-        return 0;
+        sched_abort_current((int)arg1);
     }
 
     case SYSCALL_GETPID:
@@ -1162,14 +1155,15 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_PRINTS:
     {
-        const char *str = (const char *)arg1;
-        uint32_t len = arg2;
-        if (!str || len > 4096)
+        task_t *cur = sched_current_task();
+        uint32_t len = (uint32_t)arg2;
+        char str[4096];
+        if (!cur || len > sizeof(str))
             return -1;
-        for (uint32_t i = 0; i < len && str[i]; i++){
+        if (copy_from_user(cur, str, arg1, len) < 0)
+            return -14;
+        for (uint32_t i = 0; i < len && str[i]; i++)
             printc(str[i]);
-            //serial_write_char(str[i]);
-        }
         return 0;
     }
 
@@ -2372,11 +2366,12 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_LOG:
     {
-        const char *msg = (const char *)arg1;
+        task_t *cur = sched_current_task();
+        char msg[256];
         uint32_t level = (uint32_t)arg2;
         uint32_t visibility = (uint32_t)arg3;
-        if (!msg || level > 4)
-            return -1;
+        if (!cur || level > 4 || copy_user_string(cur, arg1, msg, sizeof(msg)) < 0)
+            return -14;
         log("%s", level, visibility, msg);
         return 0;
     }
