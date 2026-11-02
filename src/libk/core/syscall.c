@@ -2880,47 +2880,49 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
                 return (uint64_t)(int64_t)-1;
             if (req == ZEN_TCGETS)
             {
-                pty_export_termios(pty, (zen_termios_t *)argp);
+                zen_termios_t value;
+                pty_export_termios(pty, &value);
+                return copy_to_user(cur, arg3, &value, sizeof(value));
+            }
+            if (req == ZEN_TCSETS || req == ZEN_TCSETSW || req == ZEN_TCSETSF)
+            {
+                zen_termios_t value;
+                if (copy_from_user(cur, &value, arg3, sizeof(value)) < 0)
+                    return -14;
+                pty_import_termios(pty, &value, req == ZEN_TCSETSF);
                 return 0;
             }
-            if (req == ZEN_TCSETS || req == ZEN_TCSETSW)
+            if (req == ZEN_TIOCGWINSZ)
             {
-                pty_import_termios(pty, (const zen_termios_t *)argp, 0);
+                zen_winsize_t value = {
+                    .ws_row = pty->ws_rows,
+                    .ws_col = pty->ws_cols,
+                    .ws_xpixel = pty->ws_xpixel,
+                    .ws_ypixel = pty->ws_ypixel
+                };
+                return copy_to_user(cur, arg3, &value, sizeof(value));
+            }
+            if (req == ZEN_TIOCSWINSZ)
+            {
+                zen_winsize_t value;
+                if (copy_from_user(cur, &value, arg3, sizeof(value)) < 0)
+                    return -14;
+                pty->ws_rows   = value.ws_row;
+                pty->ws_cols   = value.ws_col;
+                pty->ws_xpixel = value.ws_xpixel;
+                pty->ws_ypixel = value.ws_ypixel;
                 return 0;
             }
-            if (req == ZEN_TCSETSF)
+            if (req == ZEN_FIONREAD)
             {
-                pty_import_termios(pty, (const zen_termios_t *)argp, 1);
-                return 0;
-            }
-            if (req == ZEN_TIOCGWINSZ && argp)
-            {
-                zen_winsize_t *ws = (zen_winsize_t *)argp;
-                ws->ws_row    = pty->ws_rows;
-                ws->ws_col    = pty->ws_cols;
-                ws->ws_xpixel = pty->ws_xpixel;
-                ws->ws_ypixel = pty->ws_ypixel;
-                return 0;
-            }
-            if (req == ZEN_TIOCSWINSZ && argp)
-            {
-                zen_winsize_t *ws = (zen_winsize_t *)argp;
-                pty->ws_rows   = ws->ws_row;
-                pty->ws_cols   = ws->ws_col;
-                pty->ws_xpixel = ws->ws_xpixel;
-                pty->ws_ypixel = ws->ws_ypixel;
-                return 0;
-            }
-            if (req == ZEN_FIONREAD && argp)
-            {
-                int *out = (int *)argp;
+                int value;
                 if (e->type == FD_PTY_MASTER)
-                    *out = (int)pty->s2m_count;
+                    value = (int)pty->s2m_count;
                 else if (pty->lflag & ZEN_ICANON)
-                    *out = (int)pty->m2s_ready;
+                    value = (int)pty->m2s_ready;
                 else
-                    *out = (int)pty->m2s_count;
-                return 0;
+                    value = (int)pty->m2s_count;
+                return copy_to_user(cur, arg3, &value, sizeof(value));
             }
             if (req == ZEN_TIOCSPTYGID)
                 return 0;
