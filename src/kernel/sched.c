@@ -639,9 +639,8 @@ static void reap_dead_tasks(void)
                 if (task_count > 0)
                     task_count--;
                 kfree(iter);
-                iter = task_list_head;
-                start = task_list_head;
-                continue;
+                /* Reclaim at most one process per scheduler reaper pass. */
+                return;
             }
 
             if (prev)
@@ -650,8 +649,8 @@ static void reap_dead_tasks(void)
             if (task_count > 0)
                 task_count--;
             kfree(iter);
-            iter = next;
-            continue;
+            /* Keep scheduler lock hold time bounded when many tasks exit. */
+            return;
         }
 
         prev = iter;
