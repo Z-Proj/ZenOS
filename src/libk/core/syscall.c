@@ -1729,48 +1729,51 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_SYSINFO:
     {
-        sysinfo_t *info = (sysinfo_t *)arg1;
-        if (!info)
-            return -22;
-        memset(info, 0, sizeof(*info));
-        info->uptime = (int64_t)(hpet_monotonic_ns() / 1000000000ULL);
-        info->totalram = get_total_memory();
-        info->freeram = get_free_memory();
-        info->mem_unit = 1;
+        task_t *current = sched_current_task();
+        if (!current)
+            return -14;
+        sysinfo_t info;
+        memset(&info, 0, sizeof(info));
+        info.uptime = (int64_t)(hpet_monotonic_ns() / 1000000000ULL);
+        info.totalram = get_total_memory();
+        info.freeram = get_free_memory();
+        info.mem_unit = 1;
         task_info_t tasks[64];
-        info->procs = (uint16_t)sched_list_tasks(tasks, 64);
-        return 0;
+        info.procs = (uint16_t)sched_list_tasks(tasks, 64);
+        return copy_to_user(current, arg1, &info, sizeof(info));
     }
 
     case SYSCALL_SCHED_GETAFFINITY:
     {
         pid_t pid = (pid_t)arg1;
         size_t cpusetsize = (size_t)arg2;
-        uint8_t *mask = (uint8_t *)arg3;
-        if (!mask || cpusetsize == 0 || cpusetsize > 128)
+        task_t *current = sched_current_task();
+        uint8_t mask[128] = {0};
+        if (!current || cpusetsize == 0 || cpusetsize > sizeof(mask))
             return -22;
         if (pid < 0)
             return -3;
-        memset(mask, 0, cpusetsize);
         uint32_t cpu_count = smp_cpu_count();
         if (cpu_count == 0)
             cpu_count = 1;
         size_t max_bits = cpusetsize * 8;
         for (uint32_t i = 0; i < cpu_count && i < max_bits; i++)
             mask[i / 8] |= (uint8_t)(1U << (i % 8));
-        return 0;
+        return copy_to_user(current, arg3, mask, cpusetsize);
     }
 
     case SYSCALL_SCHED_SETAFFINITY:
     {
         pid_t pid = (pid_t)arg1;
         size_t cpusetsize = (size_t)arg2;
-        const uint8_t *mask = (const uint8_t *)arg3;
         task_t *cur = sched_current_task();
-        if (!cur || !mask || cpusetsize == 0 || cpusetsize > 128)
+        uint8_t mask[128];
+        if (!cur || cpusetsize == 0 || cpusetsize > sizeof(mask))
             return -22;
         if (pid != 0 && (uint64_t)pid != cur->pid)
             return -38;
+        if (copy_from_user(cur, mask, arg3, cpusetsize) < 0)
+            return -14;
 
         uint32_t cpu_count = smp_cpu_count();
         if (cpu_count == 0)
@@ -2325,70 +2328,17 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_UNAME:
     {
-        utsname_t *buf = (utsname_t *)arg1;
-        if (!buf)
-            return -1;
-
-        const char *sysname = "ZenOS";
-        const char *machine = "x86_64";
-        const char *nodename = "Zen";
-
-        int i = 0;
-        while (sysname[i] && i < 64)
-        {
-            buf->sysname[i] = sysname[i];
-            i++;
-        }
-        buf->sysname[i] = '\0';
-
-        i = 0;
-        while (nodename[i] && i < 64)
-        {
-            buf->nodename[i] = nodename[i];
-            i++;
-        }
-        buf->nodename[i] = '\0';
-
-        i = 0;
-        int space_pos = -1;
-        while (os_version[i] && i < 64)
-        {
-            if (os_version[i] == ' ')
-            {
-                space_pos = i;
-                break;
-            }
-            buf->release[i] = os_version[i];
-            i++;
-        }
-        buf->release[i] = '\0';
-
-        if (space_pos >= 0)
-        {
-            i = 0;
-            int j = space_pos + 1;
-            while (os_version[j] && i < 64)
-            {
-                buf->version[i] = os_version[j];
-                i++;
-                j++;
-            }
-            buf->version[i] = '\0';
-        }
-        else
-        {
-            buf->version[0] = '\0';
-        }
-
-        i = 0;
-        while (machine[i] && i < 64)
-        {
-            buf->machine[i] = machine[i];
-            i++;
-        }
-        buf->machine[i] = '\0';
-
-        return 0;
+        task_t *current = sched_current_task();
+        if (!current)
+            return -14;
+        utsname_t value;
+        memset(&value, 0, sizeof(value));
+        strncpy(value.sysname, "ZenOS", sizeof(value.sysname) - 1);
+        strncpy(value.nodename, "Zen", sizeof(value.nodename) - 1);
+        strncpy(value.release, "0.1", sizeof(value.release) - 1);
+        strncpy(value.version, "ZenOS", sizeof(value.version) - 1);
+        strncpy(value.machine, "x86_64", sizeof(value.machine) - 1);
+        return copy_to_user(current, arg1, &value, sizeof(value));
     }
 
     case SYSCALL_LOG:
@@ -2479,9 +2429,19 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_LIST_TASKS:
     {
-        task_info_t *infos = (task_info_t *)arg1;
+        task_t *current = sched_current_task();
         uint32_t max_count = (uint32_t)arg2;
-        return sched_list_tasks(infos, max_count);
+        if (!current)
+            return -14;
+        if (max_count > 64)
+            max_count = 64;
+        if (max_count == 0)
+            return 0;
+        task_info_t infos[64];
+        uint32_t count = sched_list_tasks(infos, max_count);
+        if (copy_to_user(current, arg1, infos, (size_t)count * sizeof(infos[0])) < 0)
+            return -14;
+        return count;
     }
 
     case SYSCALL_FORK:
@@ -2815,11 +2775,17 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_GETHOSTBYNAME:
     {
-        const char *hostname = (const char *)arg1;
-        uint8_t *ip_out = (uint8_t *)arg2;
-        if (!hostname || !ip_out)
-            return -1;
-        return (uint64_t)(int64_t)dns_resolve(hostname, ip_out);
+        task_t *current = sched_current_task();
+        char hostname[256];
+        uint8_t ip_out[4];
+        if (!current || copy_user_string(current, arg1, hostname, sizeof(hostname)) < 0)
+            return -14;
+        int result = dns_resolve(hostname, ip_out);
+        if (result < 0)
+            return (uint64_t)(int64_t)result;
+        if (copy_to_user(current, arg2, ip_out, sizeof(ip_out)) < 0)
+            return -14;
+        return result;
     }
 
     case SYSCALL_FUTEX:
