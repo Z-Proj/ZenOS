@@ -1184,7 +1184,6 @@ int main(int argc, char *argv[])
 
     while (1)
     {
-        reap_spawned_children();
         poll_ipc();
         input_pump_keyboard();
         input_pump_mouse();
@@ -1379,6 +1378,7 @@ int main(int argc, char *argv[])
         if (++reap_tick >= 64)
         {
             reap_tick = 0;
+            reap_spawned_children();
             reap_dead_windows();
         }
 
