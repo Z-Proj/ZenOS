@@ -229,21 +229,33 @@ static uint64_t user_find_mmap_range(task_t *task, uint64_t hint, size_t pages)
     if (!task || !task->pml4 || !pages)
         return 0;
 
+    /* pages is bounded by SYSCALL_MMAP, but keep this helper safe when
+     * called independently and never let a user hint wrap the search. */
+    if (pages > (USER_MMAP_END - USER_MMAP_START) / PAGE_SIZE)
+        return 0;
     uint64_t size = (uint64_t)pages * PAGE_SIZE;
-    uint64_t start = hint ? (hint & ~(uint64_t)(PAGE_SIZE - 1)) : task->mmap_base;
-    if (start < USER_MMAP_START)
+    uint64_t start = task->mmap_base;
+    if (hint >= USER_MMAP_START && hint < USER_MMAP_END)
+        start = hint & ~(uint64_t)(PAGE_SIZE - 1);
+    if (start < USER_MMAP_START || start > USER_MMAP_END - size)
         start = USER_MMAP_START;
 
-    for (uint64_t base = start; base + size <= USER_MMAP_END; base += PAGE_SIZE)
+    for (uint64_t base = start; base <= USER_MMAP_END - size; )
     {
         if (user_range_is_free(task->pml4, base, pages))
             return base;
+        if (base > USER_MMAP_END - size - PAGE_SIZE)
+            break;
+        base += PAGE_SIZE;
     }
 
-    for (uint64_t base = USER_MMAP_START; base + size <= start; base += PAGE_SIZE)
+    for (uint64_t base = USER_MMAP_START; base < start && base <= USER_MMAP_END - size; )
     {
         if (user_range_is_free(task->pml4, base, pages))
             return base;
+        if (base > USER_MMAP_END - size - PAGE_SIZE)
+            break;
+        base += PAGE_SIZE;
     }
 
     return 0;
