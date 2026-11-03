@@ -2786,24 +2786,31 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_POLL:
     {
-        pollfd_t *fds = (pollfd_t *)arg1;
         size_t count = (size_t)arg2;
         int timeout = (int)arg3;
-        if (!fds && count)
+        task_t *current = sched_current_task();
+        if (count > 1024 || (!arg1 && count))
             return -22;
-        if (count > 1024)
-            return -22;
 
-        int ready = poll_fds_once(fds, count);
-        if (ready || timeout == 0)
-            return ready;
+        pollfd_t local_fds[1024];
+        if (count && copy_from_user(current, local_fds, arg1,
+                                    count * sizeof(local_fds[0])) < 0)
+            return -14;
 
-        if (timeout > 0)
-            sleep_ms((uint32_t)(timeout > 10 ? 10 : timeout));
-        else
-            sched_yield();
+        int ready = poll_fds_once(local_fds, count);
+        if (!ready && timeout != 0)
+        {
+            if (timeout > 0)
+                sleep_ms((uint32_t)(timeout > 10 ? 10 : timeout));
+            else
+                sched_yield();
+            ready = poll_fds_once(local_fds, count);
+        }
 
-        return poll_fds_once(fds, count);
+        if (count && copy_to_user(current, arg1, local_fds,
+                                  count * sizeof(local_fds[0])) < 0)
+            return -14;
+        return ready;
     }
 
     case SYSCALL_GETHOSTBYNAME:
@@ -2875,7 +2882,12 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         se->type = FD_PTY_SLAVE;
         se->pty = pty;
 
-        *slave_fd_out = sfd;
+        if (copy_to_user(cur, arg1, &sfd, sizeof(sfd)) < 0)
+        {
+            fd_close(cur->fd_table, mfd);
+            fd_close(cur->fd_table, sfd);
+            return (uint64_t)(int64_t)-14;
+        }
         return (uint64_t)(unsigned int)mfd;
     }
 
