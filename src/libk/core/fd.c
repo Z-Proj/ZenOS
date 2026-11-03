@@ -58,8 +58,7 @@ static void fd_close_entry(fd_entry_t *e)
 
     if (e->type == FD_FILE) {
         if (e->file) {
-            e->file->refcount--;
-            if (e->file->refcount <= 0) {
+            if (__atomic_sub_fetch(&e->file->refcount, 1, __ATOMIC_ACQ_REL) == 0) {
                 fat_lock();
                 f_close(&e->file->fil);
                 fat_unlock();
@@ -68,8 +67,7 @@ static void fd_close_entry(fd_entry_t *e)
         }
     } else if (e->type == FD_DIR) {
         if (e->dir) {
-            e->dir->refcount--;
-            if (e->dir->refcount <= 0) {
+            if (__atomic_sub_fetch(&e->dir->refcount, 1, __ATOMIC_ACQ_REL) == 0) {
                 fat_lock();
                 f_closedir(&e->dir->dir);
                 fat_unlock();
@@ -81,40 +79,36 @@ static void fd_close_entry(fd_entry_t *e)
             memset(e, 0, sizeof(*e));
             return;
         }
-        e->pipe->readers--;
-        if (e->pipe->readers <= 0) e->pipe->read_closed = 1;
-        e->pipe->refcount--;
-        if (e->pipe->refcount <= 0)
+        if (__atomic_sub_fetch(&e->pipe->readers, 1, __ATOMIC_ACQ_REL) == 0)
+            __atomic_store_n(&e->pipe->read_closed, 1, __ATOMIC_RELEASE);
+        if (__atomic_sub_fetch(&e->pipe->refcount, 1, __ATOMIC_ACQ_REL) == 0)
             kfree(e->pipe);
     } else if (e->type == FD_PIPE_WRITE) {
         if (!e->pipe) {
             memset(e, 0, sizeof(*e));
             return;
         }
-        e->pipe->writers--;
-        if (e->pipe->writers <= 0) e->pipe->write_closed = 1;
-        e->pipe->refcount--;
-        if (e->pipe->refcount <= 0)
+        if (__atomic_sub_fetch(&e->pipe->writers, 1, __ATOMIC_ACQ_REL) == 0)
+            __atomic_store_n(&e->pipe->write_closed, 1, __ATOMIC_RELEASE);
+        if (__atomic_sub_fetch(&e->pipe->refcount, 1, __ATOMIC_ACQ_REL) == 0)
             kfree(e->pipe);
     } else if (e->type == FD_PTY_MASTER) {
         if (!e->pty) {
             memset(e, 0, sizeof(*e));
             return;
         }
-        e->pty->master_refs--;
-        if (e->pty->master_refs <= 0) e->pty->master_open = 0;
-        e->pty->refcount--;
-        if (e->pty->refcount <= 0)
+        if (__atomic_sub_fetch(&e->pty->master_refs, 1, __ATOMIC_ACQ_REL) == 0)
+            __atomic_store_n(&e->pty->master_open, 0, __ATOMIC_RELEASE);
+        if (__atomic_sub_fetch(&e->pty->refcount, 1, __ATOMIC_ACQ_REL) == 0)
             kfree(e->pty);
     } else if (e->type == FD_PTY_SLAVE) {
         if (!e->pty) {
             memset(e, 0, sizeof(*e));
             return;
         }
-        e->pty->slave_refs--;
-        if (e->pty->slave_refs <= 0) e->pty->slave_open = 0;
-        e->pty->refcount--;
-        if (e->pty->refcount <= 0)
+        if (__atomic_sub_fetch(&e->pty->slave_refs, 1, __ATOMIC_ACQ_REL) == 0)
+            __atomic_store_n(&e->pty->slave_open, 0, __ATOMIC_RELEASE);
+        if (__atomic_sub_fetch(&e->pty->refcount, 1, __ATOMIC_ACQ_REL) == 0)
             kfree(e->pty);
     } else if (e->type == FD_UNIX_SOCK) {
         if (e->usock && e->usock->refcount <= 1)
@@ -139,33 +133,35 @@ int fd_entry_clone(fd_entry_t *dst, const fd_entry_t *src, int inherit_cloexec)
         if (!src->file)
             return -1;
         dst->file = src->file;
-        dst->file->refcount++;
+        __atomic_add_fetch(&dst->file->refcount, 1, __ATOMIC_ACQ_REL);
     } else if (src->type == FD_DIR) {
         if (!src->dir)
             return -1;
         dst->dir = src->dir;
-        dst->dir->refcount++;
+        __atomic_add_fetch(&dst->dir->refcount, 1, __ATOMIC_ACQ_REL);
     } else if (src->type == FD_PIPE_READ || src->type == FD_PIPE_WRITE) {
         if (!src->pipe)
             return -1;
         dst->pipe = src->pipe;
-        dst->pipe->refcount++;
-        if (src->type == FD_PIPE_READ) dst->pipe->readers++;
-        if (src->type == FD_PIPE_WRITE) dst->pipe->writers++;
+        __atomic_add_fetch(&dst->pipe->refcount, 1, __ATOMIC_ACQ_REL);
+        if (src->type == FD_PIPE_READ)
+            __atomic_add_fetch(&dst->pipe->readers, 1, __ATOMIC_ACQ_REL);
+        if (src->type == FD_PIPE_WRITE)
+            __atomic_add_fetch(&dst->pipe->writers, 1, __ATOMIC_ACQ_REL);
     } else if (src->type == FD_PTY_MASTER) {
         if (!src->pty)
             return -1;
         dst->pty = src->pty;
-        dst->pty->refcount++;
-        dst->pty->master_refs++;
-        dst->pty->master_open = 1;
+        __atomic_add_fetch(&dst->pty->refcount, 1, __ATOMIC_ACQ_REL);
+        __atomic_add_fetch(&dst->pty->master_refs, 1, __ATOMIC_ACQ_REL);
+        __atomic_store_n(&dst->pty->master_open, 1, __ATOMIC_RELEASE);
     } else if (src->type == FD_PTY_SLAVE) {
         if (!src->pty)
             return -1;
         dst->pty = src->pty;
-        dst->pty->refcount++;
-        dst->pty->slave_refs++;
-        dst->pty->slave_open = 1;
+        __atomic_add_fetch(&dst->pty->refcount, 1, __ATOMIC_ACQ_REL);
+        __atomic_add_fetch(&dst->pty->slave_refs, 1, __ATOMIC_ACQ_REL);
+        __atomic_store_n(&dst->pty->slave_open, 1, __ATOMIC_RELEASE);
     } else if (src->type == FD_UNIX_SOCK) {
         if (!src->usock)
             return -1;
