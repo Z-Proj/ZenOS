@@ -454,6 +454,7 @@ static int wait_command(xhci_controller_t *hc, xhci_trb_t *cmd, uint8_t *slot_ou
 {
     uint64_t phys = ring_trb_phys(hc->cmd_ring_phys, hc->cmd_ring, cmd);
     for (uint32_t i = 0; i < 10000000; i++) {
+        process_events(hc);
         uint64_t flags = spinlock_acquire_irqsave(&hc->event_lock);
         if (hc->command_wait_done && hc->command_wait_phys == phys) {
             int code = hc->command_wait_code;
@@ -523,6 +524,7 @@ static int wait_transfer(xhci_controller_t *hc, xhci_device_t *dev, xhci_trb_t *
 {
     (void)last;
     for (uint32_t i = 0; i < 10000000; i++) {
+        process_events(hc);
         uint64_t flags = spinlock_acquire_irqsave(&hc->event_lock);
         if (dev->ctrl_done) {
             int result = dev->ctrl_result;
