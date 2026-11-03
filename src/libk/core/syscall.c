@@ -2739,33 +2739,53 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     case SYSCALL_CONNECT:
     {
         int id = (int)arg1;
-        zen_sockaddr_in_t *addr = (zen_sockaddr_in_t *)arg2;
         uint32_t addrlen = (uint32_t)arg3;
-        if (!addr || addrlen < sizeof(zen_sockaddr_in_t))
+        zen_sockaddr_in_t addr;
+        task_t *cur = sched_current_task();
+        if (!cur || !arg2 || addrlen < sizeof(addr))
             return (uint64_t)(int64_t)-22;
-        if (addr->sin_family != 2)
+        if (copy_from_user(cur, &addr, arg2, sizeof(addr)) < 0)
+            return (uint64_t)(int64_t)-14;
+        if (addr.sin_family != 2)
             return (uint64_t)(int64_t)-97;
-        return (uint64_t)(int64_t)tcp_connect_socket(id, addr->sin_addr, ntohs(addr->sin_port));
+        return (uint64_t)(int64_t)tcp_connect_socket(id, addr.sin_addr, ntohs(addr.sin_port));
     }
 
     case SYSCALL_SEND:
     {
         int id = (int)arg1;
-        const void *buf = (const void *)arg2;
         size_t len = (size_t)arg3;
-        if (!buf)
+        task_t *cur = sched_current_task();
+        if (!cur || !arg2 || len == 0 || len > UNIX_BUF_SIZE)
             return (uint64_t)(int64_t)-22;
-        return (uint64_t)(int64_t)tcp_send(id, buf, len);
+        void *buffer = kmalloc(len);
+        if (!buffer)
+            return (uint64_t)(int64_t)-12;
+        if (copy_from_user(cur, buffer, arg2, len) < 0)
+        {
+            kfree(buffer);
+            return (uint64_t)(int64_t)-14;
+        }
+        int result = tcp_send(id, buffer, len);
+        kfree(buffer);
+        return (uint64_t)(int64_t)result;
     }
 
     case SYSCALL_RECV:
     {
         int id = (int)arg1;
-        void *buf = (void *)arg2;
         size_t len = (size_t)arg3;
-        if (!buf)
+        task_t *cur = sched_current_task();
+        if (!cur || !arg2 || len == 0 || len > UNIX_BUF_SIZE)
             return (uint64_t)(int64_t)-22;
-        return (uint64_t)(int64_t)tcp_recv(id, buf, len);
+        void *buffer = kmalloc(len);
+        if (!buffer)
+            return (uint64_t)(int64_t)-12;
+        int result = tcp_recv(id, buffer, len);
+        if (result > 0 && copy_to_user(cur, arg2, buffer, (size_t)result) < 0)
+            result = -14;
+        kfree(buffer);
+        return (uint64_t)(int64_t)result;
     }
 
     case SYSCALL_CLOSESOCKET:
@@ -3227,34 +3247,44 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table) return -1;
         int fd = (int)arg1;
-        sa_un_t *addr = (sa_un_t *)arg2;
-        uint32_t *addrlen = (uint32_t *)arg3;
         int flags = (int)arg4;
         int nonblock = !!(flags & UNIX_SOCK_NONBLOCK);
         int cloexec = !!(flags & UNIX_SOCK_CLOEXEC);
+        uint32_t max_len = 0;
+        if (!!arg2 != !!arg3) return -22;
+        if (arg2 && (copy_from_user(cur, &max_len, arg3, sizeof(max_len)) < 0 ||
+                     max_len < sizeof(sa_un_t) ||
+                     user_copy_validate(cur, arg2, sizeof(sa_un_t), 1) < 0 ||
+                     user_copy_validate(cur, arg3, sizeof(max_len), 1) < 0))
+            return -14;
         if (fd < 0 || fd >= TASK_MAX_FDS) return -9;
         fd_entry_t *e = &cur->fd_table->entries[fd];
-        if (!e->used || e->type != FD_UNIX_SOCK) return -88;
+        if (!e->used || e->type != FD_UNIX_SOCK || !e->usock) return -88;
         unix_sock_t *conn = unix_sock_accept(e->usock);
         if (!conn) return -11;
         int newfd = fd_alloc(cur->fd_table);
         if (newfd < 0) { unix_sock_free(conn); return -24; }
         fd_entry_t *ne = &cur->fd_table->entries[newfd];
-        ne->used  = 1;
-        ne->type  = FD_UNIX_SOCK;
+        memset(ne, 0, sizeof(*ne));
+        ne->used = 1;
+        ne->type = FD_UNIX_SOCK;
         ne->cloexec = cloexec;
         ne->usock = conn;
-        if (nonblock)
-            unix_sock_set_nonblock(conn, 1);
-        if (addr && addrlen)
+        if (nonblock) unix_sock_set_nonblock(conn, 1);
+        if (arg2)
         {
-            uint32_t max_len = *addrlen;
-            if (max_len >= sizeof(sa_un_t))
+            sa_un_t address;
+            uint32_t actual_len = sizeof(sa_un_t);
+            memset(&address, 0, sizeof(address));
+            address.family = UNIX_AF_LOCAL;
+            unix_sock_getpeername(conn, address.path, sizeof(address.path));
+            if (copy_to_user(cur, arg2, &address, sizeof(address)) < 0 ||
+                copy_to_user(cur, arg3, &actual_len, sizeof(actual_len)) < 0)
             {
-                addr->family = UNIX_AF_LOCAL;
-                unix_sock_getpeername(conn, addr->path, sizeof(addr->path));
+                memset(ne, 0, sizeof(*ne));
+                unix_sock_free(conn);
+                return -14;
             }
-            *addrlen = sizeof(sa_un_t);
         }
         return newfd;
     }
