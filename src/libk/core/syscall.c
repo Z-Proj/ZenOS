@@ -2491,34 +2491,36 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_PIPE:
     {
-        int *pipefd = (int *)arg1;
-        if (!pipefd)
-            return -1;
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table)
             return -1;
+
+        int user_fds[2];
         int rfd = fd_alloc(cur->fd_table);
         if (rfd < 0)
-            return -1;
-        cur->fd_table->entries[rfd].used = 1;
+            return -24;
+
         int wfd = fd_alloc(cur->fd_table);
         if (wfd < 0)
         {
-            cur->fd_table->entries[rfd].used = 0;
-            return -1;
+            memset(&cur->fd_table->entries[rfd], 0, sizeof(fd_entry_t));
+            return -24;
         }
+
         pipe_buf_t *pb = (pipe_buf_t *)kmalloc(sizeof(pipe_buf_t));
         if (!pb)
         {
-            cur->fd_table->entries[rfd].used = 0;
-            cur->fd_table->entries[wfd].used = 0;
-            return -1;
+            memset(&cur->fd_table->entries[rfd], 0, sizeof(fd_entry_t));
+            memset(&cur->fd_table->entries[wfd], 0, sizeof(fd_entry_t));
+            return -12;
         }
+
         memset(pb, 0, sizeof(pipe_buf_t));
         spinlock_init(&pb->lock);
         pb->readers = 1;
         pb->writers = 1;
         pb->refcount = 2;
+
         fd_entry_t *re = &cur->fd_table->entries[rfd];
         fd_entry_t *we = &cur->fd_table->entries[wfd];
         memset(re, 0, sizeof(fd_entry_t));
@@ -2529,8 +2531,16 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         we->type = FD_PIPE_WRITE;
         we->used = 1;
         we->pipe = pb;
-        pipefd[0] = rfd;
-        pipefd[1] = wfd;
+
+        user_fds[0] = rfd;
+        user_fds[1] = wfd;
+        if (copy_to_user(cur, arg1, user_fds, sizeof(user_fds)) < 0)
+        {
+            memset(re, 0, sizeof(*re));
+            memset(we, 0, sizeof(*we));
+            kfree(pb);
+            return -14;
+        }
         return 0;
     }
 
