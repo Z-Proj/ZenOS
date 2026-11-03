@@ -222,7 +222,7 @@ void e1000_init(void)
     memset(&dev, 0, sizeof(e1000_device));
     spinlock_init(&rx_lock);
     spinlock_init(&tx_lock);
-    rx_ring_phys = rx_buffers_phys = tx_ring_phys = tx_buffers_phys = 0;
+    rx_ring_phys = rx_buffers_phys = 0;
 
     pci_dev = pci_find_device(E1000_VENDOR_ID, E1000_DEVICE_ID);
     if (!pci_dev)
