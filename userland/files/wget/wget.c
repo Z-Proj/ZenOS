@@ -63,7 +63,12 @@ int main(int argc, char **argv) {
         int rlen = snprintf(req_buf, sizeof(req_buf),
             "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
             path, host);
-        if (send(conn, req_buf, (size_t)rlen, 0) < 0) {
+        if (rlen < 0 || (size_t)rlen >= sizeof(req_buf)) {
+            puts("wget: request too long\n");
+            close(conn);
+            return 1;
+        }
+        if (send(conn, req_buf, (size_t)rlen, 0) != rlen) {
             puts("wget: send failed\n"); close(conn); continue;
         }
 
@@ -107,10 +112,18 @@ int main(int argc, char **argv) {
         zen_create(outfile);
         int fd = open(outfile, O_WRONLY, 0644);
         if (fd < 0) { printf("wget: cannot open %s for writing\n", outfile); return 1; }
-        int written = write(fd, body, body_len);
+        int written = 0;
+        while (written < body_len) {
+            int n = (int)write(fd, body + written, (size_t)(body_len - written));
+            if (n <= 0)
+                break;
+            written += n;
+        }
         close(fd);
-        if (written != body_len)
-            printf("wget: warning: wrote %d/%d bytes\n", written, body_len);
+        if (written != body_len) {
+            printf("wget: write failed after %d/%d bytes\n", written, body_len);
+            return 1;
+        }
         printf("wget: saved %d bytes to %s\n", body_len, outfile);
     } else {
         for (int i = 0; i < body_len; i++) putchar(body[i]);
