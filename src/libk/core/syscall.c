@@ -2335,8 +2335,15 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         memset(&value, 0, sizeof(value));
         strncpy(value.sysname, "ZenOS", sizeof(value.sysname) - 1);
         strncpy(value.nodename, "Zen", sizeof(value.nodename) - 1);
-        strncpy(value.release, "0.1", sizeof(value.release) - 1);
-        strncpy(value.version, "ZenOS", sizeof(value.version) - 1);
+        size_t version_len = 0;
+        while (os_version[version_len] && os_version[version_len] != ' ' &&
+               version_len < sizeof(value.release) - 1)
+        {
+            value.release[version_len] = os_version[version_len];
+            version_len++;
+        }
+        if (os_version[version_len] == ' ')
+            strncpy(value.version, os_version + version_len + 1, sizeof(value.version) - 1);
         strncpy(value.machine, "x86_64", sizeof(value.machine) - 1);
         return copy_to_user(current, arg1, &value, sizeof(value));
     }
@@ -2373,36 +2380,50 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_GET_FRAMEBUFFER:
     {
-        fb_info_t *info = (fb_info_t *)arg1;
-        if (!info)
-            return -1;
-
         task_t *current = sched_current_task();
         if (!current || !current->pml4)
             return -1;
+
         uint64_t fb_phys = virt_to_phys(get_kernel_pml4(), (uint64_t)framebuffer_addr);
-        if (!fb_phys)
+        uint64_t fb_size = (uint64_t)framebuffer_pitch * framebuffer_height;
+        if (!fb_phys || !fb_size)
             return -1;
 
-        uint64_t fb_size = framebuffer_pitch * framebuffer_height;
-        size_t pages = (fb_size + PAGE_SIZE - 1) / PAGE_SIZE;
+        uint64_t fb_offset = fb_phys & (PAGE_SIZE - 1);
+        uint64_t fb_page_phys = fb_phys & ~(uint64_t)(PAGE_SIZE - 1);
+        if (fb_size > UINT64_MAX - fb_offset - (PAGE_SIZE - 1))
+            return -1;
+        size_t pages = (size_t)((fb_offset + fb_size + PAGE_SIZE - 1) / PAGE_SIZE);
+        const uint64_t user_fb_vaddr = 0x0000600000000000ULL;
+        if (!pages || pages > (0x0000800000000000ULL - user_fb_vaddr) / PAGE_SIZE)
+            return -1;
 
-        uint64_t user_fb_vaddr = 0x0000600000000000ULL;
-
-        for (size_t i = 0; i < pages; i++)
+        size_t mapped = 0;
+        for (; mapped < pages; mapped++)
         {
-            uint64_t virt = user_fb_vaddr + i * PAGE_SIZE;
-            uint64_t phys = fb_phys + i * PAGE_SIZE;
+            uint64_t virt = user_fb_vaddr + mapped * PAGE_SIZE;
+            uint64_t phys = fb_page_phys + mapped * PAGE_SIZE;
             map_page(current->pml4, virt, phys, PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER);
+            if (virt_to_phys(current->pml4, virt) != phys)
+                break;
+        }
+        if (mapped != pages)
+        {
+            while (mapped > 0)
+            {
+                mapped--;
+                unmap_page(current->pml4, user_fb_vaddr + mapped * PAGE_SIZE);
+            }
+            return -1;
         }
 
-        info->addr = user_fb_vaddr;
-        info->width = framebuffer_width;
-        info->height = framebuffer_height;
-        info->bpp = framebuffer_bpp;
-        info->pitch = framebuffer_pitch;
-
-        return 0;
+        fb_info_t value;
+        value.addr = user_fb_vaddr + fb_offset;
+        value.width = framebuffer_width;
+        value.height = framebuffer_height;
+        value.bpp = framebuffer_bpp;
+        value.pitch = framebuffer_pitch;
+        return copy_to_user(current, arg1, &value, sizeof(value));
     }
 
     case SYSCALL_IS_FOCUSED:
