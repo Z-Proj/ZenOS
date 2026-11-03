@@ -155,12 +155,31 @@ socket_error_t socket_open(const char *name, socket_file_t **file)
 
 socket_error_t socket_read(socket_file_t *file, void *buffer, uint32_t size, uint32_t *bytes_read)
 {
-    socket_file_t *locked = NULL;\n    uint64_t flags = 0;\n    socket_error_t result = socket_lock_pointer(file, &locked, &flags);\n    if (result != SOCKET_OK) return result;\n    if (!buffer || !bytes_read) result = SOCKET_ERROR_INVALID;\n    else if (!locked->available) { *bytes_read = 0; result = SOCKET_ERROR_NO_DATA; }\n    else { uint32_t n = size < locked->available ? size : locked->available;\n           *bytes_read = socket_ring_read_locked(locked, (uint8_t *)buffer, n);\n           locked->available -= n; result = SOCKET_OK; }\n    spinlock_release_irqrestore(&locked->lock, flags);\n    return result;
+    socket_file_t *locked = NULL;
+    uint64_t flags = 0;
+    socket_error_t result = socket_lock_pointer(file, &locked, &flags);
+    if (result != SOCKET_OK) return result;
+    if (!buffer || !bytes_read) result = SOCKET_ERROR_INVALID;
+    else if (!locked->available) { *bytes_read = 0; result = SOCKET_ERROR_NO_DATA; }
+    else { uint32_t n = size < locked->available ? size : locked->available;
+           *bytes_read = socket_ring_read_locked(locked, (uint8_t *)buffer, n);
+           locked->available -= n; result = SOCKET_OK; }
+    spinlock_release_irqrestore(&locked->lock, flags);
+    return result;
 }
 
 socket_error_t socket_write(socket_file_t *file, const void *buffer, uint32_t size)
 {
-    socket_file_t *locked = NULL;\n    uint64_t flags = 0;\n    socket_error_t result = socket_lock_pointer(file, &locked, &flags);\n    if (result != SOCKET_OK) return result;\n    if (!buffer || !size) result = SOCKET_ERROR_INVALID;\n    else if (locked->available > locked->capacity || size > locked->capacity - locked->available) result = SOCKET_ERROR_BUFFER_FULL;\n    else { socket_ring_write_locked(locked, (const uint8_t *)buffer, size);\n           locked->available += size; result = SOCKET_OK; }\n    spinlock_release_irqrestore(&locked->lock, flags);\n    return result;
+    socket_file_t *locked = NULL;
+    uint64_t flags = 0;
+    socket_error_t result = socket_lock_pointer(file, &locked, &flags);
+    if (result != SOCKET_OK) return result;
+    if (!buffer || !size) result = SOCKET_ERROR_INVALID;
+    else if (locked->available > locked->capacity || size > locked->capacity - locked->available) result = SOCKET_ERROR_BUFFER_FULL;
+    else { socket_ring_write_locked(locked, (const uint8_t *)buffer, size);
+           locked->available += size; result = SOCKET_OK; }
+    spinlock_release_irqrestore(&locked->lock, flags);
+    return result;
 }
 
 socket_error_t socket_delete(const char *name)
@@ -236,12 +255,21 @@ void socket_close_owned_by(uint64_t pid)
 
 socket_error_t socket_close(socket_file_t *file)
 {
-    socket_file_t *locked = NULL;\n    uint64_t flags = 0;\n    socket_error_t result = socket_lock_pointer(file, &locked, &flags);\n    if (result == SOCKET_OK) spinlock_release_irqrestore(&locked->lock, flags);\n    return result;
+    socket_file_t *locked = NULL;
+    uint64_t flags = 0;
+    socket_error_t result = socket_lock_pointer(file, &locked, &flags);
+    if (result == SOCKET_OK) spinlock_release_irqrestore(&locked->lock, flags);
+    return result;
 }
 
 uint32_t socket_available(socket_file_t *file)
 {
-    socket_file_t *locked = NULL;\n    uint64_t flags = 0;\n    if (socket_lock_pointer(file, &locked, &flags) != SOCKET_OK) return 0;\n    uint32_t available = locked->available;\n    spinlock_release_irqrestore(&locked->lock, flags);\n    return available;
+    socket_file_t *locked = NULL;
+    uint64_t flags = 0;
+    if (socket_lock_pointer(file, &locked, &flags) != SOCKET_OK) return 0;
+    uint32_t available = locked->available;
+    spinlock_release_irqrestore(&locked->lock, flags);
+    return available;
 }
 
 /* Lock a validated socket while still holding the table lock. Deletion and
