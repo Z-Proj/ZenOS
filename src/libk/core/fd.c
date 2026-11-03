@@ -221,3 +221,19 @@ int fd_close(fd_table_t *t, int fd)
     fd_close_entry(&t->entries[fd]);
     return 0;
 }
+
+int fd_table_dup2(fd_table_t *t, int oldfd, int newfd)
+{
+    if (!t || oldfd < 0 || oldfd >= TASK_MAX_FDS ||
+        newfd < 0 || newfd >= TASK_MAX_FDS)
+        return -1;
+    if (oldfd == newfd)
+        return t->entries[oldfd].used ? newfd : -1;
+    fd_entry_t *src = &t->entries[oldfd];
+    if (!src->used)
+        return -1;
+    fd_close_entry(&t->entries[newfd]);
+    if (fd_entry_clone(&t->entries[newfd], src, 0) < 0)
+        return -1;
+    return newfd;
+}
