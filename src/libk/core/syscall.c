@@ -103,12 +103,7 @@ typedef struct {
  */
 static void sleep_with_scheduler(uint32_t ms)
 {
-    while (ms > 0)
-    {
-        sleep_ms(1);
-        sched_yield();
-        ms--;
-    }
+    sched_sleep_current_ms(ms);
 }
 
 static inline void write_msr64(uint32_t msr, uint64_t value)
