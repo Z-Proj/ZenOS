@@ -23,7 +23,7 @@ static e1000_device dev;
 static pci_device_t *pci_dev = NULL;
 static void *rx_buf_virt[NUM_RX_DESC];
 static void *tx_buf_virt[NUM_TX_DESC];
-static uint64_t rx_ring_phys, rx_buffers_phys, tx_ring_phys, tx_buffers_phys;
+static uint64_t rx_ring_phys, rx_buffers_phys;
 static spinlock_t rx_lock, tx_lock;
 
 static uint32_t e1000_read(uint32_t reg)
@@ -175,8 +175,6 @@ static int e1000_init_tx(void)
         free_page(ring_phys);
         return -1;
     }
-    tx_ring_phys = ring_phys;
-    tx_buffers_phys = buffers_phys;
     dev.tx_ring = (e1000_tx_desc *)(ring_phys + KERNEL_VIRT_OFFSET);
     memset(dev.tx_ring, 0, NUM_TX_DESC * sizeof(e1000_tx_desc));
     for (int i = 0; i < NUM_TX_DESC; i++)
