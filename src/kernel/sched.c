@@ -471,8 +471,12 @@ task_t *task_create_user_from_parent_stdio(void (*entry)(void), const char *name
     task->heap_brk = USER_HEAP_START;
     task->mmap_base = 0x0000200000000000ULL;
     task->argc = argc;
-    task->argv = argv;
-    task->envp = envp;
+    /* Arguments and environment are copied onto the user stack by the ELF
+     * loader. Do not retain caller-owned kernel vectors in a runnable task. */
+    task->argv = NULL;
+    task->envp = NULL;
+    (void)argv;
+    (void)envp;
     task->parent_pid = parent ? parent->pid : TASK_NO_PARENT;
     task->wait_status = 0;
     task->wait_pid_target = -1;
