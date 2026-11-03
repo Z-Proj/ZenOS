@@ -2268,71 +2268,101 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_SOCKET_CREATE:
     {
-        const char *name = (const char *)arg1;
-        if (!name)
-            return -1;
+        task_t *cur = sched_current_task();
+        char name[SOCKET_NAME_MAX];
+        if (!cur || copy_user_string(cur, arg1, name, sizeof(name)) < 0)
+            return -14;
         return socket_create(name);
     }
 
     case SYSCALL_SOCKET_OPEN:
     {
-        const char *name = (const char *)arg1;
-        socket_file_t **file = (socket_file_t **)arg2;
-        if (!name || !file)
-            return -1;
-        return socket_open(name, file);
+        task_t *cur = sched_current_task();
+        char name[SOCKET_NAME_MAX];
+        socket_file_t *file = NULL;
+        if (!cur || copy_user_string(cur, arg1, name, sizeof(name)) < 0 ||
+            !arg2 || user_copy_validate(cur, arg2, sizeof(file), 1) < 0)
+            return -14;
+        int result = socket_open(name, &file);
+        if (result != SOCKET_OK)
+            return result;
+        uint64_t handle = (uint64_t)(uintptr_t)file;
+        if (copy_to_user(cur, arg2, &handle, sizeof(handle)) < 0)
+            return -14;
+        return SOCKET_OK;
     }
 
     case SYSCALL_SOCKET_READ:
     {
-        socket_file_t *file = (socket_file_t *)arg1;
-        void *buffer = (void *)arg2;
+        task_t *cur = sched_current_task();
+        socket_file_t *file = NULL;
         uint32_t size = (uint32_t)arg3;
-        uint32_t *bytes_read = (uint32_t *)arg4;
-        if (!file || !buffer)
-            return -1;
-        return socket_read(file, buffer, size, bytes_read);
+        if (!cur || !arg2 || !arg4 || size == 0 || size > SOCKET_FILE_SIZE ||
+            socket_validate_handle(arg1, &file) != SOCKET_OK ||
+            user_copy_validate(cur, arg2, size, 1) < 0 ||
+            user_copy_validate(cur, arg4, sizeof(uint32_t), 1) < 0)
+            return -14;
+        void *buffer = kmalloc(size);
+        if (!buffer)
+            return SOCKET_ERROR_NO_SPACE;
+        uint32_t bytes_read = 0;
+        socket_error_t result = socket_read(file, buffer, size, &bytes_read);
+        if (result == SOCKET_OK &&
+            (copy_to_user(cur, arg2, buffer, bytes_read) < 0 ||
+             copy_to_user(cur, arg4, &bytes_read, sizeof(bytes_read)) < 0))
+            result = SOCKET_ERROR_INVALID;
+        kfree(buffer);
+        return result;
     }
 
     case SYSCALL_SOCKET_WRITE:
     {
-        socket_file_t *file = (socket_file_t *)arg1;
-        const void *buffer = (const void *)arg2;
+        task_t *cur = sched_current_task();
+        socket_file_t *file = NULL;
         uint32_t size = (uint32_t)arg3;
-        if (!file || !buffer)
-            return -1;
-        return socket_write(file, buffer, size);
+        if (!cur || !arg2 || size == 0 || size > SOCKET_FILE_SIZE ||
+            socket_validate_handle(arg1, &file) != SOCKET_OK)
+            return SOCKET_ERROR_INVALID;
+        void *buffer = kmalloc(size);
+        if (!buffer)
+            return SOCKET_ERROR_NO_SPACE;
+        if (copy_from_user(cur, buffer, arg2, size) < 0)
+        {
+            kfree(buffer);
+            return SOCKET_ERROR_INVALID;
+        }
+        socket_error_t result = socket_write(file, buffer, size);
+        kfree(buffer);
+        return result;
     }
 
     case SYSCALL_SOCKET_CLOSE:
     {
-        socket_file_t *file = (socket_file_t *)arg1;
-        if (!file)
-            return -1;
+        task_t *cur = sched_current_task();
+        socket_file_t *file = NULL;
+        if (!cur || socket_validate_handle(arg1, &file) != SOCKET_OK)
+            return SOCKET_ERROR_INVALID;
         return socket_close(file);
     }
 
     case SYSCALL_SOCKET_DELETE:
-    {
-        const char *name = (const char *)arg1;
-        if (!name)
-            return -1;
-        return socket_delete(name);
-    }
-
     case SYSCALL_SOCKET_EXISTS:
     {
-        const char *name = (const char *)arg1;
-        if (!name)
-            return -1;
+        task_t *cur = sched_current_task();
+        char name[SOCKET_NAME_MAX];
+        if (!cur || copy_user_string(cur, arg1, name, sizeof(name)) < 0)
+            return -14;
+        if (num == SYSCALL_SOCKET_DELETE)
+            return socket_delete(name);
         return socket_exists(name) ? 1 : 0;
     }
 
     case SYSCALL_SOCKET_AVAILABLE:
     {
-        socket_file_t *file = (socket_file_t *)arg1;
-        if (!file)
-            return -1;
+        task_t *cur = sched_current_task();
+        socket_file_t *file = NULL;
+        if (!cur || socket_validate_handle(arg1, &file) != SOCKET_OK)
+            return SOCKET_ERROR_INVALID;
         return socket_available(file);
     }
 
