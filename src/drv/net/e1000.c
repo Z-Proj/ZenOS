@@ -323,34 +323,35 @@ int e1000_send_packet(void *data, size_t len)
         return -1;
     }
 
-    uint64_t flags = spinlock_acquire_irqsave(&tx_lock);
-    uint16_t tail = dev.tx_cur;
-
-    int wait_tries = 100000;
-    while (!(dev.tx_ring[tail].status & 0x1) && --wait_tries > 0)
+    /*
+     * Do not keep interrupts disabled while waiting for a DMA descriptor.
+     * Recheck under the short TX-ring critical section, then publish the
+     * descriptor and tail update atomically once one is available.
+     */
+    uint16_t tail = 0;
+    uint8_t last_status = 0;
+    for (uint32_t tries = 0; tries < 1000000; tries++)
     {
-        for (volatile int i = 0; i < 100; i++)
-            ;
-    }
-
-    if (wait_tries == 0)
-    {
-        log("TX ring full. Descriptor %d, Status: %02x", 2, 1, tail, dev.tx_ring[tail].status);
+        uint64_t flags = spinlock_acquire_irqsave(&tx_lock);
+        tail = dev.tx_cur;
+        last_status = dev.tx_ring[tail].status;
+        if (last_status & 0x1)
+        {
+            memcpy(tx_buf_virt[tail], data, len);
+            dev.tx_ring[tail].length = len;
+            dev.tx_ring[tail].cmd = E1000_CMD_EOP | E1000_CMD_IFCS | E1000_CMD_RS;
+            dev.tx_ring[tail].status = 0;
+            dev.tx_cur = (tail + 1) % NUM_TX_DESC;
+            e1000_write(E1000_REG_TDT, dev.tx_cur);
+            spinlock_release_irqrestore(&tx_lock, flags);
+            return len;
+        }
         spinlock_release_irqrestore(&tx_lock, flags);
-        return -1;
+        __asm__ volatile("pause" ::: "memory");
     }
 
-    memcpy(tx_buf_virt[tail], data, len);
-
-    dev.tx_ring[tail].length = len;
-    dev.tx_ring[tail].cmd = E1000_CMD_EOP | E1000_CMD_IFCS | E1000_CMD_RS;
-    dev.tx_ring[tail].status = 0;
-
-    dev.tx_cur = (tail + 1) % NUM_TX_DESC;
-    e1000_write(E1000_REG_TDT, dev.tx_cur);
-
-    spinlock_release_irqrestore(&tx_lock, flags);
-    return len;
+    log("TX ring full. Descriptor %d, Status: %02x", 2, 1, tail, last_status);
+    return -1;
 }
 
 int e1000_receive_packet(void *buf, size_t buf_size)
