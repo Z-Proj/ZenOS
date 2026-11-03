@@ -548,42 +548,73 @@ void unix_sock_shutdown(unix_sock_t *s)
     if (!s)
         return;
 
-    uint64_t f = spinlock_acquire_irqsave(&s->lock);
+    /*
+     * Socket registration and final free use pool_lock before a socket lock
+     * (see unix_sock_bind). Follow that order here, detach relationships while
+     * every pool object is pinned, then do the final frees after unlocking.
+     * Never hold one endpoint lock while acquiring its peer's lock: two
+     * simultaneous shutdowns otherwise form an ABBA deadlock.
+     */
+    unix_sock_t *pending[UNIX_BACKLOG_MAX] = {0};
+    unix_sock_t *pending_peers[UNIX_BACKLOG_MAX] = {0};
+    int pending_count = 0;
+
+    uint64_t fp = spinlock_acquire_irqsave(&pool_lock);
+    uint64_t fs = spinlock_acquire_irqsave(&s->lock);
     s->write_closed = 1;
     s->state = US_CLOSED;
     s->acceptconn = 0;
     s->registered = 0;
 
-    for (int i = 0; i < s->backlog_len; i++)
+    for (int i = 0; i < s->backlog_len && pending_count < UNIX_BACKLOG_MAX; i++)
     {
-        unix_sock_t *p = s->backlog[i];
-        if (!p)
+        unix_sock_t *child = s->backlog[i];
+        s->backlog[i] = NULL;
+        if (!child || !child->in_use)
             continue;
-        uint64_t fp = spinlock_acquire_irqsave(&p->lock);
-        p->write_closed = 1;
-        p->state = US_CLOSED;
-        if (p->peer)
-        {
-            unix_sock_t *q = p->peer;
-            uint64_t fq = spinlock_acquire_irqsave(&q->lock);
-            q->write_closed = 1;
-            q->peer = NULL;
-            spinlock_release_irqrestore(&q->lock, fq);
-        }
-        p->peer = NULL;
-        spinlock_release_irqrestore(&p->lock, fp);
+
+        uint64_t fc = spinlock_acquire_irqsave(&child->lock);
+        child->write_closed = 1;
+        child->state = US_CLOSED;
+        unix_sock_t *peer = child->peer;
+        child->peer = NULL;
+        if (peer && peer != s && peer->in_use)
+            peer->refcount++; /* temporary pin until its peer link is cleared */
+        spinlock_release_irqrestore(&child->lock, fc);
+
+        pending[pending_count] = child;
+        pending_peers[pending_count] = peer;
+        pending_count++;
     }
     s->backlog_len = 0;
 
-    if (s->peer)
+    unix_sock_t *peer = s->peer;
+    s->peer = NULL;
+    if (peer && peer != s && peer->in_use)
     {
-        unix_sock_t *p = s->peer;
-        s->peer = NULL;
-        uint64_t fp = spinlock_acquire_irqsave(&p->lock);
-        p->write_closed = 1;
-        p->peer = NULL;
-        spinlock_release_irqrestore(&p->lock, fp);
+        uint64_t fpeer = spinlock_acquire_irqsave(&peer->lock);
+        if (peer->peer == s)
+            peer->peer = NULL;
+        peer->write_closed = 1;
+        spinlock_release_irqrestore(&peer->lock, fpeer);
     }
 
-    spinlock_release_irqrestore(&s->lock, f);
+    spinlock_release_irqrestore(&s->lock, fs);
+    spinlock_release_irqrestore(&pool_lock, fp);
+
+    for (int i = 0; i < pending_count; i++)
+    {
+        unix_sock_t *child = pending[i];
+        unix_sock_t *child_peer = pending_peers[i];
+        if (child_peer && child_peer != s)
+        {
+            uint64_t fpeer = spinlock_acquire_irqsave(&child_peer->lock);
+            if (child_peer->peer == child)
+                child_peer->peer = NULL;
+            child_peer->write_closed = 1;
+            spinlock_release_irqrestore(&child_peer->lock, fpeer);
+            unix_sock_free(child_peer); /* release temporary pin */
+        }
+        unix_sock_free(child); /* release the listener's pending-backlog ref */
+    }
 }
