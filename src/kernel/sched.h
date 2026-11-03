@@ -72,6 +72,7 @@ typedef struct task
     uint64_t last_userspace_fault;
 
     uint64_t futex_wait_addr;
+    page_table_t *futex_wait_pml4;
     int futex_woken;
     zen_sigaction_t sighandlers[NSIG];
     uint64_t sig_pending;
