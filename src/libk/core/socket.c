@@ -149,64 +149,12 @@ socket_error_t socket_open(const char *name, socket_file_t **file)
 
 socket_error_t socket_read(socket_file_t *file, void *buffer, uint32_t size, uint32_t *bytes_read)
 {
-    if (!initialized || !file || !buffer || !bytes_read)
-    {
-        return SOCKET_ERROR_INVALID;
-    }
-
-    uint64_t flags = spinlock_acquire_irqsave(&file->lock);
-
-    if (!file->in_use || !file->data)
-    {
-        spinlock_release_irqrestore(&file->lock, flags);
-        *bytes_read = 0;
-        return SOCKET_ERROR_NOT_FOUND;
-    }
-
-    if (file->available == 0)
-    {
-        *bytes_read = 0;
-        spinlock_release_irqrestore(&file->lock, flags);
-        return SOCKET_ERROR_NO_DATA;
-    }
-
-    uint32_t to_read = (size < file->available) ? size : file->available;
-    uint32_t read_count = socket_ring_read_locked(file, (uint8_t *)buffer, to_read);
-
-    file->available -= to_read;
-    *bytes_read = read_count;
-    spinlock_release_irqrestore(&file->lock, flags);
-
-    return SOCKET_OK;
+    return socket_read_handle((uint64_t)(uintptr_t)file, buffer, size, bytes_read);
 }
 
 socket_error_t socket_write(socket_file_t *file, const void *buffer, uint32_t size)
 {
-    if (!initialized || !file || !buffer || size == 0)
-    {
-        return SOCKET_ERROR_INVALID;
-    }
-
-    uint64_t flags = spinlock_acquire_irqsave(&file->lock);
-
-    if (!file->in_use || !file->data)
-    {
-        spinlock_release_irqrestore(&file->lock, flags);
-        return SOCKET_ERROR_NOT_FOUND;
-    }
-
-    if (file->available + size > file->capacity)
-    {
-        spinlock_release_irqrestore(&file->lock, flags);
-        return SOCKET_ERROR_BUFFER_FULL;
-    }
-
-    socket_ring_write_locked(file, (const uint8_t *)buffer, size);
-
-    file->available += size;
-    spinlock_release_irqrestore(&file->lock, flags);
-
-    return SOCKET_OK;
+    return socket_write_handle((uint64_t)(uintptr_t)file, buffer, size);
 }
 
 socket_error_t socket_delete(const char *name)
@@ -282,26 +230,12 @@ void socket_close_owned_by(uint64_t pid)
 
 socket_error_t socket_close(socket_file_t *file)
 {
-
-    if (!file)
-    {
-        return SOCKET_ERROR_INVALID;
-    }
-    return SOCKET_OK;
+    return socket_close_handle((uint64_t)(uintptr_t)file);
 }
 
 uint32_t socket_available(socket_file_t *file)
 {
-    if (!initialized || !file)
-    {
-        return 0;
-    }
-
-    uint64_t flags = spinlock_acquire_irqsave(&file->lock);
-    uint32_t avail = (file->in_use && file->data) ? file->available : 0;
-    spinlock_release_irqrestore(&file->lock, flags);
-
-    return avail;
+    return socket_available_handle((uint64_t)(uintptr_t)file);
 }
 
 /* Lock a validated socket while still holding the table lock. Deletion and
@@ -325,7 +259,7 @@ static socket_error_t socket_lock_handle(uint64_t handle, socket_file_t **out,
             return SOCKET_ERROR_NOT_FOUND;
         }
         spinlock_acquire(&candidate->lock);
-        spinlock_release(&socket_table_lock);
+        spinlock_release_noirq(&socket_table_lock);
         *out = candidate;
         *irq_flags = flags;
         return SOCKET_OK;
@@ -412,29 +346,7 @@ socket_error_t socket_close_handle(uint64_t handle)
     return SOCKET_OK;
 }
 
-int socket_validate_handle(uint64_t handle, socket_file_t **out)
-{
-    if (!initialized || !out || handle == 0)
-        return SOCKET_ERROR_INVALID;
 
-    uint64_t flags = spinlock_acquire_irqsave(&socket_table_lock);
-    for (int i = 0; i < SOCKET_MAX_FILES; i++)
-    {
-        socket_file_t *candidate = &socket_files[i];
-        if ((uint64_t)(uintptr_t)candidate != handle)
-            continue;
-        if (!candidate->in_use || !candidate->data)
-        {
-            spinlock_release_irqrestore(&socket_table_lock, flags);
-            return SOCKET_ERROR_NOT_FOUND;
-        }
-        *out = candidate;
-        spinlock_release_irqrestore(&socket_table_lock, flags);
-        return SOCKET_OK;
-    }
-    spinlock_release_irqrestore(&socket_table_lock, flags);
-    return SOCKET_ERROR_INVALID;
-}
 
 bool socket_exists(const char *name)
 {
