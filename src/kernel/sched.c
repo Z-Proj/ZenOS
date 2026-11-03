@@ -533,19 +533,17 @@ task_t *task_create(void (*entry)(void), const char *name)
     return task;
 }
 
-static void reap_dead_tasks(void)
+static task_t *reap_dead_task_locked(void)
 {
     if (!task_list_head)
-        return;
+        return NULL;
 
     task_t *iter = task_list_head;
     task_t *prev = NULL;
     task_t *start = task_list_head;
-    // is this function too heavy for each tick
     do
     {
         task_t *next = iter->next;
-
         if (iter->state == TASK_DEAD && iter->running_cpu < 0 &&
             !task_is_switching_from_locked(iter))
         {
@@ -555,19 +553,17 @@ static void reap_dead_tasks(void)
 
             if (parent && parent->state != TASK_DEAD && !iter->wait_collected)
             {
-                if (parent->waiting_on_pid)
+                if (parent->waiting_on_pid &&
+                    (parent->wait_pid_target == -1 ||
+                     parent->wait_pid_target == (int64_t)iter->pid))
                 {
-                    if (parent->wait_pid_target == -1 ||
-                        parent->wait_pid_target == (int64_t)iter->pid)
-                    {
-                        parent->wait_status = (iter->exit_code & 0xff) << 8;
-                        parent->wait_result_pid = (pid_t)iter->pid;
-                        parent->wait_pid_target = -1;
-                        parent->waiting_on_pid = 0;
-                        if (parent->state == TASK_BLOCKED)
-                            parent->state = TASK_READY;
-                        iter->wait_collected = 1;
-                    }
+                    parent->wait_status = (iter->exit_code & 0xff) << 8;
+                    parent->wait_result_pid = (pid_t)iter->pid;
+                    parent->wait_pid_target = -1;
+                    parent->waiting_on_pid = 0;
+                    if (parent->state == TASK_BLOCKED)
+                        parent->state = TASK_READY;
+                    iter->wait_collected = 1;
                 }
 
                 if (!iter->wait_collected)
@@ -582,80 +578,83 @@ static void reap_dead_tasks(void)
                 iter->wait_collected = 1;
             }
 
-            if (iter->fd_table)
-            {
-                fd_table_free(iter->fd_table);
-                iter->fd_table = NULL;
-            }
-            socket_close_owned_by(iter->pid);
-            if (iter->kernel_stack)
-            {
-                free_task_kernel_stack(iter->kernel_stack);
-            }
-
-            if (!iter->is_kernel_task && iter->pml4 && iter->pml4 != get_kernel_pml4())
-                syscall_release_special_user_mappings(iter->pml4);
-
-            if (!iter->is_kernel_task && iter->owns_user_pages)
-            {
-                free_user_pages(iter->pml4);
-            }
-            else if (iter->user_stack && !iter->is_kernel_task)
-            {
-                size_t stack_pages = (TASK_STACK_SIZE + PAGE_SIZE - 1) / PAGE_SIZE;
-                for (size_t i = 0; i < stack_pages; i++)
-                {
-                    uint64_t phys = virt_to_phys(iter->pml4, iter->user_stack + i * PAGE_SIZE);
-                    if (phys)
-                    {
-                        free_page(phys);
-                        unmap_page(iter->pml4, iter->user_stack + i * PAGE_SIZE);
-                    }
-                }
-            }
-
-            if (!iter->is_kernel_task && iter->pml4 && iter->pml4 != get_kernel_pml4())
-            {
-                free_page_directory(iter->pml4);
-            }
-
             if (iter == task_list_head)
             {
                 if (task_list_head->next == task_list_head)
-                {
                     task_list_head = NULL;
-                    if (task_count > 0)
-                        task_count--;
-                    kfree(iter);
-                    return;
+                else
+                {
+                    task_list_head = next;
+                    task_t *last = task_list_head;
+                    while (last->next != iter)
+                        last = last->next;
+                    last->next = task_list_head;
                 }
-                task_list_head = next;
-
-                task_t *last = task_list_head;
-                while (last->next != iter)
-                    last = last->next;
-                last->next = task_list_head;
-
-                if (task_count > 0)
-                    task_count--;
-                kfree(iter);
-                /* Reclaim at most one process per scheduler reaper pass. */
-                return;
             }
-
-            if (prev)
+            else if (prev)
+            {
                 prev->next = next;
+            }
+            else
+            {
+                return NULL;
+            }
 
             if (task_count > 0)
                 task_count--;
-            kfree(iter);
-            /* Keep scheduler lock hold time bounded when many tasks exit. */
-            return;
+            iter->next = NULL;
+            return iter;
         }
 
         prev = iter;
         iter = next;
     } while (iter != start);
+
+    return NULL;
+}
+
+/* Resource destruction can walk and free large user address spaces. Keep it
+ * outside sched_lock so one exiting process cannot stall every CPU's scheduler. */
+static void reap_task_resources(task_t *task)
+{
+    if (!task)
+        return;
+
+    if (task->fd_table)
+    {
+        fd_table_free(task->fd_table);
+        task->fd_table = NULL;
+    }
+    socket_close_owned_by(task->pid);
+    if (task->kernel_stack)
+        free_task_kernel_stack(task->kernel_stack);
+
+    if (!task->is_kernel_task && task->pml4 &&
+        task->pml4 != get_kernel_pml4())
+        syscall_release_special_user_mappings(task->pml4);
+
+    if (!task->is_kernel_task && task->owns_user_pages)
+        free_user_pages(task->pml4);
+    else if (task->user_stack && !task->is_kernel_task)
+    {
+        size_t stack_pages = (TASK_STACK_SIZE + PAGE_SIZE - 1) / PAGE_SIZE;
+        for (size_t i = 0; i < stack_pages; i++)
+        {
+            uint64_t virt = task->user_stack + i * PAGE_SIZE;
+            uint64_t phys = virt_to_phys(task->pml4, virt);
+            if (phys)
+            {
+                free_page(phys);
+                unmap_page(task->pml4, virt);
+            }
+        }
+    }
+
+    if (!task->is_kernel_task && task->pml4 &&
+        task->pml4 != get_kernel_pml4())
+        free_page_directory(task->pml4);
+
+    kfree(task);
 }
 
 static task_t *find_next_task_locked(uint32_t cpu_index, int allow_idle_task)
@@ -744,10 +743,18 @@ void sched_yield(void)
      * Do not walk and destroy every dead process on every context switch.
      * Bound the work to one reaper pass per 32 scheduling opportunities.
      */
+    task_t *reaped_task = NULL;
     if (++reap_schedule_counter >= 32)
     {
         reap_schedule_counter = 0;
-        reap_dead_tasks();
+        reaped_task = reap_dead_task_locked();
+    }
+
+    if (reaped_task)
+    {
+        spinlock_release_irqrestore(&sched_lock, rflags);
+        reap_task_resources(reaped_task);
+        rflags = spinlock_acquire_irqsave(&sched_lock);
     }
 
     task_t *old_task = cpu_state->current_task;
