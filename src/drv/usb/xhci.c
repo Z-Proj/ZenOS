@@ -161,6 +161,9 @@ typedef struct {
     uint32_t ctrl_enqueue;
     uint8_t ctrl_cycle;
     xhci_intr_ep_t intr;
+    xhci_trb_t *ctrl_pending;
+    int ctrl_done;
+    int ctrl_result;
 } xhci_device_t;
 
 typedef struct {
@@ -187,6 +190,13 @@ typedef struct {
     uint8_t cmd_cycle;
     uint32_t event_dequeue;
     uint8_t event_cycle;
+    spinlock_t event_lock;
+    uint32_t pending_ports;
+    uint64_t command_wait_phys;
+    int command_wait_active;
+    int command_wait_done;
+    int command_wait_code;
+    uint8_t command_wait_slot;
     uint8_t port_slot[XHCI_MAX_PORTS];
     int running;
 } xhci_controller_t;
@@ -304,7 +314,9 @@ static uint64_t ring_trb_phys(uint64_t ring_phys, xhci_trb_t *ring, xhci_trb_t *
     return ring_phys + (uint64_t)(trb - ring) * sizeof(xhci_trb_t);
 }
 
-static int event_pop(xhci_controller_t *hc, xhci_event_t *out)
+/* Caller holds hc->event_lock. All event-ring dequeue and completion state
+ * changes are serialized between the interrupt and polling contexts. */
+static int event_pop_locked(xhci_controller_t *hc, xhci_event_t *out)
 {
     xhci_trb_t *ev = &hc->event_ring[hc->event_dequeue];
     if ((ev->control & 1) != hc->event_cycle)
@@ -410,37 +422,66 @@ static void handle_port_change(xhci_controller_t *hc, uint8_t port)
 
 static void process_events(xhci_controller_t *hc)
 {
+    uint64_t flags = spinlock_acquire_irqsave(&hc->event_lock);
     xhci_event_t ev;
-    while (event_pop(hc, &ev)) {
-        if (ev.type == XHCI_TRB_TRANSFER_EVENT)
-            handle_transfer_event(hc, &ev);
-        else if (ev.type == XHCI_TRB_PORT_EVENT)
-            handle_port_change(hc, (ev.raw.p0 >> 24) & 0xff);
+    while (event_pop_locked(hc, &ev)) {
+        if (ev.type == XHCI_TRB_COMMAND_EVENT) {
+            if (hc->command_wait_active &&
+                trb_param(&ev.raw) == hc->command_wait_phys) {
+                hc->command_wait_code = ev.code;
+                hc->command_wait_slot = ev.slot;
+                hc->command_wait_done = 1;
+            }
+        } else if (ev.type == XHCI_TRB_TRANSFER_EVENT) {
+            xhci_device_t *dev = device_by_slot(ev.slot);
+            if (dev && ev.ep == 1 && dev->ctrl_pending == ev.trb) {
+                dev->ctrl_result = (ev.code == XHCI_CC_SUCCESS ||
+                                    ev.code == XHCI_CC_SHORT_PACKET) ? 0 : -1;
+                dev->ctrl_done = 1;
+            } else {
+                handle_transfer_event(hc, &ev);
+            }
+        } else if (ev.type == XHCI_TRB_PORT_EVENT) {
+            uint8_t port = (ev.raw.p0 >> 24) & 0xff;
+            if (port && port <= hc->max_ports && port <= XHCI_MAX_PORTS)
+                hc->pending_ports |= 1u << (port - 1);
+        }
     }
+    spinlock_release_irqrestore(&hc->event_lock, flags);
 }
 
 static int wait_command(xhci_controller_t *hc, xhci_trb_t *cmd, uint8_t *slot_out)
 {
     uint64_t phys = ring_trb_phys(hc->cmd_ring_phys, hc->cmd_ring, cmd);
     for (uint32_t i = 0; i < 10000000; i++) {
-        xhci_event_t ev;
-        while (event_pop(hc, &ev)) {
-            if (ev.type == XHCI_TRB_COMMAND_EVENT && trb_param(&ev.raw) == phys) {
-                if (slot_out)
-                    *slot_out = ev.slot;
-                return ev.code;
-            }
-            if (ev.type == XHCI_TRB_TRANSFER_EVENT)
-                handle_transfer_event(hc, &ev);
+        uint64_t flags = spinlock_acquire_irqsave(&hc->event_lock);
+        if (hc->command_wait_done && hc->command_wait_phys == phys) {
+            int code = hc->command_wait_code;
+            if (slot_out)
+                *slot_out = hc->command_wait_slot;
+            hc->command_wait_active = 0;
+            hc->command_wait_done = 0;
+            spinlock_release_irqrestore(&hc->event_lock, flags);
+            return code;
         }
+        spinlock_release_irqrestore(&hc->event_lock, flags);
         __asm__ volatile("pause" ::: "memory");
     }
+    uint64_t flags = spinlock_acquire_irqsave(&hc->event_lock);
+    hc->command_wait_active = 0;
+    hc->command_wait_done = 0;
+    spinlock_release_irqrestore(&hc->event_lock, flags);
     return -1;
 }
 
 static int command_trb(xhci_controller_t *hc, xhci_trb_t trb, uint8_t *slot_out)
 {
     xhci_trb_t *cmd = ring_push(hc->cmd_ring, hc->cmd_ring_phys, &hc->cmd_enqueue, &hc->cmd_cycle, trb);
+    uint64_t flags = spinlock_acquire_irqsave(&hc->event_lock);
+    hc->command_wait_phys = ring_trb_phys(hc->cmd_ring_phys, hc->cmd_ring, cmd);
+    hc->command_wait_done = 0;
+    hc->command_wait_active = 1;
+    spinlock_release_irqrestore(&hc->event_lock, flags);
     hc->db[0] = 0;
     int code = wait_command(hc, cmd, slot_out);
     return code == XHCI_CC_SUCCESS ? 0 : -1;
@@ -480,19 +521,23 @@ static int release_device(xhci_controller_t *hc, xhci_device_t *dev)
 
 static int wait_transfer(xhci_controller_t *hc, xhci_device_t *dev, xhci_trb_t *last)
 {
+    (void)last;
     for (uint32_t i = 0; i < 10000000; i++) {
-        xhci_event_t ev;
-        while (event_pop(hc, &ev)) {
-            if (ev.type == XHCI_TRB_TRANSFER_EVENT && ev.slot == dev->slot_id && ev.trb == last) {
-                if (ev.code == XHCI_CC_SUCCESS || ev.code == XHCI_CC_SHORT_PACKET)
-                    return 0;
-                return -1;
-            }
-            if (ev.type == XHCI_TRB_TRANSFER_EVENT)
-                handle_transfer_event(hc, &ev);
+        uint64_t flags = spinlock_acquire_irqsave(&hc->event_lock);
+        if (dev->ctrl_done) {
+            int result = dev->ctrl_result;
+            dev->ctrl_done = 0;
+            dev->ctrl_pending = NULL;
+            spinlock_release_irqrestore(&hc->event_lock, flags);
+            return result;
         }
+        spinlock_release_irqrestore(&hc->event_lock, flags);
         __asm__ volatile("pause" ::: "memory");
     }
+    uint64_t flags = spinlock_acquire_irqsave(&hc->event_lock);
+    dev->ctrl_pending = NULL;
+    dev->ctrl_done = 0;
+    spinlock_release_irqrestore(&hc->event_lock, flags);
     return -1;
 }
 
@@ -522,6 +567,11 @@ static int control_transfer(xhci_controller_t *hc, xhci_device_t *dev, uint8_t r
     memset(&status, 0, sizeof(status));
     status.control = (XHCI_TRB_STATUS << 10) | (1 << 5) | ((!len || !in) ? (1 << 16) : 0);
     xhci_trb_t *last = ring_push(dev->ctrl_ring, dev->ctrl_ring_phys, &dev->ctrl_enqueue, &dev->ctrl_cycle, status);
+    uint64_t flags = spinlock_acquire_irqsave(&hc->event_lock);
+    dev->ctrl_pending = last;
+    dev->ctrl_done = 0;
+    dev->ctrl_result = -1;
+    spinlock_release_irqrestore(&hc->event_lock, flags);
     hc->db[dev->slot_id] = 1;
     return wait_transfer(hc, dev, last);
 }
@@ -896,6 +946,7 @@ int xhci_init_controller(pci_device_t *pci)
 
     xhci_controller_t *hc = &controllers[controller_count];
     memset(hc, 0, sizeof(*hc));
+    spinlock_init(&hc->event_lock);
     hc->pci = pci;
 
     uint64_t phys = xhci_bar_phys(pci);
@@ -978,6 +1029,14 @@ void xhci_poll(void)
         if (st & XHCI_USBSTS_EINT)
             wr32(hc->op, XHCI_USBSTS, st);
         process_events(hc);
+        uint64_t flags = spinlock_acquire_irqsave(&hc->event_lock);
+        uint32_t pending = hc->pending_ports;
+        hc->pending_ports = 0;
+        spinlock_release_irqrestore(&hc->event_lock, flags);
+        for (uint8_t port = 1; port <= hc->max_ports && port <= XHCI_MAX_PORTS; port++) {
+            if (pending & (1u << (port - 1)))
+                handle_port_change(hc, port);
+        }
     }
 }
 
