@@ -1024,8 +1024,10 @@ int xhci_init_controller(pci_device_t *pci)
     enumerate_ports(hc);
 
     if (!poll_task_started) {
-        task_create(xhci_task, "xHCI");
-        poll_task_started = 1;
+        if (task_create(xhci_task, "xHCI"))
+            poll_task_started = 1;
+        else
+            log("xHCI: failed to start event worker; synchronous polling remains available", 2, 1);
     }
 
     return 0;
