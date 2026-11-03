@@ -25,6 +25,7 @@
 #define SOCKET_FILE_SIZE (256 * 1024)
 #define SOCKET_TOTAL_BUDGET (16 * 1024 * 1024)
 #define SOCKET_NAME_MAX 64
+#define SOCKET_HANDLE_MAGIC 0xA700000000000000ULL
 
 typedef enum
 {
@@ -49,6 +50,7 @@ typedef struct
     spinlock_t lock;
     bool in_use;
     uint64_t owner_pid;
+    uint32_t generation;
 } socket_file_t;
 
 void socket_init(void);
@@ -59,6 +61,11 @@ socket_error_t socket_write(socket_file_t *file, const void *buffer, uint32_t si
 socket_error_t socket_delete(const char *name);
 socket_error_t socket_close(socket_file_t *file);
 uint32_t socket_available(socket_file_t *file);
+socket_error_t socket_open_handle(const char *name, uint64_t *handle);
+socket_error_t socket_read_handle(uint64_t handle, void *buffer, uint32_t size, uint32_t *bytes_read);
+socket_error_t socket_write_handle(uint64_t handle, const void *buffer, uint32_t size);
+socket_error_t socket_close_handle(uint64_t handle);
+uint32_t socket_available_handle(uint64_t handle);
 bool socket_exists(const char *name);
 void socket_list(void);
 void socket_close_owned_by(uint64_t pid);

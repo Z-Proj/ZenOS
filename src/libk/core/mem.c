@@ -86,6 +86,38 @@ static inline blk_hdr_t *blk_prev(blk_hdr_t *b)
     return (blk_hdr_t *)((uint8_t *)b - BLK_OVERHEAD - *prev_foot);
 }
 
+/* Validate a caller-supplied heap payload before deriving or modifying its
+ * block header. This rejects out-of-heap, interior, and already-freed pointers. */
+static blk_hdr_t *heap_block_from_payload(const void *ptr)
+{
+    if (!heap_base || !heap_end || !ptr)
+        return NULL;
+
+    uintptr_t address = (uintptr_t)ptr;
+    uintptr_t base = (uintptr_t)heap_base;
+    uintptr_t end = (uintptr_t)heap_end;
+    if (address < base + sizeof(blk_hdr_t) || address >= end)
+        return NULL;
+
+    uintptr_t header_address = address - sizeof(blk_hdr_t);
+    if (header_address < base ||
+        ((header_address - base) & (HEAP_ALIGN - 1)) != 0)
+        return NULL;
+
+    if (end - header_address < BLK_OVERHEAD)
+        return NULL;
+
+    blk_hdr_t *b = (blk_hdr_t *)header_address;
+    if (!b->used || b->size < HEAP_MIN_BLOCK ||
+        b->size > end - header_address - BLK_OVERHEAD)
+        return NULL;
+    if ((b->size & (HEAP_ALIGN - 1)) != 0 ||
+        *blk_footer(b) != b->size)
+        return NULL;
+
+    return b;
+}
+
 static void fl_insert(blk_hdr_t *b)
 {
     int c = size_class(b->size);
@@ -346,13 +378,24 @@ void free_page(uint64_t addr)
 
 void free_pages(uint64_t addr, size_t count)
 {
-    if (!pmm_bitmap || addr < memory_base || addr >= memory_top)
+    if (!pmm_bitmap || addr < memory_base || addr >= memory_top ||
+        ((addr - memory_base) & (PAGE_SIZE - 1)) != 0 || count == 0)
     {
         return;
     }
     spinlock_acquire(&pmm_lock);
 
     uint64_t page_idx = (addr - memory_base) / PAGE_SIZE;
+    if (page_idx >= total_pages)
+    {
+        spinlock_release(&pmm_lock);
+        return;
+    }
+    if (count > total_pages - page_idx)
+    {
+        spinlock_release(&pmm_lock);
+        return;
+    }
 
     for (size_t i = 0; i < count; i++)
     {
@@ -416,6 +459,9 @@ void *kmalloc(size_t size)
     if (!heap_base || size == 0)
         return NULL;
 
+    /* Prevent wraparound before rounding the request up to alignment. */
+    if (size > SIZE_MAX - (HEAP_ALIGN - 1))
+        return NULL;
     size = (size + HEAP_ALIGN - 1) & ~(size_t)(HEAP_ALIGN - 1);
     if (size < HEAP_MIN_BLOCK)
         size = HEAP_MIN_BLOCK;
@@ -458,12 +504,17 @@ void *kmalloc(size_t size)
 
 void kfree(void *ptr)
 {
-    if (!ptr)
+    if (!ptr || !heap_base)
         return;
 
     spinlock_acquire(&heap_lock);
 
-    blk_hdr_t *b = (blk_hdr_t *)((uint8_t *)ptr - sizeof(blk_hdr_t));
+    blk_hdr_t *b = heap_block_from_payload(ptr);
+    if (!b) {
+        spinlock_release(&heap_lock);
+        return;
+    }
+
     b->used = 0;
     b = coalesce(b);
     fl_insert(b);
@@ -479,17 +530,25 @@ void *krealloc(void *ptr, size_t size)
         kfree(ptr);
         return NULL;
     }
+    if (size > SIZE_MAX - (HEAP_ALIGN - 1))
+        return NULL;
 
-    blk_hdr_t *b = (blk_hdr_t *)((uint8_t *)ptr - sizeof(blk_hdr_t));
+    spinlock_acquire(&heap_lock);
+    blk_hdr_t *b = heap_block_from_payload(ptr);
+    if (!b) {
+        spinlock_release(&heap_lock);
+        return NULL;
+    }
+    size_t old_size = b->size;
     size_t aligned = (size + HEAP_ALIGN - 1) & ~(size_t)(HEAP_ALIGN - 1);
+    spinlock_release(&heap_lock);
 
-    if (b->size >= aligned)
+    if (old_size >= aligned)
         return ptr;
 
     void *new_mem = kmalloc(size);
     if (new_mem) {
-        size_t copy_size = b->size < aligned ? b->size : aligned;
-        memcpy(new_mem, ptr, copy_size);
+        memcpy(new_mem, ptr, old_size);
         kfree(ptr);
     }
     return new_mem;
@@ -526,67 +585,153 @@ page_table_t *create_page_directory(void)
     return pml4;
 }
 
+static int page_table_is_empty(const page_table_t *table);
+
 void map_page(page_table_t *pml4, uint64_t virt, uint64_t phys, uint64_t flags)
 {
+    if (!pml4 || !phys)
+        return;
+
+    /* User page tables share their upper-half kernel mappings. Never allow a
+     * PAGE_USER leaf there: it would modify shared kernel page-table trees. */
+    if ((flags & PAGE_USER) && virt >= 0x0000800000000000ULL)
+        return;
+
     uint64_t pml4_idx = get_pml4_index(virt);
     uint64_t pdpt_idx = get_pdpt_index(virt);
     uint64_t pd_idx = get_pd_index(virt);
     uint64_t pt_idx = get_pt_index(virt);
 
+    int created_pdpt = 0;
+    int created_pd = 0;
+    uint64_t pdpt_phys = 0;
+    uint64_t pd_phys = 0;
+    uint64_t pt_phys = 0;
+    page_table_t *pdpt = NULL;
+    page_table_t *pd = NULL;
+
     if (!(pml4->entries[pml4_idx] & PAGE_PRESENT))
     {
-        uint64_t pdpt_phys = alloc_page();
+        pdpt_phys = alloc_page();
         if (!pdpt_phys)
             return;
-        page_table_t *pdpt = (page_table_t *)(pdpt_phys + KERNEL_VIRT_OFFSET);
+        pdpt = (page_table_t *)(pdpt_phys + KERNEL_VIRT_OFFSET);
         memset(pdpt, 0, PAGE_SIZE);
         pml4->entries[pml4_idx] = pdpt_phys | PAGE_PRESENT | PAGE_WRITABLE | (flags & PAGE_USER);
+        created_pdpt = 1;
     }
-    else if (flags & PAGE_USER)
+    else
     {
-        pml4->entries[pml4_idx] |= PAGE_USER;
+        pdpt = (page_table_t *)((pml4->entries[pml4_idx] & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+        if (flags & PAGE_USER)
+            pml4->entries[pml4_idx] |= PAGE_USER;
     }
-    page_table_t *pdpt = (page_table_t *)((pml4->entries[pml4_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
-    if (!(pdpt->entries[pdpt_idx] & PAGE_PRESENT))
+
+    if (pdpt->entries[pdpt_idx] & PAGE_PRESENT)
     {
-        uint64_t pd_phys = alloc_page();
+        if (pdpt->entries[pdpt_idx] & (1ULL << 7))
+        {
+            /* Split a 1 GiB mapping into 512 equivalent 2 MiB mappings. */
+            uint64_t large = pdpt->entries[pdpt_idx];
+            pd_phys = alloc_page();
+            if (!pd_phys)
+                goto fail;
+            pd = (page_table_t *)(pd_phys + KERNEL_VIRT_OFFSET);
+            uint64_t base = large & 0x000FFFFFC0000000ULL;
+            uint64_t leaf_flags = large & 0x8000000000000FFFULL;
+            if (large & (1ULL << 12))
+                leaf_flags |= (1ULL << 12); /* Preserve large-page PAT. */
+            for (size_t i = 0; i < 512; i++)
+                pd->entries[i] = (base + (uint64_t)i * 0x200000ULL) | leaf_flags;
+
+            uint64_t parent_flags = large & 0x8000000000000FFFULL;
+            parent_flags &= ~(1ULL << 7);
+            pdpt->entries[pdpt_idx] = pd_phys | parent_flags;
+            /* Keep this populated split table even if a later PT allocation fails. */
+        }
+        else
+        {
+            pd = (page_table_t *)((pdpt->entries[pdpt_idx] & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+            if (flags & PAGE_USER)
+                pdpt->entries[pdpt_idx] |= PAGE_USER;
+        }
+    }
+    else
+    {
+        pd_phys = alloc_page();
         if (!pd_phys)
-            return;
-        page_table_t *pd = (page_table_t *)(pd_phys + KERNEL_VIRT_OFFSET);
+            goto fail;
+        pd = (page_table_t *)(pd_phys + KERNEL_VIRT_OFFSET);
         memset(pd, 0, PAGE_SIZE);
         pdpt->entries[pdpt_idx] = pd_phys | PAGE_PRESENT | PAGE_WRITABLE | (flags & PAGE_USER);
+        created_pd = 1;
     }
-    else if (flags & PAGE_USER)
-    {
+
+    if (flags & PAGE_USER)
         pdpt->entries[pdpt_idx] |= PAGE_USER;
-    }
-    page_table_t *pd = (page_table_t *)((pdpt->entries[pdpt_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
-    if (!(pd->entries[pd_idx] & PAGE_PRESENT))
+
+    page_table_t *pt;
+    if (pd->entries[pd_idx] & PAGE_PRESENT)
     {
-        uint64_t pt_phys = alloc_page();
+        if (pd->entries[pd_idx] & (1ULL << 7))
+        {
+            /*
+             * Split a 2 MiB mapping before replacing one 4 KiB page.
+             * Preserve the other 511 mappings and their supervisor/user
+             * permissions; only the requested leaf receives new flags.
+             */
+            uint64_t large = pd->entries[pd_idx];
+            pt_phys = alloc_page();
+            if (!pt_phys)
+                goto fail;
+            pt = (page_table_t *)(pt_phys + KERNEL_VIRT_OFFSET);
+            uint64_t base = large & 0x000FFFFFFFE00000ULL;
+            uint64_t leaf_flags = large & 0x8000000000000FFFULL;
+            leaf_flags &= ~(1ULL << 7); /* PDE.PS is not PTE.PAT. */
+            if (large & (1ULL << 12))
+                leaf_flags |= (1ULL << 7); /* Translate large-page PAT. */
+            for (size_t i = 0; i < 512; i++)
+                pt->entries[i] = (base + (uint64_t)i * PAGE_SIZE) | leaf_flags;
+
+            uint64_t parent_flags = large & 0x8000000000000FFFULL;
+            parent_flags &= ~(1ULL << 7);
+            pd->entries[pd_idx] = pt_phys | parent_flags;
+        }
+        else
+        {
+            if (flags & PAGE_USER)
+                pd->entries[pd_idx] |= PAGE_USER;
+            pt = (page_table_t *)((pd->entries[pd_idx] & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+        }
+    }
+    else
+    {
+        pt_phys = alloc_page();
         if (!pt_phys)
-            return;
-        page_table_t *pt = (page_table_t *)(pt_phys + KERNEL_VIRT_OFFSET);
+            goto fail;
+        pt = (page_table_t *)(pt_phys + KERNEL_VIRT_OFFSET);
         memset(pt, 0, PAGE_SIZE);
         pd->entries[pd_idx] = pt_phys | PAGE_PRESENT | PAGE_WRITABLE | (flags & PAGE_USER);
     }
-    else if (flags & PAGE_USER)
-    {
-            if (pd->entries[pd_idx] & (1ULL << 7)) {
-                uint64_t pt_phys = alloc_page();
-                if (!pt_phys)
-                    return;
-                page_table_t *pt = (page_table_t *)(pt_phys + KERNEL_VIRT_OFFSET);
-                memset(pt, 0, PAGE_SIZE);
-                pd->entries[pd_idx] = pt_phys | PAGE_PRESENT | PAGE_WRITABLE | PAGE_USER;
-            } else {
-                pd->entries[pd_idx] |= PAGE_USER;
-            }
-    }
 
-    page_table_t *pt = (page_table_t *)((pd->entries[pd_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
-    pt->entries[pt_idx] = (phys & 0x000FFFFFFFFFF000) | (flags & 0x8000000000000FFF);
+    if (flags & PAGE_USER)
+        pd->entries[pd_idx] |= PAGE_USER;
+    pt->entries[pt_idx] = (phys & 0x000FFFFFFFFFF000ULL) | (flags & 0x8000000000000FFFULL);
     __asm__ volatile("invlpg (%0)" : : "r"(virt) : "memory");
+    return;
+
+fail:
+    /* Roll back only page-table pages allocated by this invocation. */
+    if (created_pd)
+    {
+        pdpt->entries[pdpt_idx] = 0;
+        free_page(pd_phys);
+    }
+    if (created_pdpt && page_table_is_empty(pdpt))
+    {
+        pml4->entries[pml4_idx] = 0;
+        free_page(pdpt_phys);
+    }
 }
 
 int protect_page(page_table_t *pml4, uint64_t virt, uint64_t flags)
@@ -647,27 +792,68 @@ uint64_t virt_to_phys(page_table_t *pml4, uint64_t virt) {
     return (pt->entries[pt_idx] & 0xFFFFFFFFFFFFF000) + (virt & 0xFFF);
 }
 
+static int page_table_is_empty(const page_table_t *table)
+{
+    if (!table)
+        return 1;
+
+    for (size_t i = 0; i < 512; i++)
+    {
+        if (table->entries[i] != 0)
+            return 0;
+    }
+
+    return 1;
+}
+
 void unmap_page(page_table_t *pml4, uint64_t virt)
 {
+    if (!pml4)
+        return;
+
     uint64_t pml4_idx = get_pml4_index(virt);
     uint64_t pdpt_idx = get_pdpt_index(virt);
     uint64_t pd_idx = get_pd_index(virt);
     uint64_t pt_idx = get_pt_index(virt);
 
-    if (!(pml4->entries[pml4_idx] & PAGE_PRESENT))
+    uint64_t pml4e = pml4->entries[pml4_idx];
+    if (!(pml4e & PAGE_PRESENT))
         return;
-    page_table_t *pdpt = (page_table_t *)((pml4->entries[pml4_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
 
-    if (!(pdpt->entries[pdpt_idx] & PAGE_PRESENT))
+    page_table_t *pdpt = (page_table_t *)((pml4e & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+    uint64_t pdpte = pdpt->entries[pdpt_idx];
+    if (!(pdpte & PAGE_PRESENT) || (pdpte & (1ULL << 7)))
         return;
-    page_table_t *pd = (page_table_t *)((pdpt->entries[pdpt_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
 
-    if (!(pd->entries[pd_idx] & PAGE_PRESENT))
+    page_table_t *pd = (page_table_t *)((pdpte & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+    uint64_t pde = pd->entries[pd_idx];
+    if (!(pde & PAGE_PRESENT) || (pde & (1ULL << 7)))
         return;
-    page_table_t *pt = (page_table_t *)((pd->entries[pd_idx] & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
+
+    page_table_t *pt = (page_table_t *)((pde & 0xFFFFFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+    if (!(pt->entries[pt_idx] & PAGE_PRESENT))
+        return;
 
     pt->entries[pt_idx] = 0;
     __asm__ volatile("invlpg (%0)" : : "r"(virt) : "memory");
+
+    if (!page_table_is_empty(pt))
+        return;
+
+    pd->entries[pd_idx] = 0;
+    free_page((uint64_t)pt - KERNEL_VIRT_OFFSET);
+
+    if (!page_table_is_empty(pd))
+        return;
+
+    pdpt->entries[pdpt_idx] = 0;
+    free_page((uint64_t)pd - KERNEL_VIRT_OFFSET);
+
+    if (!page_table_is_empty(pdpt))
+        return;
+
+    pml4->entries[pml4_idx] = 0;
+    free_page((uint64_t)pdpt - KERNEL_VIRT_OFFSET);
 }
 
 page_table_t *clone_page_directory(page_table_t *src)
@@ -777,18 +963,20 @@ void free_user_pages(page_table_t *pml4)
         for (int pdpt_idx = 0; pdpt_idx < 512; pdpt_idx++)
         {
             uint64_t pdpte = pdpt->entries[pdpt_idx];
-            if (!(pdpte & PAGE_PRESENT) || !(pdpte & PAGE_USER) || (pdpte & (1ULL << 7)))
-                continue;
+            if (!(pdpte & PAGE_PRESENT) || !(pdpte & PAGE_USER) ||
+                (pdpte & (1ULL << 7)))
+                continue; /* Large mappings may reference non-owned physical memory. */
 
-            page_table_t *pd = (page_table_t *)((pdpte & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
+            page_table_t *pd = (page_table_t *)((pdpte & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
 
             for (int pd_idx = 0; pd_idx < 512; pd_idx++)
             {
                 uint64_t pde = pd->entries[pd_idx];
-                if (!(pde & PAGE_PRESENT) || !(pde & PAGE_USER) || (pde & (1ULL << 7)))
-                    continue;
+                if (!(pde & PAGE_PRESENT) || !(pde & PAGE_USER) ||
+                    (pde & (1ULL << 7)))
+                    continue; /* Large mappings may reference non-owned physical memory. */
 
-                page_table_t *pt = (page_table_t *)((pde & 0xFFFFFFFFFFFFF000) + KERNEL_VIRT_OFFSET);
+                page_table_t *pt = (page_table_t *)((pde & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
 
                 for (int pt_idx = 0; pt_idx < 512; pt_idx++)
                 {

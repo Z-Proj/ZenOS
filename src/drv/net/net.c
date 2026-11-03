@@ -18,6 +18,7 @@
 #include "../../libk/core/mem.h"
 #include "../../libk/string.h"
 #include "../../libk/debug/log.h"
+#include "../../libk/spinlock.h"
 
 #define DNS_LOCAL_PORT 53000
 static void udp_dns_handle(const uint8_t *payload, size_t len);
@@ -26,6 +27,9 @@ static uint8_t my_ip[4] = {10, 0, 2, 15};
 static uint8_t my_gw[4] = {10, 0, 2, 2};
 static uint8_t my_mac[6] = {0};
 static uint8_t bcast_mac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+static spinlock_t arp_lock;
+static volatile uint32_t net_poll_active;
 
 void net_set_ip(const uint8_t ip[4], const uint8_t gw[4])
 {
@@ -44,12 +48,13 @@ static arp_entry_t arp_cache[ARP_CACHE_SIZE];
 
 static void arp_cache_put(const uint8_t ip[4], const uint8_t mac[6])
 {
-
+    uint64_t flags = spinlock_acquire_irqsave(&arp_lock);
     for (int i = 0; i < ARP_CACHE_SIZE; i++)
     {
         if (arp_cache[i].valid && memcmp(arp_cache[i].ip, ip, 4) == 0)
         {
             memcpy(arp_cache[i].mac, mac, 6);
+            spinlock_release_irqrestore(&arp_lock, flags);
             return;
         }
     }
@@ -61,29 +66,33 @@ static void arp_cache_put(const uint8_t ip[4], const uint8_t mac[6])
             memcpy(arp_cache[i].ip, ip, 4);
             memcpy(arp_cache[i].mac, mac, 6);
             arp_cache[i].valid = true;
+            spinlock_release_irqrestore(&arp_lock, flags);
             return;
         }
     }
+    spinlock_release_irqrestore(&arp_lock, flags);
 }
 
 static bool arp_cache_get(const uint8_t ip[4], uint8_t mac_out[6])
 {
+    uint64_t flags = spinlock_acquire_irqsave(&arp_lock);
     for (int i = 0; i < ARP_CACHE_SIZE; i++)
     {
         if (arp_cache[i].valid && memcmp(arp_cache[i].ip, ip, 4) == 0)
         {
             memcpy(mac_out, arp_cache[i].mac, 6);
+            spinlock_release_irqrestore(&arp_lock, flags);
             return true;
         }
     }
+    spinlock_release_irqrestore(&arp_lock, flags);
     return false;
 }
-
-static uint8_t tx_scratch[2048];
 
 static int eth_send(const uint8_t dst_mac[6], uint16_t ethertype,
                     const void *payload, size_t payload_len)
 {
+    uint8_t tx_scratch[2048];
     if (payload_len + sizeof(eth_frame_t) > sizeof(tx_scratch))
         return -1;
     eth_frame_t *eth = (eth_frame_t *)tx_scratch;
@@ -297,7 +306,15 @@ static void tcp_handle(const uint8_t src_ip[4], const tcp_header_t *tcp,
     uint32_t seq = ntohl(tcp->seq);
     uint32_t ack_num = ntohl(tcp->ack);
     uint8_t flags = tcp->flags;
-    size_t hdr_len = (tcp->data_off >> 4) * 4;
+    /*
+     * The IP layer guarantees that the fixed TCP header is present. Validate
+     * the variable-length TCP header before subtracting its size or reading
+     * any TCP options/payload.
+     */
+    size_t hdr_len = (size_t)(tcp->data_off >> 4) * 4;
+    if (hdr_len < sizeof(tcp_header_t) || hdr_len > total_ip_payload_len)
+        return;
+
     size_t data_len = total_ip_payload_len - hdr_len;
     const uint8_t *data = (const uint8_t *)tcp + hdr_len;
 
@@ -340,6 +357,13 @@ static void tcp_handle(const uint8_t src_ip[4], const tcp_header_t *tcp,
 
         if (data_len > 0)
         {
+            /* Accept only in-order data. For duplicates or gaps, repeat the
+             * current ACK rather than corrupting the receive sequence. */
+            if (seq != c->ack) {
+                tcp_send_seg(c, TCP_FLAG_ACK, NULL, 0);
+                break;
+            }
+
             uint32_t free_space = TCP_RX_BUF_SIZE - c->rx_avail;
             size_t to_copy = data_len < free_space ? data_len : free_space;
             for (size_t i = 0; i < to_copy; i++)
@@ -347,15 +371,26 @@ static void tcp_handle(const uint8_t src_ip[4], const tcp_header_t *tcp,
                 c->rx_buf[c->rx_tail] = data[i];
                 c->rx_tail = (c->rx_tail + 1) % TCP_RX_BUF_SIZE;
             }
-            c->rx_avail += to_copy;
-            c->ack = seq + (uint32_t)data_len;
+            c->rx_avail += (uint32_t)to_copy;
 
+            /* Never ACK bytes that did not fit in the receive buffer. The
+             * sender can retransmit the unaccepted suffix after space frees. */
+            c->ack = seq + (uint32_t)to_copy;
             tcp_send_seg(c, TCP_FLAG_ACK, NULL, 0);
+
+            /* A FIN follows the complete data payload, not the truncated
+             * prefix. Leave it unacknowledged until all preceding bytes fit. */
+            if (to_copy != data_len)
+                break;
         }
         if (flags & TCP_FLAG_FIN)
         {
+            if (seq + (uint32_t)data_len != c->ack) {
+                tcp_send_seg(c, TCP_FLAG_ACK, NULL, 0);
+                break;
+            }
 
-            c->ack = seq + (uint32_t)data_len + 1;
+            c->ack++;
             c->fin_received = true;
             tcp_send_seg(c, TCP_FLAG_ACK, NULL, 0);
             if (c->state == TCP_STATE_FIN_WAIT)
@@ -372,17 +407,32 @@ static void tcp_handle(const uint8_t src_ip[4], const tcp_header_t *tcp,
 
 static void ip_handle(const uint8_t *pkt, size_t len)
 {
-    if (len < sizeof(ip_header_t))
+    if (!pkt || len < sizeof(ip_header_t))
         return;
+
     const ip_header_t *ip = (const ip_header_t *)pkt;
     if ((ip->ver_ihl >> 4) != 4)
         return;
-    if (memcmp(ip->dst, my_ip, 4) != 0)
+
+    /* IHL is measured in 32-bit words and must include the fixed header. */
+    size_t ip_hdr_len = (size_t)(ip->ver_ihl & 0x0F) * 4;
+    if (ip_hdr_len < sizeof(ip_header_t) || ip_hdr_len > len)
         return;
 
-    size_t ip_hdr_len = (ip->ver_ihl & 0xF) * 4;
     size_t total = ntohs(ip->total_len);
-    if (total > len)
+    if (total < ip_hdr_len || total > len)
+        return;
+
+    /* This stack has no IP fragment reassembly; drop fragmented datagrams. */
+    uint16_t frag = ntohs(ip->flags_frag);
+    if (frag & 0x3FFF)
+        return;
+
+    /* Reject corrupt IPv4 headers, including any options covered by IHL. */
+    if (ip_checksum(pkt, ip_hdr_len) != 0)
+        return;
+
+    if (memcmp(ip->dst, my_ip, 4) != 0)
         return;
 
     const uint8_t *payload = pkt + ip_hdr_len;
@@ -399,11 +449,15 @@ static void ip_handle(const uint8_t *pkt, size_t len)
         if (payload_len < sizeof(udp_header_t))
             return;
         const udp_header_t *udph = (const udp_header_t *)payload;
+        size_t udp_len = ntohs(udph->length);
+        if (udp_len < sizeof(udp_header_t) || udp_len > payload_len)
+            return;
+
         uint16_t dst_port = ntohs(udph->dst_port);
         if (dst_port == DNS_LOCAL_PORT)
         {
             udp_dns_handle(payload + sizeof(udp_header_t),
-                           payload_len - sizeof(udp_header_t));
+                           udp_len - sizeof(udp_header_t));
         }
     }
 }
@@ -425,10 +479,13 @@ static void arp_handle(const uint8_t *pkt, size_t len)
     }
 }
 
-static uint8_t rx_scratch[2048];
-
 void net_poll(void)
 {
+    /* A single consumer owns protocol state and the RX descriptor stream.
+     * Interrupts or nested protocol callbacks may safely request another poll. */
+    if (__atomic_exchange_n(&net_poll_active, 1, __ATOMIC_ACQUIRE))
+        return;
+    uint8_t rx_scratch[2048];
     int got;
     while ((got = e1000_receive_packet(rx_scratch, sizeof(rx_scratch))) > 0)
     {
@@ -444,6 +501,7 @@ void net_poll(void)
         else if (et == ETH_TYPE_IP)
             ip_handle(payload, payload_len);
     }
+    __atomic_store_n(&net_poll_active, 0, __ATOMIC_RELEASE);
 }
 
 static int udp_send(const uint8_t dst_ip[4], uint16_t src_port,
@@ -689,8 +747,13 @@ int dns_resolve(const char *hostname, uint8_t ip_out[4])
 
 void net_init(void)
 {
+    /* Both globals are live before the NIC enables interrupts. Do not reset
+     * the poll guard here, and clear ARP state under its lock because early
+     * RX interrupts may already have populated the cache. */
     memset(conns, 0, sizeof(conns));
+    uint64_t flags = spinlock_acquire_irqsave(&arp_lock);
     memset(arp_cache, 0, sizeof(arp_cache));
+    spinlock_release_irqrestore(&arp_lock, flags);
     e1000_get_mac_address(my_mac);
     log("net: MAC %02x:%02x:%02x:%02x:%02x:%02x  IP %d.%d.%d.%d",
         1, 0,

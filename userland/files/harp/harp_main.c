@@ -906,14 +906,53 @@ static void poll_ipc(void)
     uint32_t got = 0;
     while (socket_available(ev_sock) >= sizeof(msg))
     {
-        socket_read(ev_sock, &msg, sizeof(msg), &got);
-        if (got < sizeof(msg))
+        got = 0;
+        if (socket_read(ev_sock, &msg, sizeof(msg), &got) < 0 || got < sizeof(msg))
             break;
 
         if (msg.type == WM_MSG_REGISTER)
         {
-            if (msg.w <= 0 || msg.h <= 0)
+            /* A PID owns exactly one window. Ignore duplicate registrations. */
+            int duplicate = 0;
+            for (int i = 0; i < MAX_WINDOWS; i++)
+                if (windows[i].active && windows[i].pid == msg.pid)
+                {
+                    duplicate = 1;
+                    break;
+                }
+            if (duplicate || !msg.pid || msg.w <= 0 || msg.h <= 0 ||
+                msg.w > 8192 || msg.h > 8192 ||
+                msg.w > (int)SCR_W || msg.h > (int)SCR_H)
                 continue;
+
+            uint64_t pixels = (uint64_t)(uint32_t)msg.w * (uint64_t)(uint32_t)msg.h;
+            if (pixels > UINT64_MAX / 8)
+                continue;
+            uint64_t required_size = pixels * 8; /* two 32-bit buffers */
+            if (required_size > 128ULL * 1024 * 1024)
+                continue; /* Bound per-window shared memory use. */
+
+            shm_info_t si;
+            memset(&si, 0, sizeof(si));
+            char shmname[32], evname[32];
+            snprintf(shmname, sizeof(shmname), "wm:shm_%u", msg.pid);
+            snprintf(evname, sizeof(evname), "wm:ev_%u", msg.pid);
+
+            int shm_opened = zen_shm_open(shmname, &si);
+            if (shm_opened < 0 || !si.addr || si.size < required_size)
+            {
+                if (shm_opened == 0)
+                    zen_shm_close(shmname);
+                continue;
+            }
+
+            socket_file_t *events = NULL;
+            if (socket_open(evname, &events) < 0 || !events)
+            {
+                zen_shm_close(shmname);
+                continue;
+            }
+
             int slot = -1;
             for (int i = 0; i < MAX_WINDOWS; i++)
                 if (!windows[i].active)
@@ -922,7 +961,12 @@ static void poll_ipc(void)
                     break;
                 }
             if (slot < 0)
+            {
+                socket_close(events);
+                zen_shm_close(shmname);
                 continue;
+            }
+
             window_t *w = &windows[slot];
             memset(w, 0, sizeof(*w));
             w->active = 1;
@@ -933,15 +977,11 @@ static void poll_ipc(void)
             w->h = msg.h;
             strncpy(w->title, msg.title, 63);
             w->title[63] = 0;
-            snprintf(w->shmname, sizeof(w->shmname), "wm:shm_%u", msg.pid);
-            snprintf(w->evname, sizeof(w->evname), "wm:ev_%u", msg.pid);
-            shm_info_t si;
-
-            if (zen_shm_open(w->shmname, &si) == 0 && si.addr &&
-                si.size >= (uint64_t)(msg.w * msg.h * 4) * 2)
-                w->shmbuf = (uint8_t *)si.addr;
+            strncpy(w->shmname, shmname, sizeof(w->shmname) - 1);
+            strncpy(w->evname, evname, sizeof(w->evname) - 1);
+            w->shmbuf = (uint8_t *)si.addr;
+            w->evsock = events;
             w->read_index = 0;
-            socket_open(w->evname, &w->evsock);
             w->dirty_valid = 0;
             clamp_window(w);
             z_raise(slot);
@@ -954,6 +994,8 @@ static void poll_ipc(void)
             {
                 if (!windows[i].active || windows[i].pid != msg.pid)
                     continue;
+                if (msg.buf_index > 1)
+                    break;
                 windows[i].read_index = msg.buf_index;
                 mark_window_dirty(&windows[i], msg.x, msg.y, msg.w, msg.h);
                 request_window_redraw(i, 0);
@@ -990,13 +1032,9 @@ static void poll_ipc(void)
                 if (!windows[i].active || windows[i].pid != msg.pid)
                     continue;
                 if (msg.x && focused_win == i)
-                {
                     captured_win = i;
-                }
                 else if (captured_win == i)
-                {
                     captured_win = -1;
-                }
                 break;
             }
         }
@@ -1014,33 +1052,35 @@ static void poll_ipc(void)
     }
 }
 
-static int task_alive(uint32_t pid)
+static void reap_dead_windows(void)
 {
     task_info_t infos[TASK_SNAPSHOT_MAX];
     int count = zen_list_tasks(infos, TASK_SNAPSHOT_MAX);
-
+    /* HARP itself must appear in a successful task snapshot. Treat an
+     * empty result as a failed snapshot, not as proof every window is dead. */
     if (count <= 0)
-        return 0;
+        return;
+    if (count > TASK_SNAPSHOT_MAX)
+        count = TASK_SNAPSHOT_MAX;
 
-    for (int i = 0; i < count; i++)
-    {
-        if (infos[i].pid == pid)
-            return 1;
-    }
-
-    return 0;
-}
-
-static void reap_dead_windows(void)
-{
     int changed = 0;
-
     for (int i = 0; i < MAX_WINDOWS; i++)
     {
         if (!windows[i].active)
             continue;
-        if (task_alive(windows[i].pid))
+
+        int alive = 0;
+        for (int j = 0; j < count; j++)
+        {
+            if (infos[j].pid == windows[i].pid)
+            {
+                alive = 1;
+                break;
+            }
+        }
+        if (alive)
             continue;
+
         wm_close_window(i);
         changed = 1;
     }
@@ -1146,7 +1186,6 @@ int main(int argc, char *argv[])
 
     while (1)
     {
-        reap_spawned_children();
         poll_ipc();
         input_pump_keyboard();
         input_pump_mouse();
@@ -1341,8 +1380,13 @@ int main(int argc, char *argv[])
         if (++reap_tick >= 64)
         {
             reap_tick = 0;
+            reap_spawned_children();
             reap_dead_windows();
         }
+
+        /* Polling is nonblocking, so yield alone still burns a full CPU.
+         * A short sleep bounds idle polling while keeping input responsive. */
+        zen_sleep_ms(2);
     }
     return 0;
 }

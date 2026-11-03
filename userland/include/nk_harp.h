@@ -438,6 +438,8 @@ static nk_harp_t *nk_harp_init(const char *title, int x, int y, int w, int h,
     nh->font = font_load(font_path);
     if (!nh->font)
     {
+        free(nh->backbuf);
+        nh->backbuf = NULL;
         harp_close(nh->win);
         free(nh);
         return NULL;

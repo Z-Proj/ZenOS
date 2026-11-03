@@ -46,20 +46,20 @@
 #define LAUNCH_BASELINE(y) ((y) + LAUNCH_FONT_SIZE + 1)
 #define TITLEBAR_H   28
 #define WIN_R         12
-#define DASH_H       36
-#define DASH_MARGIN   8
-#define DASH_GAP      8
-#define DASH_PAD     10
-#define DASH_R       10
-#define LAUNCH_PAD    6
-#define LAUNCH_ICON  24
-#define LAUNCH_GAP    6
-#define LAUNCH_R      7
-#define BTN_H        24
-#define BTN_W        96
-#define BTN_R         6
-#define BTN_GAP       6
-#define LEFT_W      120
+#define DASH_H       56
+#define DASH_MARGIN  12
+#define DASH_GAP     10
+#define DASH_PAD     14
+#define DASH_R       16
+#define LAUNCH_PAD    8
+#define LAUNCH_ICON  40
+#define LAUNCH_GAP    8
+#define LAUNCH_R      10
+#define BTN_H        38
+#define BTN_W       112
+#define BTN_R         9
+#define BTN_GAP      10
+#define LEFT_W      144
 
 #define C_BG         0xFF0E0E0E
 #define C_DASH       0xFF0A0A0A
@@ -230,6 +230,7 @@ void bb_rrect_alpha(int x, int y, int w, int h, int r, uint32_t c, uint32_t a)
         blend_span(s_backbuf + ay * SCR_W + x0, x1 - x0, src_color);
     }
 }
+
 
 void bb_rrect_outline(int x, int y, int w, int h, int r, uint32_t c)
 {
@@ -495,7 +496,7 @@ void draw_window(int idx, int full_frame)
     int fx = w->x, fy = w->y, fw = w->w, fh = w->h + TITLEBAR_H;
     if (fx >= (int)SCR_W || fy >= (int)SCR_H || fx + fw <= 0 || fy + fh <= 0) return;
 
-    uint32_t *src_buf = (uint32_t *)w->shmbuf + (size_t)w->read_index * (size_t)w->w * (size_t)w->h;
+    uint32_t *src_buf = w->shmbuf ? (uint32_t *)w->shmbuf + (size_t)w->read_index * (size_t)w->w * (size_t)w->h : NULL;
 
     int use_partial = !full_frame && w->dirty_valid;
     if (use_partial && !w->shmbuf)
@@ -532,6 +533,7 @@ void draw_window(int idx, int full_frame)
     uint32_t tc = focused ? C_TITLEBAR_F : C_TITLEBAR;
 
     bb_rrect_alpha_top(fx, fy, fw, TITLEBAR_H, WIN_R, tc, 150);
+
     uint32_t corner_save[WIN_R * WIN_R * 2];
     int cs_idx = 0;
     for (int row = 0; row < WIN_R; row++) {
@@ -577,12 +579,19 @@ void draw_window(int idx, int full_frame)
             cs_idx++;
         }
     }
+
     char lbl[48];
     __builtin_strncpy(lbl, w->title, 47); lbl[47] = 0;
     int tw = text_w(lbl);
     int lx = fx + (fw - tw) / 2;
     if (lx < fx + 4) lx = fx + 4;
-    uint32_t title_bg = s_backbuf[(fy + TITLEBAR_H/2) * SCR_W + fx + fw/2];
+    int title_x = fx + fw / 2;
+    int title_y = fy + TITLEBAR_H / 2;
+    if (title_x < 0) title_x = 0;
+    if (title_x >= (int)SCR_W) title_x = (int)SCR_W - 1;
+    if (title_y < 0) title_y = 0;
+    if (title_y >= (int)SCR_H) title_y = (int)SCR_H - 1;
+    uint32_t title_bg = s_backbuf[(size_t)title_y * SCR_W + (size_t)title_x];
     bb_text(lx, BASELINE(fy + 5), focused ? C_TITLE_ACT : C_TITLE_DIM, title_bg, lbl);
 
     int br = 10;
@@ -647,6 +656,7 @@ void draw_dash(void)
     if (screenshot_dash_layout(&shot_x, &shot_y, &shot_w)) {
         dash_blit_backdrop(shot_x, shot_w);
         bb_rrect_alpha(shot_x, shot_y, shot_w, DASH_H, DASH_R, C_DASH, TILE_ALPHA);
+
         int ix = shot_x + LAUNCH_PAD;
         int iy = shot_y + (DASH_H - LAUNCH_ICON) / 2;
         draw_plus_icon(ix, iy, LAUNCH_ICON);
@@ -657,6 +667,7 @@ void draw_dash(void)
     if (power_dash_layout(&power_x, &power_y, &power_w)) {
         dash_blit_backdrop(power_x, power_w);
         bb_rrect_alpha(power_x, power_y, power_w, DASH_H, DASH_R, C_DASH, TILE_ALPHA);
+
         int ix = power_x + LAUNCH_PAD;
         int iy = power_y + (DASH_H - LAUNCH_ICON) / 2;
         draw_power_icon(ix, iy, LAUNCH_ICON);
@@ -667,6 +678,7 @@ void draw_dash(void)
     if (launcher_dash_layout(&launch_x, &launch_y, &launch_w)) {
         dash_blit_backdrop(launch_x, launch_w);
         bb_rrect_alpha(launch_x, launch_y, launch_w, DASH_H, DASH_R, C_DASH, TILE_ALPHA);
+
         int ix = launch_x + LAUNCH_PAD;
         int iy = launch_y + (DASH_H - LAUNCH_ICON) / 2;
         for (int i = 0; i < launcher_app_count; i++) {

@@ -36,6 +36,7 @@ typedef enum
     TASK_READY,
     TASK_RUNNING,
     TASK_BLOCKED,
+    TASK_STOPPED,
     TASK_DEAD
 } task_state_t;
 
@@ -49,6 +50,7 @@ typedef struct task
     uint64_t user_stack;
     uint64_t stack_size;
     uint64_t time_slice_remaining;
+    uint64_t sleep_deadline_ns;
     int is_kernel_task;
     int is_idle_task;
     uint8_t owns_user_pages;
@@ -70,6 +72,7 @@ typedef struct task
     uint64_t last_userspace_fault;
 
     uint64_t futex_wait_addr;
+    page_table_t *futex_wait_pml4;
     int futex_woken;
     zen_sigaction_t sighandlers[NSIG];
     uint64_t sig_pending;
@@ -91,7 +94,9 @@ void sched_ap_entry(void);
 task_t *task_create(void (*entry)(void), const char *name);
 task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp);
 task_t *task_create_user_from_parent(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp, task_t *parent);
+task_t *task_create_user_from_parent_stdio(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp, task_t *parent, int stdio_fd, int close_fd);
 void sched_yield(void);
+void sched_sleep_current_ms(uint32_t ms);
 void sched_abort_current(int exit_code) __attribute__((noreturn));
 void sched_tick(registers_t *irq_regs);
 task_t *sched_current_task(void);

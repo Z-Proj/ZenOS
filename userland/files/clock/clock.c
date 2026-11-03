@@ -52,6 +52,8 @@ int main(int argc, char *argv[]) {
 
         char k = 0;
         if (read(STDIN_FILENO, &k, 1) > 0) break;
+        /* Raw nonblocking input must not turn the clock into a CPU spinner. */
+        zen_sleep_ms(50);
     }
 
     if (have_termios)

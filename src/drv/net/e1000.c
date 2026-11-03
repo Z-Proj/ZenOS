@@ -17,11 +17,14 @@
 #include "net.h"
 #include "pci.h"
 #include "../local_apic.h"
+#include "../../libk/spinlock.h"
 
 static e1000_device dev;
 static pci_device_t *pci_dev = NULL;
 static void *rx_buf_virt[NUM_RX_DESC];
 static void *tx_buf_virt[NUM_TX_DESC];
+static uint64_t rx_ring_phys, rx_buffers_phys;
+static spinlock_t rx_lock, tx_lock;
 
 static uint32_t e1000_read(uint32_t reg)
 {
@@ -41,14 +44,22 @@ static uint32_t e1000_eeprom_read(uint8_t addr)
     if (dev.has_eeprom)
     {
         e1000_write(E1000_REG_EEPROM, 1 | (addr << 8));
-        while (!((tmp = e1000_read(E1000_REG_EEPROM)) & (1 << 4)))
-            ;
+        uint32_t tries = 1000000;
+        while (!((tmp = e1000_read(E1000_REG_EEPROM)) & (1 << 4))) {
+            if (--tries == 0)
+                return 0xFFFFFFFF;
+            __asm__ volatile("pause" ::: "memory");
+        }
     }
     else
     {
         e1000_write(E1000_REG_EEPROM, 1 | (addr << 2));
-        while (!((tmp = e1000_read(E1000_REG_EEPROM)) & (1 << 1)))
-            ;
+        uint32_t tries = 1000000;
+        while (!((tmp = e1000_read(E1000_REG_EEPROM)) & (1 << 1))) {
+            if (--tries == 0)
+                return 0xFFFFFFFF;
+            __asm__ volatile("pause" ::: "memory");
+        }
     }
 
     data = (tmp >> 16) & 0xFFFF;
@@ -67,27 +78,35 @@ static uint8_t e1000_detect_eeprom(void)
     return 0;
 }
 
-static void e1000_reset(void)
+static int e1000_reset(void)
 {
     uint32_t ctrl = e1000_read(E1000_REG_CTRL);
     e1000_write(E1000_REG_CTRL, ctrl | 0x04000000);
-    while (e1000_read(E1000_REG_CTRL) & 0x04000000)
-        ;
-    for (volatile int i = 0; i < 100; i++)
-        ;
+    for (uint32_t tries = 0; tries < 1000000; tries++) {
+        if (!(e1000_read(E1000_REG_CTRL) & 0x04000000)) {
+            for (volatile int i = 0; i < 100; i++)
+                ;
+            return 0;
+        }
+        __asm__ volatile("pause" ::: "memory");
+    }
+    return -1;
 }
 
-static void e1000_read_mac(void)
+static int e1000_read_mac(void)
 {
     if (dev.has_eeprom)
     {
         uint32_t temp = e1000_eeprom_read(0);
+        if (temp == 0xFFFFFFFF) return -1;
         dev.mac[0] = temp & 0xFF;
         dev.mac[1] = temp >> 8;
         temp = e1000_eeprom_read(1);
+        if (temp == 0xFFFFFFFF) return -1;
         dev.mac[2] = temp & 0xFF;
         dev.mac[3] = temp >> 8;
         temp = e1000_eeprom_read(2);
+        if (temp == 0xFFFFFFFF) return -1;
         dev.mac[4] = temp & 0xFF;
         dev.mac[5] = temp >> 8;
     }
@@ -102,15 +121,23 @@ static void e1000_read_mac(void)
         dev.mac[4] = mac_high & 0xFF;
         dev.mac[5] = (mac_high >> 8) & 0xFF;
     }
+    return 0;
 }
 
-static void e1000_init_rx(void)
+static int e1000_init_rx(void)
 {
     uint64_t ring_phys = alloc_page();
+    if (!ring_phys)
+        return -1;
+    uint64_t buffers_phys = alloc_pages(NUM_RX_DESC);
+    if (!buffers_phys) {
+        free_page(ring_phys);
+        return -1;
+    }
+    rx_ring_phys = ring_phys;
+    rx_buffers_phys = buffers_phys;
     dev.rx_ring = (e1000_rx_desc *)(ring_phys + KERNEL_VIRT_OFFSET);
     memset(dev.rx_ring, 0, NUM_RX_DESC * sizeof(e1000_rx_desc));
-
-    uint64_t buffers_phys = alloc_pages(NUM_RX_DESC);
     for (int i = 0; i < NUM_RX_DESC; i++)
     {
         uint64_t buf_phys = buffers_phys + (i * PAGE_SIZE);
@@ -135,15 +162,21 @@ static void e1000_init_rx(void)
                     E1000_RCTL_MPE | E1000_RCTL_BAM | E1000_RCTL_SECRC |
                     E1000_RCTL_RDMTS_HALF | (0 << 16) | (0 << 25);
     e1000_write(E1000_REG_RCTL, rctl);
+    return 0;
 }
 
-void e1000_init_tx(void)
+static int e1000_init_tx(void)
 {
     uint64_t ring_phys = alloc_page();
+    if (!ring_phys)
+        return -1;
+    uint64_t buffers_phys = alloc_pages(NUM_TX_DESC);
+    if (!buffers_phys) {
+        free_page(ring_phys);
+        return -1;
+    }
     dev.tx_ring = (e1000_tx_desc *)(ring_phys + KERNEL_VIRT_OFFSET);
     memset(dev.tx_ring, 0, NUM_TX_DESC * sizeof(e1000_tx_desc));
-
-    uint64_t buffers_phys = alloc_pages(NUM_TX_DESC);
     for (int i = 0; i < NUM_TX_DESC; i++)
     {
         uint64_t buf_phys = buffers_phys + (i * PAGE_SIZE);
@@ -168,6 +201,7 @@ void e1000_init_tx(void)
     e1000_write(E1000_REG_TCTL, tctl);
 
     e1000_write(E1000_REG_TIPG, 0x0060200A);
+    return 0;
 }
 
 static void e1000_interrupt_handler_legacy(registers_t *regs)
@@ -186,6 +220,9 @@ static void e1000_interrupt_handler_msi(registers_t *regs)
 void e1000_init(void)
 {
     memset(&dev, 0, sizeof(e1000_device));
+    spinlock_init(&rx_lock);
+    spinlock_init(&tx_lock);
+    rx_ring_phys = rx_buffers_phys = 0;
 
     pci_dev = pci_find_device(E1000_VENDOR_ID, E1000_DEVICE_ID);
     if (!pci_dev)
@@ -222,14 +259,31 @@ void e1000_init(void)
     pci_enable_bus_mastering(pci_dev);
     pci_enable_memory_space(pci_dev);
 
-    e1000_reset();
+    if (e1000_reset() < 0) {
+        log("E1000: reset timed out", 3, 1);
+        return;
+    }
 
     e1000_write(E1000_REG_IMC, 0xFFFFFFFF);
 
     dev.has_eeprom = e1000_detect_eeprom();
-    e1000_read_mac();
-    e1000_init_rx();
-    e1000_init_tx();
+    if (e1000_read_mac() < 0) {
+        log("E1000: EEPROM read timed out", 3, 1);
+        return;
+    }
+    if (e1000_init_rx() < 0) {
+        log("E1000: RX ring allocation failed", 3, 1);
+        return;
+    }
+    if (e1000_init_tx() < 0) {
+        e1000_write(E1000_REG_RCTL, 0);
+        free_page(rx_ring_phys);
+        free_pages(rx_buffers_phys, NUM_RX_DESC);
+        rx_ring_phys = rx_buffers_phys = 0;
+        dev.rx_ring = NULL;
+        log("E1000: TX ring allocation failed", 3, 1);
+        return;
+    }
 
     e1000_write(E1000_REG_IMS, 0x1F6DC);
 
@@ -269,31 +323,35 @@ int e1000_send_packet(void *data, size_t len)
         return -1;
     }
 
-    uint16_t tail = dev.tx_cur;
-
-    int wait_tries = 100000;
-    while (!(dev.tx_ring[tail].status & 0x1) && --wait_tries > 0)
+    /*
+     * Do not keep interrupts disabled while waiting for a DMA descriptor.
+     * Recheck under the short TX-ring critical section, then publish the
+     * descriptor and tail update atomically once one is available.
+     */
+    uint16_t tail = 0;
+    uint8_t last_status = 0;
+    for (uint32_t tries = 0; tries < 1000000; tries++)
     {
-        for (volatile int i = 0; i < 100; i++)
-            ;
+        uint64_t flags = spinlock_acquire_irqsave(&tx_lock);
+        tail = dev.tx_cur;
+        last_status = dev.tx_ring[tail].status;
+        if (last_status & 0x1)
+        {
+            memcpy(tx_buf_virt[tail], data, len);
+            dev.tx_ring[tail].length = len;
+            dev.tx_ring[tail].cmd = E1000_CMD_EOP | E1000_CMD_IFCS | E1000_CMD_RS;
+            dev.tx_ring[tail].status = 0;
+            dev.tx_cur = (tail + 1) % NUM_TX_DESC;
+            e1000_write(E1000_REG_TDT, dev.tx_cur);
+            spinlock_release_irqrestore(&tx_lock, flags);
+            return len;
+        }
+        spinlock_release_irqrestore(&tx_lock, flags);
+        __asm__ volatile("pause" ::: "memory");
     }
 
-    if (wait_tries == 0)
-    {
-        log("TX ring full. Descriptor %d, Status: %02x", 2, 1, tail, dev.tx_ring[tail].status);
-        return -1;
-    }
-
-    memcpy(tx_buf_virt[tail], data, len);
-
-    dev.tx_ring[tail].length = len;
-    dev.tx_ring[tail].cmd = E1000_CMD_EOP | E1000_CMD_IFCS | E1000_CMD_RS;
-    dev.tx_ring[tail].status = 0;
-
-    dev.tx_cur = (tail + 1) % NUM_TX_DESC;
-    e1000_write(E1000_REG_TDT, dev.tx_cur);
-
-    return len;
+    log("TX ring full. Descriptor %d, Status: %02x", 2, 1, tail, last_status);
+    return -1;
 }
 
 int e1000_receive_packet(void *buf, size_t buf_size)
@@ -301,11 +359,14 @@ int e1000_receive_packet(void *buf, size_t buf_size)
     if (!pci_dev || !dev.rx_ring)
         return -1;
 
+    uint64_t flags = spinlock_acquire_irqsave(&rx_lock);
     uint16_t idx = dev.rx_cur;
     e1000_rx_desc *desc = &dev.rx_ring[idx];
 
-    if (!(desc->status & 0x01))
+    if (!(desc->status & 0x01)) {
+        spinlock_release_irqrestore(&rx_lock, flags);
         return -1;
+    }
 
     size_t len = desc->length;
     if (len > buf_size)
@@ -320,6 +381,7 @@ int e1000_receive_packet(void *buf, size_t buf_size)
 
     e1000_write(E1000_REG_RDT, idx);
 
+    spinlock_release_irqrestore(&rx_lock, flags);
     return (int)len;
 }
 

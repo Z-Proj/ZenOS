@@ -246,7 +246,19 @@ static inline int zen_spawn(const char *path, char *const argv[])
     if (argv)
         while (argv[argc])
             argc++;
-    return (int)_sc_ret(_syscall3(85, (uint64_t)path, (uint64_t)argc, (uint64_t)argv));
+    return (int)_sc_ret(_syscall5(85, (uint64_t)path, (uint64_t)argc, (uint64_t)argv, 0, 0));
+}
+static inline int zen_spawn_stdio(const char *path, char *const argv[],
+                                  int stdio_fd, int close_fd)
+{
+    int argc = 0;
+    if (argv)
+        while (argv[argc])
+            argc++;
+    return (int)_sc_ret(_syscall5(85, (uint64_t)path, (uint64_t)argc,
+                                  (uint64_t)argv,
+                                  (uint64_t)(stdio_fd + 1),
+                                  (uint64_t)(close_fd + 1)));
 }
 static inline int zen_pipe(int pfd[2]) { return (int)_sc_ret(_syscall1(52, (uint64_t)pfd)); }
 static inline int zen_dup(int fd) { return (int)_sc_ret(_syscall1(53, (uint64_t)(unsigned int)fd)); }

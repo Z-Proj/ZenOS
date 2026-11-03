@@ -78,20 +78,81 @@ static size_t bounded_strlen(const char *s, size_t max)
     return max;
 }
 
+static int elf_copy_in(void *dst, const void *src, size_t len)
+{
+    if (!dst || !src)
+        return -1;
+    uint64_t address = (uint64_t)(uintptr_t)src;
+    task_t *task = sched_current_task();
+    if (!task || task->is_kernel_task)
+    {
+        memcpy(dst, src, len);
+        return 0;
+    }
+    if (!task->pml4 || address < PAGE_SIZE ||
+        address >= 0x0000800000000000ULL ||
+        len > 0x0000800000000000ULL - address)
+        return -1;
+
+    uint8_t *out = (uint8_t *)dst;
+    while (len)
+    {
+        uint64_t page = address & ~(uint64_t)(PAGE_SIZE - 1);
+        uint64_t pml4e = task->pml4->entries[(page >> 39) & 0x1FF];
+        if (!(pml4e & PAGE_PRESENT) || !(pml4e & PAGE_USER))
+            return -1;
+        page_table_t *pdpt = (page_table_t *)((pml4e & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+        uint64_t pdpte = pdpt->entries[(page >> 30) & 0x1FF];
+        if (!(pdpte & PAGE_PRESENT) || !(pdpte & PAGE_USER) || (pdpte & (1ULL << 7)))
+            return -1;
+        page_table_t *pd = (page_table_t *)((pdpte & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+        uint64_t pde = pd->entries[(page >> 21) & 0x1FF];
+        if (!(pde & PAGE_PRESENT) || !(pde & PAGE_USER))
+            return -1;
+        uint64_t phys;
+        if (pde & (1ULL << 7))
+            phys = (pde & 0x000FFFFFFFE00000ULL) + (address & 0x1FFFFFULL);
+        else
+        {
+            page_table_t *pt = (page_table_t *)((pde & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+            uint64_t pte = pt->entries[(page >> 12) & 0x1FF];
+            if (!(pte & PAGE_PRESENT) || !(pte & PAGE_USER))
+                return -1;
+            phys = (pte & 0x000FFFFFFFFFF000ULL) + (address & (PAGE_SIZE - 1));
+        }
+        size_t chunk = PAGE_SIZE - (size_t)(address & (PAGE_SIZE - 1));
+        if (chunk > len)
+            chunk = len;
+        memcpy(out, (void *)(phys + KERNEL_VIRT_OFFSET), chunk);
+        out += chunk;
+        address += chunk;
+        len -= chunk;
+    }
+    return 0;
+}
+
 static int copy_user_string(const char *src, char **out)
 {
     if (!src || !out) return -1;
 
-    size_t len = bounded_strlen(src, EXEC_MAX_STRLEN);
-    if (len >= EXEC_MAX_STRLEN) return -1;
-
-    char *dst = (char *)kmalloc(len + 1);
+    char *dst = (char *)kmalloc(EXEC_MAX_STRLEN);
     if (!dst) return -1;
-
-    memcpy(dst, src, len);
-    dst[len] = '\0';
-    *out = dst;
-    return 0;
+    size_t len = 0;
+    for (; len < EXEC_MAX_STRLEN; len++)
+    {
+        if (elf_copy_in(&dst[len], src + len, 1) < 0)
+        {
+            kfree(dst);
+            return -1;
+        }
+        if (dst[len] == '\0')
+        {
+            *out = dst;
+            return 0;
+        }
+    }
+    kfree(dst);
+    return -1;
 }
 
 static int copy_user_argv(int argc, char **argv, char ***out_argv)
@@ -105,7 +166,9 @@ static int copy_user_argv(int argc, char **argv, char ***out_argv)
     memset(kargv, 0, sizeof(char *) * (size_t)(argc + 1));
 
     for (int i = 0; i < argc; i++) {
-        if (!argv[i] || copy_user_string(argv[i], &kargv[i]) < 0) {
+        char *user_arg = NULL;
+        if (elf_copy_in(&user_arg, &argv[i], sizeof(user_arg)) < 0 ||
+            !user_arg || copy_user_string(user_arg, &kargv[i]) < 0) {
             free_string_vector(kargv, argc);
             return -1;
         }
@@ -127,17 +190,24 @@ static int copy_user_envp(char **envp, char ***out_envp, int *out_envc)
     }
 
     int envc = 0;
-    while (envp[envc]) {
-        envc++;
-        if (envc > EXEC_MAX_ENVP) return -1;
+    for (; envc <= EXEC_MAX_ENVP; envc++) {
+        char *entry = NULL;
+        if (elf_copy_in(&entry, &envp[envc], sizeof(entry)) < 0)
+            return -1;
+        if (!entry)
+            break;
     }
+    if (envc > EXEC_MAX_ENVP)
+        return -1;
 
     char **kenvp = (char **)kmalloc(sizeof(char *) * (size_t)(envc + 1));
     if (!kenvp) return -1;
     memset(kenvp, 0, sizeof(char *) * (size_t)(envc + 1));
 
     for (int i = 0; i < envc; i++) {
-        if (copy_user_string(envp[i], &kenvp[i]) < 0) {
+        char *user_entry = NULL;
+        if (elf_copy_in(&user_entry, &envp[i], sizeof(user_entry)) < 0 ||
+            !user_entry || copy_user_string(user_entry, &kenvp[i]) < 0) {
             free_string_vector(kenvp, envc);
             return -1;
         }
@@ -396,8 +466,16 @@ static int load_elf_into_pml4(page_table_t *pml4, uint8_t *elf_data, uint32_t fi
     if (ehdr->e_ident[4] != ELF_CLASS_64 || ehdr->e_machine != EM_X86_64) return -1;
     if (ehdr->e_type != ET_EXEC && ehdr->e_type != ET_DYN) return -1;
 
-    uint64_t ph_table_end = ehdr->e_phoff + (uint64_t)ehdr->e_phnum * (uint64_t)ehdr->e_phentsize;
-    if (ph_table_end > filesize) return -1;
+    /* Validate the complete program-header table before forming pointers.
+     * ELF-controlled offsets and sizes must never be allowed to wrap. */
+    if (ehdr->e_phentsize < sizeof(elf64_phdr_t) ||
+        ehdr->e_phoff > filesize ||
+        (ehdr->e_phnum != 0 &&
+         (uint64_t)ehdr->e_phnum >
+             ((uint64_t)filesize - ehdr->e_phoff) / ehdr->e_phentsize))
+        return -1;
+    uint64_t ph_table_end = ehdr->e_phoff +
+        (uint64_t)ehdr->e_phnum * (uint64_t)ehdr->e_phentsize;
 
     uint64_t min_addr = UINT64_MAX;
     uint64_t max_addr = 0;
@@ -406,7 +484,9 @@ static int load_elf_into_pml4(page_table_t *pml4, uint8_t *elf_data, uint32_t fi
 
     for (int i = 0; i < ehdr->e_phnum; i++) {
         elf64_phdr_t *phdr = (elf64_phdr_t *)(elf_data + ehdr->e_phoff + (uint64_t)i * ehdr->e_phentsize);
-        if (phdr->p_offset + phdr->p_filesz > filesize) return -1;
+        if (phdr->p_offset > filesize ||
+            phdr->p_filesz > (uint64_t)filesize - phdr->p_offset)
+            return -1;
 
         if (phdr->p_type == PT_INTERP) {
             if (phdr->p_filesz == 0 || phdr->p_filesz >= sizeof(out->interp_path))
@@ -424,6 +504,15 @@ static int load_elf_into_pml4(page_table_t *pml4, uint8_t *elf_data, uint32_t fi
         if (phdr->p_type != PT_LOAD) continue;
 
         if (phdr->p_memsz < phdr->p_filesz) return -1;
+        if (phdr->p_memsz == 0) continue;
+        if (phdr->p_vaddr > 0x0000800000000000ULL ||
+            phdr->p_memsz > 0x0000800000000000ULL - phdr->p_vaddr)
+            return -1;
+        if (phdr->p_align > 1 &&
+            ((phdr->p_align & (phdr->p_align - 1)) != 0 ||
+             (phdr->p_vaddr & (phdr->p_align - 1)) !=
+             (phdr->p_offset & (phdr->p_align - 1))))
+            return -1;
 
         if (phdr->p_vaddr < min_addr) min_addr = phdr->p_vaddr;
         if (phdr->p_vaddr + phdr->p_memsz > max_addr) max_addr = phdr->p_vaddr + phdr->p_memsz;
@@ -436,6 +525,8 @@ static int load_elf_into_pml4(page_table_t *pml4, uint8_t *elf_data, uint32_t fi
     }
 
     if (min_addr == UINT64_MAX || max_addr <= min_addr) return -1;
+    if (max_addr > 0x0000800000000000ULL - (PAGE_SIZE - 1))
+        return -1;
     uint64_t map_start = min_addr & ~(uint64_t)(PAGE_SIZE - 1);
     uint64_t map_end = (max_addr + PAGE_SIZE - 1) & ~(uint64_t)(PAGE_SIZE - 1);
     uint64_t load_bias = 0;
@@ -445,6 +536,8 @@ static int load_elf_into_pml4(page_table_t *pml4, uint8_t *elf_data, uint32_t fi
         if (load_base < map_start)
             return -1;
         load_bias = load_base - map_start;
+        if (map_end > 0x0000800000000000ULL - load_bias)
+            return -1;
         map_end += load_bias;
         map_start = load_base;
     }
@@ -567,7 +660,7 @@ int elf_exec(const char *filename, int argc, char **argv)
     return 0;
 }
 
-int elf_spawn(const char *filename, int argc, char **argv, task_t *parent)
+int elf_spawn(const char *filename, int argc, char **argv, task_t *parent, int stdio_fd, int close_fd)
 {
     spinlock_acquire_raw(&exec_lock);
     if (!filename) {
@@ -578,7 +671,14 @@ int elf_spawn(const char *filename, int argc, char **argv, task_t *parent)
     char *kfilename = NULL;
     char **kargv = NULL;
 
-    if (copy_user_string(filename, &kfilename) < 0) {
+    if ((uint64_t)(uintptr_t)filename >= 0x0000800000000000ULL) {
+        size_t len = bounded_strlen(filename, EXEC_MAX_STRLEN);
+        if (len >= EXEC_MAX_STRLEN || !(kfilename = (char *)kmalloc(len + 1))) {
+            spinlock_release_raw(&exec_lock);
+            return -1;
+        }
+        memcpy(kfilename, filename, len + 1);
+    } else if (copy_user_string(filename, &kfilename) < 0) {
         spinlock_release_raw(&exec_lock);
         return -1;
     }
@@ -650,7 +750,7 @@ int elf_spawn(const char *filename, int argc, char **argv, task_t *parent)
     }
 
     uint64_t entry = interp_loaded.entry ? interp_loaded.entry : loaded.entry;
-    task_t *task = task_create_user_from_parent((void (*)(void))entry, kfilename, pml4, user_rsp, argc, kargv, NULL, parent);
+    task_t *task = task_create_user_from_parent_stdio((void (*)(void))entry, kfilename, pml4, user_rsp, argc, kargv, NULL, parent, stdio_fd, close_fd);
     if (!task) {
         free_user_range(pml4, USER_STACK_BASE, USER_STACK_BASE + TASK_STACK_SIZE);
         if (interp_loaded.map_end > interp_loaded.map_start)
@@ -666,6 +766,10 @@ int elf_spawn(const char *filename, int argc, char **argv, task_t *parent)
         fd_table_close_cloexec(task->fd_table);
 
     int pid = (int)task->pid;
+    /* argv strings have already been copied onto the new user stack; the
+     * scheduler deliberately retains no ownership of this temporary vector. */
+    free_string_vector(kargv, argc);
+    kfree(kfilename);
     spinlock_release_raw(&exec_lock);
     return pid;
 }

@@ -22,6 +22,7 @@
 #include "../cpu/gdt.h"
 #include "../cpu/smp.h"
 #include "../drv/keyboard.h"
+#include "../drv/hpet.h"
 #include "signal.h"
 
 static task_t *task_list_head = NULL;
@@ -31,6 +32,7 @@ static spinlock_t sched_lock = {0};
 static spinlock_t process_lock = {0};
 static volatile int scheduler_enabled = 0;
 static uint32_t next_user_cpu = 0;
+static uint32_t reap_schedule_counter = 0;
 
 #define USER_SHM_PML4_INDEX ((0x0000500000000000ULL >> 39) & 0x1FF)
 #define USER_FB_PML4_INDEX  ((0x0000600000000000ULL >> 39) & 0x1FF)
@@ -87,10 +89,40 @@ static int32_t sched_pick_user_cpu_locked(void)
     uint32_t cpu_count = smp_cpu_count();
     if (cpu_count == 0)
         return 0;
+    if (cpu_count > MAX_CPUS)
+        cpu_count = MAX_CPUS;
 
-    uint32_t cpu = next_user_cpu % cpu_count;
-    next_user_cpu = (cpu + 1) % cpu_count;
-    return (int32_t)cpu;
+    /*
+     * Round-robin placement can pile a Terminal shell, compositor-launched
+     * apps and system tools onto one CPU even while another CPU is mostly idle.
+     * Place each new task on the least-loaded pinned CPU. Tie-breaking rotates
+     * so equal-load systems still distribute new tasks evenly.
+     */
+    uint32_t load[MAX_CPUS] = {0};
+    if (task_list_head)
+    {
+        task_t *iter = task_list_head;
+        do
+        {
+            if (!iter->is_idle_task &&
+                (iter->state == TASK_READY || iter->state == TASK_RUNNING) &&
+                iter->pinned_cpu >= 0 &&
+                (uint32_t)iter->pinned_cpu < cpu_count)
+                load[iter->pinned_cpu]++;
+            iter = iter->next;
+        } while (iter != task_list_head);
+    }
+
+    uint32_t best_cpu = next_user_cpu % cpu_count;
+    for (uint32_t offset = 1; offset < cpu_count; offset++)
+    {
+        uint32_t candidate = (next_user_cpu + offset) % cpu_count;
+        if (load[candidate] < load[best_cpu])
+            best_cpu = candidate;
+    }
+
+    next_user_cpu = (best_cpu + 1) % cpu_count;
+    return (int32_t)best_cpu;
 }
 
 static task_t *sched_current_task_for_cpu(uint32_t cpu_index)
@@ -306,8 +338,12 @@ static int task_is_switching_from_locked(task_t *task)
 void task_exit(void)
 {
     task_t *current = sched_current_task();
-    if (!current) // this shouldnt ever happen
-        log("A Task exit function returned.", 0, 1);
+    if (!current) {
+        log("task_exit called without a current task.", 0, 1);
+        /* There is no valid task context to schedule away from. */
+        for (;;)
+            __asm__ volatile("cli; hlt" ::: "memory");
+    }
 
     __asm__ volatile("cli" ::: "memory");
     current->state = TASK_DEAD;
@@ -407,7 +443,7 @@ void sched_ap_entry(void)
     }
 }
 
-task_t *task_create_user_from_parent(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp, task_t *parent)
+task_t *task_create_user_from_parent_stdio(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp, task_t *parent, int stdio_fd, int close_fd)
 {
     spinlock_acquire(&sched_lock);
     if (task_count >= MAX_TASKS)
@@ -435,8 +471,12 @@ task_t *task_create_user_from_parent(void (*entry)(void), const char *name, page
     task->heap_brk = USER_HEAP_START;
     task->mmap_base = 0x0000200000000000ULL;
     task->argc = argc;
-    task->argv = argv;
-    task->envp = envp;
+    /* Arguments and environment are copied onto the user stack by the ELF
+     * loader. Do not retain caller-owned kernel vectors in a runnable task. */
+    task->argv = NULL;
+    task->envp = NULL;
+    (void)argv;
+    (void)envp;
     task->parent_pid = parent ? parent->pid : TASK_NO_PARENT;
     task->wait_status = 0;
     task->wait_pid_target = -1;
@@ -459,6 +499,25 @@ task_t *task_create_user_from_parent(void (*entry)(void), const char *name, page
         spinlock_release(&sched_lock);
         return NULL;
     }
+
+    /* Configure child stdio before it becomes visible to another CPU. */
+    if (stdio_fd >= 0)
+    {
+        if (fd_table_dup2(task->fd_table, stdio_fd, 0) < 0 ||
+            fd_table_dup2(task->fd_table, stdio_fd, 1) < 0 ||
+            fd_table_dup2(task->fd_table, stdio_fd, 2) < 0)
+        {
+            fd_table_free(task->fd_table);
+            kfree(task);
+            spinlock_release(&sched_lock);
+            return NULL;
+        }
+        if (stdio_fd > 2)
+            fd_close(task->fd_table, stdio_fd);
+    }
+    if (close_fd > 2 && close_fd != stdio_fd)
+        fd_close(task->fd_table, close_fd);
+
     if (parent)
     {
         strncpy(task->cwd, parent->cwd, sizeof(task->cwd) - 1);
@@ -504,6 +563,12 @@ task_t *task_create_user_from_parent(void (*entry)(void), const char *name, page
     return task;
 }
 
+task_t *task_create_user_from_parent(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp, task_t *parent)
+{
+    return task_create_user_from_parent_stdio(entry, name, pml4, user_rsp,
+                                               argc, argv, envp, parent, -1, -1);
+}
+
 task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp)
 {
     return task_create_user_from_parent(entry, name, pml4, user_rsp, argc, argv, envp, NULL);
@@ -528,19 +593,17 @@ task_t *task_create(void (*entry)(void), const char *name)
     return task;
 }
 
-static void reap_dead_tasks(void)
+static task_t *reap_dead_task_locked(void)
 {
     if (!task_list_head)
-        return;
+        return NULL;
 
     task_t *iter = task_list_head;
     task_t *prev = NULL;
     task_t *start = task_list_head;
-    // is this function too heavy for each tick
     do
     {
         task_t *next = iter->next;
-
         if (iter->state == TASK_DEAD && iter->running_cpu < 0 &&
             !task_is_switching_from_locked(iter))
         {
@@ -550,19 +613,17 @@ static void reap_dead_tasks(void)
 
             if (parent && parent->state != TASK_DEAD && !iter->wait_collected)
             {
-                if (parent->waiting_on_pid)
+                if (parent->waiting_on_pid &&
+                    (parent->wait_pid_target == -1 ||
+                     parent->wait_pid_target == (int64_t)iter->pid))
                 {
-                    if (parent->wait_pid_target == -1 ||
-                        parent->wait_pid_target == (int64_t)iter->pid)
-                    {
-                        parent->wait_status = (iter->exit_code & 0xff) << 8;
-                        parent->wait_result_pid = (pid_t)iter->pid;
-                        parent->wait_pid_target = -1;
-                        parent->waiting_on_pid = 0;
-                        if (parent->state == TASK_BLOCKED)
-                            parent->state = TASK_READY;
-                        iter->wait_collected = 1;
-                    }
+                    parent->wait_status = (iter->exit_code & 0xff) << 8;
+                    parent->wait_result_pid = (pid_t)iter->pid;
+                    parent->wait_pid_target = -1;
+                    parent->waiting_on_pid = 0;
+                    if (parent->state == TASK_BLOCKED)
+                        parent->state = TASK_READY;
+                    iter->wait_collected = 1;
                 }
 
                 if (!iter->wait_collected)
@@ -577,81 +638,83 @@ static void reap_dead_tasks(void)
                 iter->wait_collected = 1;
             }
 
-            if (iter->fd_table)
-            {
-                fd_table_free(iter->fd_table);
-                iter->fd_table = NULL;
-            }
-            socket_close_owned_by(iter->pid);
-            if (iter->kernel_stack)
-            {
-                free_task_kernel_stack(iter->kernel_stack);
-            }
-
-            if (!iter->is_kernel_task && iter->pml4 && iter->pml4 != get_kernel_pml4())
-                syscall_release_special_user_mappings(iter->pml4);
-
-            if (!iter->is_kernel_task && iter->owns_user_pages)
-            {
-                free_user_pages(iter->pml4);
-            }
-            else if (iter->user_stack && !iter->is_kernel_task)
-            {
-                size_t stack_pages = (TASK_STACK_SIZE + PAGE_SIZE - 1) / PAGE_SIZE;
-                for (size_t i = 0; i < stack_pages; i++)
-                {
-                    uint64_t phys = virt_to_phys(iter->pml4, iter->user_stack + i * PAGE_SIZE);
-                    if (phys)
-                    {
-                        free_page(phys);
-                        unmap_page(iter->pml4, iter->user_stack + i * PAGE_SIZE);
-                    }
-                }
-            }
-
-            if (!iter->is_kernel_task && iter->pml4 && iter->pml4 != get_kernel_pml4())
-            {
-                free_page_directory(iter->pml4);
-            }
-
             if (iter == task_list_head)
             {
                 if (task_list_head->next == task_list_head)
-                {
                     task_list_head = NULL;
-                    if (task_count > 0)
-                        task_count--;
-                    kfree(iter);
-                    return;
+                else
+                {
+                    task_list_head = next;
+                    task_t *last = task_list_head;
+                    while (last->next != iter)
+                        last = last->next;
+                    last->next = task_list_head;
                 }
-                task_list_head = next;
-
-                task_t *last = task_list_head;
-                while (last->next != iter)
-                    last = last->next;
-                last->next = task_list_head;
-
-                if (task_count > 0)
-                    task_count--;
-                kfree(iter);
-                iter = task_list_head;
-                start = task_list_head;
-                continue;
             }
-
-            if (prev)
+            else if (prev)
+            {
                 prev->next = next;
+            }
+            else
+            {
+                return NULL;
+            }
 
             if (task_count > 0)
                 task_count--;
-            kfree(iter);
-            iter = next;
-            continue;
+            iter->next = NULL;
+            return iter;
         }
 
         prev = iter;
         iter = next;
     } while (iter != start);
+
+    return NULL;
+}
+
+/* Resource destruction can walk and free large user address spaces. Keep it
+ * outside sched_lock so one exiting process cannot stall every CPU's scheduler. */
+static void reap_task_resources(task_t *task)
+{
+    if (!task)
+        return;
+
+    if (task->fd_table)
+    {
+        fd_table_free(task->fd_table);
+        task->fd_table = NULL;
+    }
+    socket_close_owned_by(task->pid);
+    if (task->kernel_stack)
+        free_task_kernel_stack(task->kernel_stack);
+
+    if (!task->is_kernel_task && task->pml4 &&
+        task->pml4 != get_kernel_pml4())
+        syscall_release_special_user_mappings(task->pml4);
+
+    if (!task->is_kernel_task && task->owns_user_pages)
+        free_user_pages(task->pml4);
+    else if (task->user_stack && !task->is_kernel_task)
+    {
+        size_t stack_pages = (TASK_STACK_SIZE + PAGE_SIZE - 1) / PAGE_SIZE;
+        for (size_t i = 0; i < stack_pages; i++)
+        {
+            uint64_t virt = task->user_stack + i * PAGE_SIZE;
+            uint64_t phys = virt_to_phys(task->pml4, virt);
+            if (phys)
+            {
+                free_page(phys);
+                unmap_page(task->pml4, virt);
+            }
+        }
+    }
+
+    if (!task->is_kernel_task && task->pml4 &&
+        task->pml4 != get_kernel_pml4())
+        free_page_directory(task->pml4);
+
+    kfree(task);
 }
 
 static task_t *find_next_task_locked(uint32_t cpu_index, int allow_idle_task)
@@ -723,7 +786,7 @@ static void sched_switch_locked(sched_cpu_state_t *cpu_state, task_t *old_task, 
         __asm__ volatile("sti" ::: "memory");
 }
 
-void sched_yield(void)
+static void sched_yield_internal(int allow_reap, uint64_t sleep_deadline_ns)
 {
     if (!scheduler_enabled)
         return;
@@ -735,9 +798,31 @@ void sched_yield(void)
     if (cpu_state->switching_from && cpu_state->switching_from != cpu_state->current_task)
         cpu_state->switching_from = NULL;
 
-    reap_dead_tasks();
+    /*
+     * Reaping can release address spaces, descriptor tables and sockets.
+     * Do not walk and destroy every dead process on every context switch.
+     * Bound the work to one reaper pass per 32 scheduling opportunities.
+     */
+    task_t *reaped_task = NULL;
+    if (allow_reap && ++reap_schedule_counter >= 32)
+    {
+        reap_schedule_counter = 0;
+        reaped_task = reap_dead_task_locked();
+    }
+
+    if (reaped_task)
+    {
+        spinlock_release_irqrestore(&sched_lock, rflags);
+        reap_task_resources(reaped_task);
+        rflags = spinlock_acquire_irqsave(&sched_lock);
+    }
 
     task_t *old_task = cpu_state->current_task;
+    if (sleep_deadline_ns && old_task && old_task->state == TASK_RUNNING)
+    {
+        old_task->sleep_deadline_ns = sleep_deadline_ns;
+        old_task->state = TASK_BLOCKED;
+    }
     if (old_task && old_task->state == TASK_RUNNING)
     {
         old_task->state = TASK_READY;
@@ -785,6 +870,36 @@ void sched_yield(void)
                         old_task ? &old_task->regs : &cpu_state->bootstrap_regs);
 }
 
+void sched_yield(void)
+{
+    sched_yield_internal(1, 0);
+}
+
+void sched_sleep_current_ms(uint32_t ms)
+{
+    if (ms == 0)
+        return;
+
+    task_t *current = sched_current_task();
+    uint64_t now_ns = hpet_monotonic_ns();
+    if (!current || !now_ns)
+    {
+        while (ms--)
+        {
+            sleep_ms(1);
+            sched_yield();
+        }
+        return;
+    }
+
+    uint64_t deadline = now_ns + (uint64_t)ms * 1000000ULL;
+    sched_yield_internal(1, deadline);
+
+    uint64_t flags = spinlock_acquire_irqsave(&sched_lock);
+    current->sleep_deadline_ns = 0;
+    spinlock_release_irqrestore(&sched_lock, flags);
+}
+
 void sched_abort_current(int exit_code)
 {
     task_t *current = sched_current_task();
@@ -805,9 +920,45 @@ void sched_abort_current(int exit_code)
 
 void sched_tick(registers_t *irq_regs)
 {
-    task_t *current = sched_current_task();
-    if (!scheduler_enabled || !current)
+    if (!scheduler_enabled)
         return;
+
+    uint32_t cpu_index = smp_current_cpu_index();
+    uint64_t now_ns = hpet_monotonic_ns();
+    int woke_local_task = 0;
+    if (now_ns)
+    {
+        uint64_t wake_flags = spinlock_acquire_irqsave(&sched_lock);
+        if (task_list_head)
+        {
+            task_t *iter = task_list_head;
+            do
+            {
+                if (iter->state == TASK_BLOCKED && iter->sleep_deadline_ns &&
+                    now_ns >= iter->sleep_deadline_ns)
+                {
+                    iter->sleep_deadline_ns = 0;
+                    iter->state = TASK_READY;
+                    if (iter->pinned_cpu < 0 ||
+                        iter->pinned_cpu == (int32_t)cpu_index)
+                        woke_local_task = 1;
+                }
+                iter = iter->next;
+            } while (iter != task_list_head);
+        }
+        spinlock_release_irqrestore(&sched_lock, wake_flags);
+    }
+
+    task_t *current = sched_current_task();
+    if (!current)
+        return;
+
+    if (woke_local_task &&
+        (current->is_idle_task || current->state == TASK_READY))
+    {
+        sched_yield_internal(0, 0);
+        return;
+    }
 
     if (current->time_slice_remaining > 0)
         current->time_slice_remaining--;
@@ -816,7 +967,7 @@ void sched_tick(registers_t *irq_regs)
     {
         if (!irq_regs || !current)
         {
-            sched_yield();
+            sched_yield_internal(0, 0);
             return;
         }
 
@@ -824,7 +975,7 @@ void sched_tick(registers_t *irq_regs)
         {
             if (current->is_kernel_task)
             {
-                sched_yield();
+                sched_yield_internal(0, 0);
                 return;
             }
             current->time_slice_remaining = TIME_SLICE;
@@ -833,19 +984,23 @@ void sched_tick(registers_t *irq_regs)
 
         if (current->is_kernel_task)
         {
-            sched_yield();
+            sched_yield_internal(0, 0);
             return;
         }
 
-        uint32_t cpu_index = smp_current_cpu_index();
         sched_cpu_state_t *cpu_state = sched_get_cpu_state(cpu_index);
         uint64_t rflags = spinlock_acquire_irqsave(&sched_lock);
 
         if (cpu_state->switching_from && cpu_state->switching_from != cpu_state->current_task)
             cpu_state->switching_from = NULL;
 
-        reap_dead_tasks();
-
+        /*
+         * Do not reclaim processes from the timer interrupt path. Reaping can
+         * free page tables, walk user address spaces, and close descriptors or
+         * sockets, making timer latency depend on the amount of dead-process
+         * cleanup. Reaping is instead performed from the bounded sched_yield
+         * path.
+         */
         current->regs = *irq_regs;
 
         if (current->state == TASK_RUNNING)
@@ -949,6 +1104,7 @@ int sched_futex_wait(volatile uint32_t *uaddr, uint32_t expected)
     }
 
     current->futex_wait_addr = (uint64_t)(uintptr_t)uaddr;
+    current->futex_wait_pml4 = current->pml4;
     current->futex_woken = 0;
     current->state = TASK_BLOCKED;
     spinlock_release_irqrestore(&sched_lock, rflags);
@@ -958,6 +1114,7 @@ int sched_futex_wait(volatile uint32_t *uaddr, uint32_t expected)
     rflags = spinlock_acquire_irqsave(&sched_lock);
     int was_woken = current->futex_woken;
     current->futex_wait_addr = 0;
+    current->futex_wait_pml4 = NULL;
     current->futex_woken = 0;
     spinlock_release_irqrestore(&sched_lock, rflags);
 
@@ -969,7 +1126,11 @@ uint32_t sched_futex_wake(volatile uint32_t *uaddr, uint32_t count)
     if (!uaddr || count == 0)
         return 0;
 
+    task_t *waker = sched_current_task();
+    if (!waker)
+        return 0;
     uint64_t wake_addr = (uint64_t)(uintptr_t)uaddr;
+    page_table_t *wake_pml4 = waker->pml4;
     uint64_t rflags = spinlock_acquire_irqsave(&sched_lock);
     if (!task_list_head)
     {
@@ -981,7 +1142,8 @@ uint32_t sched_futex_wake(volatile uint32_t *uaddr, uint32_t count)
     task_t *iter = task_list_head;
     do
     {
-        if (iter->state == TASK_BLOCKED && iter->futex_wait_addr == wake_addr)
+        if (iter->state == TASK_BLOCKED && iter->futex_wait_addr == wake_addr &&
+            iter->futex_wait_pml4 == wake_pml4)
         {
             iter->futex_woken = 1;
             iter->futex_wait_addr = 0;
@@ -1010,6 +1172,14 @@ int sched_kill(uint64_t pid)
     {
         if (t->pid == pid)
         {
+            /* Kernel workers and per-CPU idle tasks are scheduler
+             * infrastructure, not user-killable processes. */
+            if (t->is_kernel_task || t->is_idle_task)
+            {
+                spinlock_release(&sched_lock);
+                return -1;
+            }
+
             if (t->state == TASK_DEAD)
             {
                 spinlock_release(&sched_lock);
@@ -1035,8 +1205,40 @@ static int write_wait_status(task_t *task, int *status_ptr, int value)
     if (!task || !task->pml4)
         return -1;
 
-    uint64_t uaddr = (uint64_t)status_ptr;
+    uint64_t uaddr = (uint64_t)(uintptr_t)status_ptr;
+    const uint64_t user_limit = 0x0000800000000000ULL;
+    if (uaddr < PAGE_SIZE || uaddr >= user_limit ||
+        sizeof(int) - 1 > user_limit - 1 - uaddr)
+        return -1;
+
+    /* waitpid's status pointer is writable user memory, never a kernel VA. */
     uint64_t page0 = uaddr & ~(uint64_t)(PAGE_SIZE - 1);
+    uint64_t last_page = (uaddr + sizeof(int) - 1) & ~(uint64_t)(PAGE_SIZE - 1);
+    for (uint64_t page = page0;; page += PAGE_SIZE)
+    {
+        uint64_t pml4e = task->pml4->entries[(page >> 39) & 0x1FF];
+        if ((pml4e & (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE)) !=
+            (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE))
+            return -1;
+        page_table_t *pdpt = (page_table_t *)((pml4e & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+        uint64_t pdpte = pdpt->entries[(page >> 30) & 0x1FF];
+        if ((pdpte & (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE)) !=
+            (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE) || (pdpte & (1ULL << 7)))
+            return -1;
+        page_table_t *pd = (page_table_t *)((pdpte & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+        uint64_t pde = pd->entries[(page >> 21) & 0x1FF];
+        if ((pde & (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE)) !=
+            (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE) || (pde & (1ULL << 7)))
+            return -1;
+        page_table_t *pt = (page_table_t *)((pde & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+        uint64_t pte = pt->entries[(page >> 12) & 0x1FF];
+        if ((pte & (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE)) !=
+            (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE))
+            return -1;
+        if (page == last_page)
+            break;
+    }
+
     uint64_t off0 = uaddr & (PAGE_SIZE - 1);
     uint64_t phys0 = virt_to_phys(task->pml4, page0);
     if (!phys0)
@@ -1202,6 +1404,17 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
     }
 
     task_t *parent = current;
+
+    /* Avoid cloning address spaces and descriptors when the task table is full. */
+    spinlock_acquire(&sched_lock);
+    int task_limit_reached = task_count >= MAX_TASKS;
+    spinlock_release(&sched_lock);
+    if (task_limit_reached)
+    {
+        spinlock_release_raw(&process_lock);
+        return -1;
+    }
+
     syscall_fork_frame_t *frame = (syscall_fork_frame_t *)syscall_frame_ptr;
 
     task_t *child = (task_t *)kmalloc(sizeof(task_t));
@@ -1231,7 +1444,6 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
     child->wait_collected = 0;
     child->userspace_faults = 0;
     child->last_userspace_fault = 0;
-    child->pinned_cpu = sched_pick_user_cpu_locked();
     child->running_cpu = -1;
     child->last_cpu = -1;
     fpu_save_state(child->fpu_state);
@@ -1310,6 +1522,7 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
         return -1;
     }
 
+    child->pinned_cpu = sched_pick_user_cpu_locked();
     child->pid = next_pid++;
     insert_task_locked(child);
     task_count++;
@@ -1353,14 +1566,15 @@ int sched_signal(uint64_t pid, int sig)
 
             if (sig == SIGSTOP)
             {
-                t->state = TASK_BLOCKED;
+                /* A stopped task is distinct from one blocked on I/O/futex/waitpid. */
+                t->state = TASK_STOPPED;
                 spinlock_release(&sched_lock);
                 return 0;
             }
 
             if (sig == SIGCONT)
             {
-                if (t->state == TASK_BLOCKED)
+                if (t->state == TASK_STOPPED)
                     t->state = TASK_READY;
                 spinlock_release(&sched_lock);
                 return 0;

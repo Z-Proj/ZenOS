@@ -1,4 +1,4 @@
-name: ZenOS Build Check
+name: D3X8 Build Check
 
 on:
   push:
@@ -6,34 +6,53 @@ on:
   pull_request:
     branches: [ "main" ]
 
+# Disk-image targets share ZenOS.vhd. Keep one workflow per branch at a time.
+concurrency:
+  group: d3x8-build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install dependencies for building...
-      run: sudo apt update && sudo apt install -y lld clang nasm xorriso meson ninja-build llvm llvm-dev g++-14 libstdc++-14-dev build-essential
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y lld clang nasm xorriso meson ninja-build llvm llvm-dev g++-14 libstdc++-14-dev build-essential zip
 
-    - name: Building mlibc...
-      run: make fat mlibc -j$(nproc) 2>&1
+    # These steps intentionally run sequentially. fat_man is produced by "make fat"
+    # and both mlibc installation, init, and userspace installation mutate ZenOS.vhd.
+    - name: Build disk image tool
+      run: make fat
 
-    - name: Building rest with make...
-      run: make ZenOS.iso init user -j$(nproc) 2>&1
+    - name: Build and install mlibc
+      run: make mlibc
+
+    - name: Build bootable ISO
+      run: make -j"$(nproc)" ZenOS.iso
+
+    - name: Initialize disk image
+      run: make init
+
+    - name: Build and install userspace
+      run: make user
 
     - name: Upload ISO
       uses: actions/upload-artifact@v4
       with:
-        name: ZenOS.iso
+        name: D3X8.iso
         path: ZenOS.iso
         if-no-files-found: error
 
     - name: Zip full directory
-      run: zip -r ZenOS.zip . -x "*.git*" ".github/*"
+      run: zip -r D3X8-build.zip . -x "*.git*" ".github/*"
 
     - name: Upload full folder with build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ZenOS.zip
-        path: ZenOS.zip
+        name: D3X8-build
+        path: D3X8-build.zip

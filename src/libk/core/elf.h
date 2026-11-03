@@ -78,6 +78,6 @@ typedef struct
 
 int elf_exec(const char *filename, int argc, char **argv);
 int elf_execve_replace(const char *filename, int argc, char **argv, char **envp);
-int elf_spawn(const char *filename, int argc, char **argv, task_t *parent);
+int elf_spawn(const char *filename, int argc, char **argv, task_t *parent, int stdio_fd, int close_fd);
 
 #endif

@@ -59,8 +59,10 @@ int main(void)
         }
         nk_end(&nh->ctx);
 
+        int frame_dirty = nh->first_frame || nh->had_event || nh->force_redraw;
         nk_harp_render(nh);
-        harp_flush(nh->win);
+        if (frame_dirty)
+            harp_flush(nh->win);
         zen_sleep_ms(20);
     }
     nk_harp_free(nh);
