@@ -1139,7 +1139,9 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         char filename[256];
         if (!current || copy_user_string(current, arg1, filename, sizeof(filename)) < 0)
             return -14;
-        return elf_spawn(filename, (int)arg2, (char **)arg3, current);
+        int stdio_fd = arg4 ? (int)arg4 - 1 : -1;
+        int close_fd = arg5 ? (int)arg5 - 1 : -1;
+        return elf_spawn(filename, (int)arg2, (char **)arg3, current, stdio_fd, close_fd);
     }
 
     case SYSCALL_EXIT:
