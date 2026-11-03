@@ -1053,8 +1053,40 @@ static int write_wait_status(task_t *task, int *status_ptr, int value)
     if (!task || !task->pml4)
         return -1;
 
-    uint64_t uaddr = (uint64_t)status_ptr;
+    uint64_t uaddr = (uint64_t)(uintptr_t)status_ptr;
+    const uint64_t user_limit = 0x0000800000000000ULL;
+    if (uaddr < PAGE_SIZE || uaddr >= user_limit ||
+        sizeof(int) - 1 > user_limit - 1 - uaddr)
+        return -1;
+
+    /* waitpid's status pointer is writable user memory, never a kernel VA. */
     uint64_t page0 = uaddr & ~(uint64_t)(PAGE_SIZE - 1);
+    uint64_t page1 = (uaddr + sizeof(int) - 1) & ~(uint64_t)(PAGE_SIZE - 1);
+    for (uint64_t page = page0;; page += PAGE_SIZE)
+    {
+        uint64_t pml4e = task->pml4->entries[(page >> 39) & 0x1FF];
+        if ((pml4e & (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE)) !=
+            (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE))
+            return -1;
+        page_table_t *pdpt = (page_table_t *)((pml4e & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+        uint64_t pdpte = pdpt->entries[(page >> 30) & 0x1FF];
+        if ((pdpte & (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE)) !=
+            (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE) || (pdpte & (1ULL << 7)))
+            return -1;
+        page_table_t *pd = (page_table_t *)((pdpte & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+        uint64_t pde = pd->entries[(page >> 21) & 0x1FF];
+        if ((pde & (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE)) !=
+            (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE) || (pde & (1ULL << 7)))
+            return -1;
+        page_table_t *pt = (page_table_t *)((pde & 0x000FFFFFFFFFF000ULL) + KERNEL_VIRT_OFFSET);
+        uint64_t pte = pt->entries[(page >> 12) & 0x1FF];
+        if ((pte & (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE)) !=
+            (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE))
+            return -1;
+        if (page == page1)
+            break;
+    }
+
     uint64_t off0 = uaddr & (PAGE_SIZE - 1);
     uint64_t phys0 = virt_to_phys(task->pml4, page0);
     if (!phys0)
