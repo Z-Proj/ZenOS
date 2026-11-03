@@ -88,7 +88,7 @@ int main(void)
         nk_harp_render(nh);
         if (frame_dirty)
             harp_flush(nh->win);
-        sched_yield();
+        zen_sleep_ms(8);
     }
     nk_harp_free(nh);
     return 0;
