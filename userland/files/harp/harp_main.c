@@ -1056,7 +1056,9 @@ static void reap_dead_windows(void)
 {
     task_info_t infos[TASK_SNAPSHOT_MAX];
     int count = zen_list_tasks(infos, TASK_SNAPSHOT_MAX);
-    if (count < 0)
+    /* HARP itself must appear in a successful task snapshot. Treat an
+     * empty result as a failed snapshot, not as proof every window is dead. */
+    if (count <= 0)
         return;
     if (count > TASK_SNAPSHOT_MAX)
         count = TASK_SNAPSHOT_MAX;
