@@ -18,6 +18,7 @@
 #include "../../libk/core/mem.h"
 #include "../../libk/string.h"
 #include "../../libk/debug/log.h"
+#include "../../libk/spinlock.h"
 
 #define DNS_LOCAL_PORT 53000
 static void udp_dns_handle(const uint8_t *payload, size_t len);
@@ -26,6 +27,9 @@ static uint8_t my_ip[4] = {10, 0, 2, 15};
 static uint8_t my_gw[4] = {10, 0, 2, 2};
 static uint8_t my_mac[6] = {0};
 static uint8_t bcast_mac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+static spinlock_t arp_lock;
+static volatile uint32_t net_poll_active;
 
 void net_set_ip(const uint8_t ip[4], const uint8_t gw[4])
 {
@@ -44,12 +48,13 @@ static arp_entry_t arp_cache[ARP_CACHE_SIZE];
 
 static void arp_cache_put(const uint8_t ip[4], const uint8_t mac[6])
 {
-
+    uint64_t flags = spinlock_acquire_irqsave(&arp_lock);
     for (int i = 0; i < ARP_CACHE_SIZE; i++)
     {
         if (arp_cache[i].valid && memcmp(arp_cache[i].ip, ip, 4) == 0)
         {
             memcpy(arp_cache[i].mac, mac, 6);
+            spinlock_release_irqrestore(&arp_lock, flags);
             return;
         }
     }
@@ -61,29 +66,33 @@ static void arp_cache_put(const uint8_t ip[4], const uint8_t mac[6])
             memcpy(arp_cache[i].ip, ip, 4);
             memcpy(arp_cache[i].mac, mac, 6);
             arp_cache[i].valid = true;
+            spinlock_release_irqrestore(&arp_lock, flags);
             return;
         }
     }
+    spinlock_release_irqrestore(&arp_lock, flags);
 }
 
 static bool arp_cache_get(const uint8_t ip[4], uint8_t mac_out[6])
 {
+    uint64_t flags = spinlock_acquire_irqsave(&arp_lock);
     for (int i = 0; i < ARP_CACHE_SIZE; i++)
     {
         if (arp_cache[i].valid && memcmp(arp_cache[i].ip, ip, 4) == 0)
         {
             memcpy(mac_out, arp_cache[i].mac, 6);
+            spinlock_release_irqrestore(&arp_lock, flags);
             return true;
         }
     }
+    spinlock_release_irqrestore(&arp_lock, flags);
     return false;
 }
-
-static uint8_t tx_scratch[2048];
 
 static int eth_send(const uint8_t dst_mac[6], uint16_t ethertype,
                     const void *payload, size_t payload_len)
 {
+    uint8_t tx_scratch[2048];
     if (payload_len + sizeof(eth_frame_t) > sizeof(tx_scratch))
         return -1;
     eth_frame_t *eth = (eth_frame_t *)tx_scratch;
@@ -470,10 +479,13 @@ static void arp_handle(const uint8_t *pkt, size_t len)
     }
 }
 
-static uint8_t rx_scratch[2048];
-
 void net_poll(void)
 {
+    /* A single consumer owns protocol state and the RX descriptor stream.
+     * Interrupts or nested protocol callbacks may safely request another poll. */
+    if (__atomic_exchange_n(&net_poll_active, 1, __ATOMIC_ACQUIRE))
+        return;
+    uint8_t rx_scratch[2048];
     int got;
     while ((got = e1000_receive_packet(rx_scratch, sizeof(rx_scratch))) > 0)
     {
@@ -489,6 +501,7 @@ void net_poll(void)
         else if (et == ETH_TYPE_IP)
             ip_handle(payload, payload_len);
     }
+    __atomic_store_n(&net_poll_active, 0, __ATOMIC_RELEASE);
 }
 
 static int udp_send(const uint8_t dst_ip[4], uint16_t src_port,
@@ -734,6 +747,8 @@ int dns_resolve(const char *hostname, uint8_t ip_out[4])
 
 void net_init(void)
 {
+    spinlock_init(&arp_lock);
+    __atomic_store_n(&net_poll_active, 0, __ATOMIC_RELEASE);
     memset(conns, 0, sizeof(conns));
     memset(arp_cache, 0, sizeof(arp_cache));
     e1000_get_mac_address(my_mac);
