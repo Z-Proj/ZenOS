@@ -144,5 +144,6 @@ void fd_table_close_all(fd_table_t *t);
 int fd_alloc(fd_table_t *t);
 int fd_alloc_from(fd_table_t *t, int minfd);
 int fd_close(fd_table_t *t, int fd);
+int fd_table_dup2(fd_table_t *t, int oldfd, int newfd);
 
 #endif
