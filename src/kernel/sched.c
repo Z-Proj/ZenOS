@@ -412,7 +412,7 @@ void sched_ap_entry(void)
     }
 }
 
-task_t *task_create_user_from_parent(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp, task_t *parent)
+task_t *task_create_user_from_parent_stdio(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp, task_t *parent, int stdio_fd, int close_fd)
 {
     spinlock_acquire(&sched_lock);
     if (task_count >= MAX_TASKS)
@@ -464,6 +464,25 @@ task_t *task_create_user_from_parent(void (*entry)(void), const char *name, page
         spinlock_release(&sched_lock);
         return NULL;
     }
+
+    /* Configure child stdio before it becomes visible to another CPU. */
+    if (stdio_fd >= 0)
+    {
+        if (fd_table_dup2(task->fd_table, stdio_fd, 0) < 0 ||
+            fd_table_dup2(task->fd_table, stdio_fd, 1) < 0 ||
+            fd_table_dup2(task->fd_table, stdio_fd, 2) < 0)
+        {
+            fd_table_free(task->fd_table);
+            kfree(task);
+            spinlock_release(&sched_lock);
+            return NULL;
+        }
+        if (stdio_fd > 2)
+            fd_close(task->fd_table, stdio_fd);
+    }
+    if (close_fd > 2 && close_fd != stdio_fd)
+        fd_close(task->fd_table, close_fd);
+
     if (parent)
     {
         strncpy(task->cwd, parent->cwd, sizeof(task->cwd) - 1);
@@ -507,6 +526,12 @@ task_t *task_create_user_from_parent(void (*entry)(void), const char *name, page
 
     spinlock_release(&sched_lock);
     return task;
+}
+
+task_t *task_create_user_from_parent(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp, task_t *parent)
+{
+    return task_create_user_from_parent_stdio(entry, name, pml4, user_rsp,
+                                               argc, argv, envp, parent, -1, -1);
 }
 
 task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp)
