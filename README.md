@@ -267,3 +267,8 @@ D3X8 is released under the **MIT License**. See [LICENSE](LICENSE) for the compl
   <strong>D3X8</strong><br />
   <sub>Built from the ground up, one subsystem at a time.</sub>
 </p>
+
+
+## Documentation
+
+Project documentation is indexed in [docs/README.md](docs/README.md). Start with the [build guide](docs/BUILDING.md), [architecture overview](docs/ARCHITECTURE.md), and [testing guide](docs/TESTING.md). Contribution guidelines are in [CONTRIBUTING.md](CONTRIBUTING.md), and community expectations are in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
