@@ -2778,6 +2778,8 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         task_t *cur = sched_current_task();
         if (!cur || !arg2 || len == 0 || len > UNIX_BUF_SIZE)
             return (uint64_t)(int64_t)-22;
+        if (user_copy_validate(cur, arg2, len, 1) < 0)
+            return (uint64_t)(int64_t)-14;
         void *buffer = kmalloc(len);
         if (!buffer)
             return (uint64_t)(int64_t)-12;
@@ -3343,6 +3345,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         char path[UNIX_PATH_MAX];
         if (fd < 0 || fd >= TASK_MAX_FDS) return -9;
         if (!arg2 || len == 0 || len > UNIX_BUF_SIZE) return -22;
+        if (user_copy_validate(cur, arg2, len, 1) < 0) return -14;
         if (!!arg4 != !!arg5) return -22;
         uint32_t max_len = 0;
         if (arg4)
