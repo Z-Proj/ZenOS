@@ -900,7 +900,9 @@ static void xhci_irq(registers_t *regs)
         uint32_t iman = rd32(ir, XHCI_IMAN);
         if (iman & 1)
             wr32(ir, XHCI_IMAN, iman);
-        process_events(hc);
+        /* The interrupt only acknowledges hardware. The xHCI task (or a
+         * synchronous command waiter during initial enumeration) is the sole
+         * event-ring consumer, keeping device state out of interrupt context. */
     }
     LocalApicSendEOI();
 }
