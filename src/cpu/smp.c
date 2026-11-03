@@ -53,13 +53,18 @@ void ap_entry(struct limine_smp_info *info) {
 void smp_prepare(void)
 {
     struct limine_smp_response *smp = smp_request.response;
-    if (smp == NULL) { // Limine fetch failed
+    if (smp == NULL) { // Limine fetch failed; do not dereference a missing response.
         clr();
         log("Failed to fetch SMP (CPU) info.", 0, 1);
+        for (;;)
+            asm volatile("cli; hlt" ::: "memory");
     }
-    if(smp->cpu_count > MAX_CPUS) { // Very unstable beyond 16.
+    if (smp->cpu_count == 0 || smp->cpu_count > MAX_CPUS) {
         clr();
-        log("\n\nThis system cannot run ZenOS\n\n - This system does not meet the requirement of maximum 16 CPUs.\n\nConsider downgrading your CPU.\nDecrease CPUs available if on a VM.\n ", 0, 1);
+        log("\n\nThis system cannot run ZenOS\n\n - Unsupported CPU count.\n\nZenOS supports between 1 and %d CPUs.\nDecrease CPUs available if on a VM.\n ",
+            0, 1, MAX_CPUS);
+        for (;;)
+            asm volatile("cli; hlt" ::: "memory");
     }
 
     g_cpu_count = (uint32_t)smp->cpu_count;
