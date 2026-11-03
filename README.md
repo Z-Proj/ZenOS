@@ -1,4 +1,4 @@
-# D3X8
+# D3X8■
 
 <p align="center">
   <img width="100%" alt="D3X8 operating system" src="https://github.com/user-attachments/assets/4a3141c6-4223-465a-9b38-9f5d851f0b83" />
