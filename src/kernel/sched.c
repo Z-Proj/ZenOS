@@ -1161,6 +1161,14 @@ int sched_kill(uint64_t pid)
     {
         if (t->pid == pid)
         {
+            /* Kernel workers and per-CPU idle tasks are scheduler
+             * infrastructure, not user-killable processes. */
+            if (t->is_kernel_task || t->is_idle_task)
+            {
+                spinlock_release(&sched_lock);
+                return -1;
+            }
+
             if (t->state == TASK_DEAD)
             {
                 spinlock_release(&sched_lock);
