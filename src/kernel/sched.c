@@ -1061,7 +1061,7 @@ static int write_wait_status(task_t *task, int *status_ptr, int value)
 
     /* waitpid's status pointer is writable user memory, never a kernel VA. */
     uint64_t page0 = uaddr & ~(uint64_t)(PAGE_SIZE - 1);
-    uint64_t page1 = (uaddr + sizeof(int) - 1) & ~(uint64_t)(PAGE_SIZE - 1);
+    uint64_t last_page = (uaddr + sizeof(int) - 1) & ~(uint64_t)(PAGE_SIZE - 1);
     for (uint64_t page = page0;; page += PAGE_SIZE)
     {
         uint64_t pml4e = task->pml4->entries[(page >> 39) & 0x1FF];
@@ -1083,7 +1083,7 @@ static int write_wait_status(task_t *task, int *status_ptr, int value)
         if ((pte & (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE)) !=
             (PAGE_PRESENT | PAGE_USER | PAGE_WRITABLE))
             return -1;
-        if (page == page1)
+        if (page == last_page)
             break;
     }
 
