@@ -103,45 +103,54 @@ void send_window_event(window_t *w, const harp_event_t *ev)
 
 void mark_window_dirty(window_t *w, int x, int y, int w_dirty, int h_dirty)
 {
-    if (!w || !w->active || w_dirty <= 0 || h_dirty <= 0)
+    if (!w || !w->active || w_dirty <= 0 || h_dirty <= 0 ||
+        w->w <= 0 || w->h <= 0)
         return;
 
-    if (x < 0) {
-        w_dirty += x;
-        x = 0;
-    }
-    if (y < 0) {
-        h_dirty += y;
-        y = 0;
-    }
-    if (x + w_dirty > w->w)
-        w_dirty = w->w - x;
-    if (y + h_dirty > w->h)
-        h_dirty = w->h - y;
-    if (w_dirty <= 0 || h_dirty <= 0)
+    /* Dirty rectangles arrive over IPC from user processes. Do all endpoint
+     * arithmetic in 64 bits before clipping, so hostile or corrupted values
+     * cannot overflow signed ints and escape the shared-buffer bounds. */
+    int64_t x0 = x;
+    int64_t y0 = y;
+    int64_t x1 = x0 + (int64_t)w_dirty;
+    int64_t y1 = y0 + (int64_t)h_dirty;
+
+    if (x1 <= 0 || y1 <= 0 || x0 >= w->w || y0 >= w->h)
         return;
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > w->w) x1 = w->w;
+    if (y1 > w->h) y1 = w->h;
+    if (x0 >= x1 || y0 >= y1)
+        return;
+
+    int clipped_x = (int)x0;
+    int clipped_y = (int)y0;
+    int clipped_w = (int)(x1 - x0);
+    int clipped_h = (int)(y1 - y0);
 
     if (!w->dirty_valid) {
         w->dirty_valid = 1;
-        w->dirty_x = x;
-        w->dirty_y = y;
-        w->dirty_w = w_dirty;
-        w->dirty_h = h_dirty;
+        w->dirty_x = clipped_x;
+        w->dirty_y = clipped_y;
+        w->dirty_w = clipped_w;
+        w->dirty_h = clipped_h;
         return;
     }
 
-    int x0 = w->dirty_x < x ? w->dirty_x : x;
-    int y0 = w->dirty_y < y ? w->dirty_y : y;
-    int x1 = w->dirty_x + w->dirty_w;
-    int y1 = w->dirty_y + w->dirty_h;
-    int nx1 = x + w_dirty;
-    int ny1 = y + h_dirty;
-    if (nx1 > x1) x1 = nx1;
-    if (ny1 > y1) y1 = ny1;
-    w->dirty_x = x0;
-    w->dirty_y = y0;
-    w->dirty_w = x1 - x0;
-    w->dirty_h = y1 - y0;
+    int x_min = w->dirty_x < clipped_x ? w->dirty_x : clipped_x;
+    int y_min = w->dirty_y < clipped_y ? w->dirty_y : clipped_y;
+    int x_max = w->dirty_x + w->dirty_w;
+    int y_max = w->dirty_y + w->dirty_h;
+    int clipped_x_max = clipped_x + clipped_w;
+    int clipped_y_max = clipped_y + clipped_h;
+    if (clipped_x_max > x_max) x_max = clipped_x_max;
+    if (clipped_y_max > y_max) y_max = clipped_y_max;
+
+    w->dirty_x = x_min;
+    w->dirty_y = y_min;
+    w->dirty_w = x_max - x_min;
+    w->dirty_h = y_max - y_min;
 }
 
 void set_focused_window(int idx)
