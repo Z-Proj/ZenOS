@@ -39,6 +39,7 @@
 #include <termios.h>
 
 #include "../../include/harp_api.h"
+#include "../../userlib.h"
 #include "libfont.h"
 
 #define WIN_W     600
@@ -825,6 +826,6 @@ int main(void)
         if (avail > 0) { drain_master(); did_work = 1; }
         if (pump_window_events()) did_work = 1;
         if (!did_work)
-            sched_yield();
+            zen_sleep_ms(2);
     }
 }
