@@ -2286,7 +2286,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         int result = socket_open(name, &file);
         if (result != SOCKET_OK)
             return result;
-        uint64_t handle = (uint64_t)(uintptr_t)file;
+        uint64_t handle = socket_handle_from_file(file);\n        if (!handle)\n            return SOCKET_ERROR_INVALID;
         if (copy_to_user(cur, arg2, &handle, sizeof(handle)) < 0)
             return -14;
         return SOCKET_OK;
