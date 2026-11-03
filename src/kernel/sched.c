@@ -1100,6 +1100,7 @@ int sched_futex_wait(volatile uint32_t *uaddr, uint32_t expected)
     }
 
     current->futex_wait_addr = (uint64_t)(uintptr_t)uaddr;
+    current->futex_wait_pml4 = current->pml4;
     current->futex_woken = 0;
     current->state = TASK_BLOCKED;
     spinlock_release_irqrestore(&sched_lock, rflags);
@@ -1109,6 +1110,7 @@ int sched_futex_wait(volatile uint32_t *uaddr, uint32_t expected)
     rflags = spinlock_acquire_irqsave(&sched_lock);
     int was_woken = current->futex_woken;
     current->futex_wait_addr = 0;
+    current->futex_wait_pml4 = NULL;
     current->futex_woken = 0;
     spinlock_release_irqrestore(&sched_lock, rflags);
 
@@ -1120,7 +1122,11 @@ uint32_t sched_futex_wake(volatile uint32_t *uaddr, uint32_t count)
     if (!uaddr || count == 0)
         return 0;
 
+    task_t *waker = sched_current_task();
+    if (!waker)
+        return 0;
     uint64_t wake_addr = (uint64_t)(uintptr_t)uaddr;
+    page_table_t *wake_pml4 = waker->pml4;
     uint64_t rflags = spinlock_acquire_irqsave(&sched_lock);
     if (!task_list_head)
     {
@@ -1132,7 +1138,8 @@ uint32_t sched_futex_wake(volatile uint32_t *uaddr, uint32_t count)
     task_t *iter = task_list_head;
     do
     {
-        if (iter->state == TASK_BLOCKED && iter->futex_wait_addr == wake_addr)
+        if (iter->state == TASK_BLOCKED && iter->futex_wait_addr == wake_addr &&
+            iter->futex_wait_pml4 == wake_pml4)
         {
             iter->futex_woken = 1;
             iter->futex_wait_addr = 0;
