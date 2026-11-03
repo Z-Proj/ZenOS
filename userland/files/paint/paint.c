@@ -147,7 +147,7 @@ int main(void)
             }
             harp_flush(nh->win);
         }
-        sched_yield();
+        zen_sleep_ms(8);
     }
     nk_harp_free(nh);
     return 0;
