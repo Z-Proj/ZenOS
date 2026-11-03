@@ -392,7 +392,10 @@ void free_pages(uint64_t addr, size_t count)
         return;
     }
     if (count > total_pages - page_idx)
-        count = (size_t)(total_pages - page_idx);
+    {
+        spinlock_release(&pmm_lock);
+        return;
+    }
 
     for (size_t i = 0; i < count; i++)
     {
