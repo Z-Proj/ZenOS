@@ -11,6 +11,7 @@
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 
 #include "../../include/harp_api.h"
+#include "../../userlib.h"
 #include "stb_image.h"
 #include "stb_image_resize2.h"
 #include "../harp/stb_image_write.h"
@@ -558,7 +559,7 @@ static int run_viewer(const char *requested)
         handle_viewer_events(&v);
         if (v.dirty)
             render_viewer(&v);
-        sched_yield();
+        zen_sleep_ms(8);
     }
 
     free_viewer_image(&v);
