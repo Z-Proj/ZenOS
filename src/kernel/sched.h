@@ -36,6 +36,7 @@ typedef enum
     TASK_READY,
     TASK_RUNNING,
     TASK_BLOCKED,
+    TASK_STOPPED,
     TASK_DEAD
 } task_state_t;
 
