@@ -2295,10 +2295,8 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     case SYSCALL_SOCKET_READ:
     {
         task_t *cur = sched_current_task();
-        socket_file_t *file = NULL;
         uint32_t size = (uint32_t)arg3;
         if (!cur || !arg2 || !arg4 || size == 0 || size > SOCKET_FILE_SIZE ||
-            socket_validate_handle(arg1, &file) != SOCKET_OK ||
             user_copy_validate(cur, arg2, size, 1) < 0 ||
             user_copy_validate(cur, arg4, sizeof(uint32_t), 1) < 0)
             return -14;
@@ -2306,7 +2304,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (!buffer)
             return SOCKET_ERROR_NO_SPACE;
         uint32_t bytes_read = 0;
-        socket_error_t result = socket_read(file, buffer, size, &bytes_read);
+        socket_error_t result = socket_read_handle(arg1, buffer, size, &bytes_read);
         if (result == SOCKET_OK &&
             (copy_to_user(cur, arg2, buffer, bytes_read) < 0 ||
              copy_to_user(cur, arg4, &bytes_read, sizeof(bytes_read)) < 0))
@@ -2318,10 +2316,8 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     case SYSCALL_SOCKET_WRITE:
     {
         task_t *cur = sched_current_task();
-        socket_file_t *file = NULL;
         uint32_t size = (uint32_t)arg3;
-        if (!cur || !arg2 || size == 0 || size > SOCKET_FILE_SIZE ||
-            socket_validate_handle(arg1, &file) != SOCKET_OK)
+        if (!cur || !arg2 || size == 0 || size > SOCKET_FILE_SIZE)
             return SOCKET_ERROR_INVALID;
         void *buffer = kmalloc(size);
         if (!buffer)
@@ -2331,7 +2327,7 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
             kfree(buffer);
             return SOCKET_ERROR_INVALID;
         }
-        socket_error_t result = socket_write(file, buffer, size);
+        socket_error_t result = socket_write_handle(arg1, buffer, size);
         kfree(buffer);
         return result;
     }
@@ -2339,10 +2335,9 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     case SYSCALL_SOCKET_CLOSE:
     {
         task_t *cur = sched_current_task();
-        socket_file_t *file = NULL;
-        if (!cur || socket_validate_handle(arg1, &file) != SOCKET_OK)
+        if (!cur)
             return SOCKET_ERROR_INVALID;
-        return socket_close(file);
+        return socket_close_handle(arg1);
     }
 
     case SYSCALL_SOCKET_DELETE:
@@ -2360,10 +2355,9 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     case SYSCALL_SOCKET_AVAILABLE:
     {
         task_t *cur = sched_current_task();
-        socket_file_t *file = NULL;
-        if (!cur || socket_validate_handle(arg1, &file) != SOCKET_OK)
+        if (!cur)
             return SOCKET_ERROR_INVALID;
-        return socket_available(file);
+        return socket_available_handle(arg1);
     }
 
     case SYSCALL_UNAME:
