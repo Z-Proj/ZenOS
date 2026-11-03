@@ -59,6 +59,7 @@ socket_error_t socket_write(socket_file_t *file, const void *buffer, uint32_t si
 socket_error_t socket_delete(const char *name);
 socket_error_t socket_close(socket_file_t *file);
 uint32_t socket_available(socket_file_t *file);
+int socket_validate_handle(uint64_t handle, socket_file_t **file);
 bool socket_exists(const char *name);
 void socket_list(void);
 void socket_close_owned_by(uint64_t pid);
