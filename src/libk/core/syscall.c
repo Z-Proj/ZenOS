@@ -2824,15 +2824,19 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
 
     case SYSCALL_FUTEX:
     {
-        volatile uint32_t *uaddr = (volatile uint32_t *)(uintptr_t)arg1;
+        task_t *current = sched_current_task();
+        uint64_t uaddr = arg1;
         int op = (int)arg2;
         uint32_t val = (uint32_t)arg3;
 
+        if (!current || (uaddr & (sizeof(uint32_t) - 1)) ||
+            (op != FUTEX_WAIT && op != FUTEX_WAKE) ||
+            user_copy_validate(current, uaddr, sizeof(uint32_t), 0) < 0)
+            return (uint64_t)(int64_t)-14;
+
         if (op == FUTEX_WAIT)
-            return (uint64_t)(int64_t)sched_futex_wait(uaddr, val);
-        if (op == FUTEX_WAKE)
-            return (uint64_t)sched_futex_wake(uaddr, val);
-        return (uint64_t)(int64_t)-22;
+            return (uint64_t)(int64_t)sched_futex_wait((volatile uint32_t *)(uintptr_t)uaddr, val);
+        return (uint64_t)(int64_t)sched_futex_wake((volatile uint32_t *)(uintptr_t)uaddr, val);
     }
 
     case SYSCALL_PTY_OPEN:
