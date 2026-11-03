@@ -660,7 +660,7 @@ int elf_exec(const char *filename, int argc, char **argv)
     return 0;
 }
 
-int elf_spawn(const char *filename, int argc, char **argv, task_t *parent)
+int elf_spawn(const char *filename, int argc, char **argv, task_t *parent, int stdio_fd, int close_fd)
 {
     spinlock_acquire_raw(&exec_lock);
     if (!filename) {
@@ -750,7 +750,7 @@ int elf_spawn(const char *filename, int argc, char **argv, task_t *parent)
     }
 
     uint64_t entry = interp_loaded.entry ? interp_loaded.entry : loaded.entry;
-    task_t *task = task_create_user_from_parent((void (*)(void))entry, kfilename, pml4, user_rsp, argc, kargv, NULL, parent);
+    task_t *task = task_create_user_from_parent_stdio((void (*)(void))entry, kfilename, pml4, user_rsp, argc, kargv, NULL, parent, stdio_fd, close_fd);
     if (!task) {
         free_user_range(pml4, USER_STACK_BASE, USER_STACK_BASE + TASK_STACK_SIZE);
         if (interp_loaded.map_end > interp_loaded.map_start)
