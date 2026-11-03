@@ -2845,11 +2845,29 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         int ready = poll_fds_once(local_fds, count);
         if (!ready && timeout != 0)
         {
-            if (timeout > 0)
-                sleep_ms((uint32_t)(timeout > 10 ? 10 : timeout));
-            else
-                sched_yield();
-            ready = poll_fds_once(local_fds, count);
+            uint64_t deadline = 0;
+            if (timeout > 0) {
+                uint64_t now = hpet_monotonic_ns();
+                uint64_t duration = (uint64_t)timeout * 1000000ULL;
+                deadline = UINT64_MAX - now < duration ? UINT64_MAX : now + duration;
+            }
+
+            /* Recheck readiness until the requested deadline. A single 10ms
+             * sleep is not a valid implementation of poll(timeout), and an
+             * infinite timeout must not return after one scheduler yield. */
+            while (!ready) {
+                if (timeout > 0) {
+                    uint64_t now = hpet_monotonic_ns();
+                    if (now >= deadline)
+                        break;
+                    uint64_t remain_ms = (deadline - now + 999999ULL) / 1000000ULL;
+                    uint32_t nap = remain_ms > 10 ? 10 : (uint32_t)remain_ms;
+                    sleep_ms(nap ? nap : 1);
+                } else {
+                    sched_yield();
+                }
+                ready = poll_fds_once(local_fds, count);
+            }
         }
 
         if (count && copy_to_user(current, arg1, local_fds,
