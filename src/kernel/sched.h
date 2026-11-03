@@ -92,6 +92,7 @@ void sched_ap_entry(void);
 task_t *task_create(void (*entry)(void), const char *name);
 task_t *task_create_user(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp);
 task_t *task_create_user_from_parent(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp, task_t *parent);
+task_t *task_create_user_from_parent_stdio(void (*entry)(void), const char *name, page_table_t *pml4, uint64_t user_rsp, int argc, char **argv, char **envp, task_t *parent, int stdio_fd, int close_fd);
 void sched_yield(void);
 void sched_abort_current(int exit_code) __attribute__((noreturn));
 void sched_tick(registers_t *irq_regs);
