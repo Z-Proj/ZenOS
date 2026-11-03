@@ -766,12 +766,8 @@ int elf_spawn(const char *filename, int argc, char **argv, task_t *parent, int s
         fd_table_close_cloexec(task->fd_table);
 
     int pid = (int)task->pid;
-    /* argv strings have already been copied onto the new user stack.
-     * The scheduler never needs the temporary kernel-side vector. Keeping it
-     * in task->argv also makes fork share an allocation with ambiguous
-     * ownership, so release it before the task becomes long-lived. */
-    task->argv = NULL;
-    task->envp = NULL;
+    /* argv strings have already been copied onto the new user stack; the
+     * scheduler deliberately retains no ownership of this temporary vector. */
     free_string_vector(kargv, argc);
     kfree(kfilename);
     spinlock_release_raw(&exec_lock);
