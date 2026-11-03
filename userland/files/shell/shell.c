@@ -35,7 +35,7 @@ static int parse_command(char* command, char* args[], int max_args) {
     int in_arg = 0;
     int i = 0;
     
-    while (command[i] && arg_count < max_args && i < MAX_COMMAND_LENGTH) {
+    while (command[i] && arg_count < max_args - 1 && i < MAX_COMMAND_LENGTH) {
         if (command[i] == ' ' || command[i] == '\t') {
             command[i] = '\0';
             in_arg = 0;
@@ -80,11 +80,12 @@ static void cmd_write(int argc, char* argv[]) {
     }
     text[pos] = '\0';
     
-    int success = write(file, text, strlen(text));
-    if (success) {
+    size_t text_len = strlen(text);
+    ssize_t written = write(file, text, text_len);
+    if (written == (ssize_t)text_len) {
         fputs(COLOR_GREEN "Write successful.\n" COLOR_RESET, stdout);
     } else {
-        fputs(COLOR_RED "Write failed\n" COLOR_RESET, stdout);
+        fputs(COLOR_RED "Write failed or incomplete\n" COLOR_RESET, stdout);
     }
     close(file);
 }
