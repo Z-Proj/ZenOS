@@ -726,7 +726,7 @@ static void sched_switch_locked(sched_cpu_state_t *cpu_state, task_t *old_task, 
         __asm__ volatile("sti" ::: "memory");
 }
 
-void sched_yield(void)
+static void sched_yield_internal(int allow_reap)
 {
     if (!scheduler_enabled)
         return;
@@ -744,7 +744,7 @@ void sched_yield(void)
      * Bound the work to one reaper pass per 32 scheduling opportunities.
      */
     task_t *reaped_task = NULL;
-    if (++reap_schedule_counter >= 32)
+    if (allow_reap && ++reap_schedule_counter >= 32)
     {
         reap_schedule_counter = 0;
         reaped_task = reap_dead_task_locked();
@@ -805,6 +805,11 @@ void sched_yield(void)
                         old_task ? &old_task->regs : &cpu_state->bootstrap_regs);
 }
 
+void sched_yield(void)
+{
+    sched_yield_internal(1);
+}
+
 void sched_abort_current(int exit_code)
 {
     task_t *current = sched_current_task();
@@ -836,7 +841,7 @@ void sched_tick(registers_t *irq_regs)
     {
         if (!irq_regs || !current)
         {
-            sched_yield();
+            sched_yield_internal(0);
             return;
         }
 
@@ -844,7 +849,7 @@ void sched_tick(registers_t *irq_regs)
         {
             if (current->is_kernel_task)
             {
-                sched_yield();
+                sched_yield_internal(0);
                 return;
             }
             current->time_slice_remaining = TIME_SLICE;
@@ -853,7 +858,7 @@ void sched_tick(registers_t *irq_regs)
 
         if (current->is_kernel_task)
         {
-            sched_yield();
+            sched_yield_internal(0);
             return;
         }
 
