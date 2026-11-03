@@ -2279,16 +2279,13 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     {
         task_t *cur = sched_current_task();
         char name[SOCKET_NAME_MAX];
-        socket_file_t *file = NULL;
+        uint64_t handle = 0;
         if (!cur || copy_user_string(cur, arg1, name, sizeof(name)) < 0 ||
-            !arg2 || user_copy_validate(cur, arg2, sizeof(file), 1) < 0)
+            !arg2 || user_copy_validate(cur, arg2, sizeof(handle), 1) < 0)
             return -14;
-        int result = socket_open(name, &file);
+        int result = socket_open_handle(name, &handle);
         if (result != SOCKET_OK)
             return result;
-        uint64_t handle = socket_handle_from_file(file);
-        if (!handle)
-            return SOCKET_ERROR_INVALID;
         if (copy_to_user(cur, arg2, &handle, sizeof(handle)) < 0)
             return -14;
         return SOCKET_OK;
