@@ -65,6 +65,7 @@ void socket_init(void)
         socket_files[i].available = 0;
         socket_files[i].capacity = 0;
         socket_files[i].owner_pid = 0;
+        socket_files[i].generation = 0;
         spinlock_init(&socket_files[i].lock);
         memset(socket_files[i].name, 0, SOCKET_NAME_MAX);
     }
@@ -104,6 +105,9 @@ socket_error_t socket_create(const char *name)
                 return SOCKET_ERROR_NO_SPACE;
             }
 
+            socket_files[i].generation++;
+            if (socket_files[i].generation == 0)
+                socket_files[i].generation = 1;
             strncpy(socket_files[i].name, name, SOCKET_NAME_MAX - 1);
             socket_files[i].name[SOCKET_NAME_MAX - 1] = '\0';
             socket_files[i].capacity = SOCKET_FILE_SIZE;
@@ -149,12 +153,12 @@ socket_error_t socket_open(const char *name, socket_file_t **file)
 
 socket_error_t socket_read(socket_file_t *file, void *buffer, uint32_t size, uint32_t *bytes_read)
 {
-    return socket_read_handle((uint64_t)(uintptr_t)file, buffer, size, bytes_read);
+    socket_file_t *locked = NULL;\n    uint64_t flags = 0;\n    socket_error_t result = socket_lock_pointer(file, &locked, &flags);\n    if (result != SOCKET_OK) return result;\n    if (!buffer || !bytes_read) result = SOCKET_ERROR_INVALID;\n    else if (!locked->available) { *bytes_read = 0; result = SOCKET_ERROR_NO_DATA; }\n    else { uint32_t n = size < locked->available ? size : locked->available;\n           *bytes_read = socket_ring_read_locked(locked, (uint8_t *)buffer, n);\n           locked->available -= n; result = SOCKET_OK; }\n    spinlock_release_irqrestore(&locked->lock, flags);\n    return result;
 }
 
 socket_error_t socket_write(socket_file_t *file, const void *buffer, uint32_t size)
 {
-    return socket_write_handle((uint64_t)(uintptr_t)file, buffer, size);
+    socket_file_t *locked = NULL;\n    uint64_t flags = 0;\n    socket_error_t result = socket_lock_pointer(file, &locked, &flags);\n    if (result != SOCKET_OK) return result;\n    if (!buffer || !size) result = SOCKET_ERROR_INVALID;\n    else if (locked->available > locked->capacity || size > locked->capacity - locked->available) result = SOCKET_ERROR_BUFFER_FULL;\n    else { socket_ring_write_locked(locked, (const uint8_t *)buffer, size);\n           locked->available += size; result = SOCKET_OK; }\n    spinlock_release_irqrestore(&locked->lock, flags);\n    return result;
 }
 
 socket_error_t socket_delete(const char *name)
@@ -230,42 +234,87 @@ void socket_close_owned_by(uint64_t pid)
 
 socket_error_t socket_close(socket_file_t *file)
 {
-    return socket_close_handle((uint64_t)(uintptr_t)file);
+    socket_file_t *locked = NULL;\n    uint64_t flags = 0;\n    socket_error_t result = socket_lock_pointer(file, &locked, &flags);\n    if (result == SOCKET_OK) spinlock_release_irqrestore(&locked->lock, flags);\n    return result;
 }
 
 uint32_t socket_available(socket_file_t *file)
 {
-    return socket_available_handle((uint64_t)(uintptr_t)file);
+    socket_file_t *locked = NULL;\n    uint64_t flags = 0;\n    if (socket_lock_pointer(file, &locked, &flags) != SOCKET_OK) return 0;\n    uint32_t available = locked->available;\n    spinlock_release_irqrestore(&locked->lock, flags);\n    return available;
 }
 
 /* Lock a validated socket while still holding the table lock. Deletion and
  * owner cleanup take locks in the same table->file order, so the backing
  * ring buffer cannot be freed or the slot reused during a handle operation. */
-static socket_error_t socket_lock_handle(uint64_t handle, socket_file_t **out,
+static socket_error_t socket_lock_slot(socket_file_t *candidate,
+                                         uint32_t expected_generation,
+                                         socket_file_t **out,
                                          uint64_t *irq_flags)
 {
-    if (!initialized || !out || !irq_flags || handle == 0)
+    if (!initialized || !candidate || !out || !irq_flags)
         return SOCKET_ERROR_INVALID;
 
     uint64_t flags = spinlock_acquire_irqsave(&socket_table_lock);
+    int valid_slot = 0;
+    for (int i = 0; i < SOCKET_MAX_FILES; i++)
+        if (candidate == &socket_files[i])
+        {
+            valid_slot = 1;
+            break;
+        }
+    if (!valid_slot || !candidate->in_use || !candidate->data ||
+        (expected_generation && candidate->generation != expected_generation))
+    {
+        spinlock_release_irqrestore(&socket_table_lock, flags);
+        return SOCKET_ERROR_NOT_FOUND;
+    }
+
+    spinlock_acquire(&candidate->lock);
+    spinlock_release_noirq(&socket_table_lock);
+    *out = candidate;
+    *irq_flags = flags;
+    return SOCKET_OK;
+}
+
+/* User-visible handles encode both slot and generation. A deleted socket
+ * can reuse its table slot without making an old client handle valid again. */
+uint64_t socket_handle_from_file(socket_file_t *file)
+{
+    if (!file || !initialized)
+        return 0;
+    uint64_t flags = spinlock_acquire_irqsave(&socket_table_lock);
     for (int i = 0; i < SOCKET_MAX_FILES; i++)
     {
-        socket_file_t *candidate = &socket_files[i];
-        if ((uint64_t)(uintptr_t)candidate != handle)
+        if (file != &socket_files[i])
             continue;
-        if (!candidate->in_use || !candidate->data)
-        {
-            spinlock_release_irqrestore(&socket_table_lock, flags);
-            return SOCKET_ERROR_NOT_FOUND;
-        }
-        spinlock_acquire(&candidate->lock);
-        spinlock_release_noirq(&socket_table_lock);
-        *out = candidate;
-        *irq_flags = flags;
-        return SOCKET_OK;
+        if (!file->in_use || !file->data || !file->generation)
+            break;
+        uint64_t handle = SOCKET_HANDLE_MAGIC |
+                          ((uint64_t)file->generation << 8) |
+                          (uint64_t)(i + 1);
+        spinlock_release_irqrestore(&socket_table_lock, flags);
+        return handle;
     }
     spinlock_release_irqrestore(&socket_table_lock, flags);
-    return SOCKET_ERROR_INVALID;
+    return 0;
+}
+
+static socket_error_t socket_lock_handle(uint64_t handle, socket_file_t **out,
+                                         uint64_t *irq_flags)
+{
+    if ((handle & 0xFF00000000000000ULL) != SOCKET_HANDLE_MAGIC)
+        return SOCKET_ERROR_INVALID;
+    uint32_t slot = (uint32_t)(handle & 0xFF);
+    uint32_t generation = (uint32_t)((handle >> 8) & 0xFFFFFFFFULL);
+    if (slot == 0 || slot > SOCKET_MAX_FILES || generation == 0)
+        return SOCKET_ERROR_INVALID;
+    return socket_lock_slot(&socket_files[slot - 1], generation, out, irq_flags);
+}
+
+static socket_error_t socket_lock_pointer(socket_file_t *pointer,
+                                          socket_file_t **out,
+                                          uint64_t *irq_flags)
+{
+    return socket_lock_slot(pointer, 0, out, irq_flags);
 }
 
 socket_error_t socket_read_handle(uint64_t handle, void *buffer, uint32_t size,
@@ -312,7 +361,7 @@ socket_error_t socket_write_handle(uint64_t handle, const void *buffer, uint32_t
 
     if (!file->in_use || !file->data)
         result = SOCKET_ERROR_NOT_FOUND;
-    else if (size > file->capacity - file->available)
+    else if (file->available > file->capacity || size > file->capacity - file->available)
         result = SOCKET_ERROR_BUFFER_FULL;
     else
     {
