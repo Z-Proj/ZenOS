@@ -766,6 +766,9 @@ int elf_spawn(const char *filename, int argc, char **argv, task_t *parent, int s
         fd_table_close_cloexec(task->fd_table);
 
     int pid = (int)task->pid;
+    /* task creation copies the name and the initial stack already contains
+     * AT_EXECFN, so the temporary kernel-side path is no longer needed. */
+    kfree(kfilename);
     spinlock_release_raw(&exec_lock);
     return pid;
 }
