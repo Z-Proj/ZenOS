@@ -1052,33 +1052,33 @@ static void poll_ipc(void)
     }
 }
 
-static int task_alive(uint32_t pid)
+static void reap_dead_windows(void)
 {
     task_info_t infos[TASK_SNAPSHOT_MAX];
     int count = zen_list_tasks(infos, TASK_SNAPSHOT_MAX);
+    if (count < 0)
+        return;
+    if (count > TASK_SNAPSHOT_MAX)
+        count = TASK_SNAPSHOT_MAX;
 
-    if (count <= 0)
-        return 0;
-
-    for (int i = 0; i < count; i++)
-    {
-        if (infos[i].pid == pid)
-            return 1;
-    }
-
-    return 0;
-}
-
-static void reap_dead_windows(void)
-{
     int changed = 0;
-
     for (int i = 0; i < MAX_WINDOWS; i++)
     {
         if (!windows[i].active)
             continue;
-        if (task_alive(windows[i].pid))
+
+        int alive = 0;
+        for (int j = 0; j < count; j++)
+        {
+            if (infos[j].pid == windows[i].pid)
+            {
+                alive = 1;
+                break;
+            }
+        }
+        if (alive)
             continue;
+
         wm_close_window(i);
         changed = 1;
     }
