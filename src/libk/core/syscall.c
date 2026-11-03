@@ -3294,13 +3294,12 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table) return -1;
         int fd = (int)arg1;
-        const sa_un_t *addr = (const sa_un_t *)arg2;
         char path[UNIX_PATH_MAX];
-        if (!addr) return -22;
+        if (!arg2) return -22;
         if (fd < 0 || fd >= TASK_MAX_FDS) return -9;
         fd_entry_t *e = &cur->fd_table->entries[fd];
         if (!e->used || e->type != FD_UNIX_SOCK) return -88;
-        int r = unix_sock_copy_user_path(cur, addr, path, sizeof(path));
+        int r = unix_sock_copy_user_path(cur, arg2, path, sizeof(path));
         if (r < 0) return r;
         return unix_sock_connect(e->usock, path) < 0 ? -111 : 0;
     }
