@@ -23,6 +23,8 @@ static socket_file_t socket_files[SOCKET_MAX_FILES];
 static bool initialized = false;
 static spinlock_t socket_table_lock;
 
+static socket_error_t socket_lock_pointer(socket_file_t *pointer, socket_file_t **out, uint64_t *irq_flags);
+
 static uint32_t socket_ring_read_locked(socket_file_t *file, uint8_t *dest, uint32_t size)
 {
     uint32_t first = file->capacity - file->read_pos;
