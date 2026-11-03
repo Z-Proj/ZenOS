@@ -246,15 +246,12 @@ static void cmd_socket_delete(int argc, char* argv[]) {
 
 
 static void run_foreground(const char *path, char *argv[]) {
-    pid_t pid = fork();
+    /* Spawn loads a fresh image directly; fork+exec needlessly cloned the
+     * entire shell address space only to discard it immediately in exec. */
+    pid_t pid = (pid_t)zen_spawn(path, argv);
     if (pid < 0) {
         fputs(COLOR_RED "Execution failed\n" COLOR_RESET, stdout);
         return;
-    }
-    if (pid == 0) {
-        execv(path, argv);
-        write(2, "exec failed\n", 12);
-        _exit(127);
     }
 
     int status = 0;
