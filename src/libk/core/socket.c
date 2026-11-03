@@ -304,6 +304,30 @@ uint32_t socket_available(socket_file_t *file)
     return avail;
 }
 
+int socket_validate_handle(uint64_t handle, socket_file_t **out)
+{
+    if (!initialized || !out || handle == 0)
+        return SOCKET_ERROR_INVALID;
+
+    uint64_t flags = spinlock_acquire_irqsave(&socket_table_lock);
+    for (int i = 0; i < SOCKET_MAX_FILES; i++)
+    {
+        socket_file_t *candidate = &socket_files[i];
+        if ((uint64_t)(uintptr_t)candidate != handle)
+            continue;
+        if (!candidate->in_use || !candidate->data)
+        {
+            spinlock_release_irqrestore(&socket_table_lock, flags);
+            return SOCKET_ERROR_NOT_FOUND;
+        }
+        *out = candidate;
+        spinlock_release_irqrestore(&socket_table_lock, flags);
+        return SOCKET_OK;
+    }
+    spinlock_release_irqrestore(&socket_table_lock, flags);
+    return SOCKET_ERROR_INVALID;
+}
+
 bool socket_exists(const char *name)
 {
     if (!initialized || !name)
