@@ -581,6 +581,11 @@ void map_page(page_table_t *pml4, uint64_t virt, uint64_t phys, uint64_t flags)
     if (!pml4 || !phys)
         return;
 
+    /* User page tables share their upper-half kernel mappings. Never allow a
+     * PAGE_USER leaf there: it would modify shared kernel page-table trees. */
+    if ((flags & PAGE_USER) && virt >= 0x0000800000000000ULL)
+        return;
+
     uint64_t pml4_idx = get_pml4_index(virt);
     uint64_t pdpt_idx = get_pdpt_index(virt);
     uint64_t pd_idx = get_pd_index(virt);
