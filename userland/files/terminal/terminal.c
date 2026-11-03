@@ -773,22 +773,14 @@ int main(void)
         tcsetattr(slave_fd, TCSANOW, &tios);
     }
 
-    shell_pid = fork();
-    if (shell_pid == 0) {
-        if (dup2(slave_fd, 0) < 0 ||
-            dup2(slave_fd, 1) < 0 ||
-            dup2(slave_fd, 2) < 0) {
-            write(2, "terminal: failed to attach PTY\n", 31);
-            _exit(1);
-        }
-        if (slave_fd > 2) close(slave_fd);
-        if (master_fd > 2) close(master_fd);
-        execv("/mnt/drv0/bin/ash", (char *[]){"/mnt/drv0/bin/ash", NULL});
-        execv("/mnt/drv0/bin/shell", (char *[]){"/mnt/drv0/bin/shell", NULL});
-        execv("/mnt/drv0/bin/sh", (char *[]){"/mnt/drv0/bin/sh", NULL});
-        write(1, "shell not found\n", 16);
-        _exit(1);
-    }
+    char *ash_argv[] = {"/mnt/drv0/bin/ash", NULL};
+    char *shell_argv[] = {"/mnt/drv0/bin/shell", NULL};
+    char *sh_argv[] = {"/mnt/drv0/bin/sh", NULL};
+    shell_pid = zen_spawn_stdio(ash_argv[0], ash_argv, slave_fd, master_fd);
+    if (shell_pid < 0)
+        shell_pid = zen_spawn_stdio(shell_argv[0], shell_argv, slave_fd, master_fd);
+    if (shell_pid < 0)
+        shell_pid = zen_spawn_stdio(sh_argv[0], sh_argv, slave_fd, master_fd);
     close(slave_fd);
     if (shell_pid < 0) {
         const char *msg = "fork failed; could not start shell\r\n";
