@@ -24,24 +24,6 @@ The goal is to build and understand a complete operating system, from low-level 
 
 ---
 
-## Live desktop preview
-
-<p align="center">
-  <a href="https://jadeking5128-beep.github.io/D3X8/">
-    <img width="100%" alt="Interactive D3X8 desktop preview" src="preview/preview.svg" />
-  </a>
-  <br />
-  <a href="https://jadeking5128-beep.github.io/D3X8/"><strong>Launch the interactive GUI preview →</strong></a>
-</p>
-
-The browser preview demonstrates the desktop's visual direction and interaction model. It includes a floating dock, translucent windows, an application launcher, Control Center, and sample application interfaces.
-
-**Preview scope:** this is a browser-based GUI demonstration. It is not an emulator, does not boot the kernel, and does not execute native D3X8 applications or shell commands.
-
-The preview's theme tokens are generated from the native Harp GUI source using `preview/sync-theme.py`. The GitHub Actions workflow in `.github/workflows/gui-preview.yml` builds and publishes the preview to GitHub Pages when the relevant preview or GUI source files change. GitHub Pages must be enabled for the repository with **Source: GitHub Actions**.
-
----
-
 ## Highlights
 
 - **64-bit kernel:** x86_64 architecture with symmetric multiprocessing and preemptive scheduling.
