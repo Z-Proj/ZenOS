@@ -747,7 +747,8 @@ int dns_resolve(const char *hostname, uint8_t ip_out[4])
 
 void net_init(void)
 {
-    spinlock_init(&arp_lock);
+    /* arp_lock is statically zero-initialized: E1000 interrupts can poll RX
+     * between e1000_init() and net_init(), so never reset it here. */
     __atomic_store_n(&net_poll_active, 0, __ATOMIC_RELEASE);
     memset(conns, 0, sizeof(conns));
     memset(arp_cache, 0, sizeof(arp_cache));
