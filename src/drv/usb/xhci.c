@@ -921,8 +921,16 @@ static int xhci_alloc_rings(xhci_controller_t *hc)
     hc->cmd_ring_phys = alloc_page();
     hc->event_ring_phys = alloc_page();
     hc->erst_phys = alloc_page();
-    if (!hc->dcbaa_phys || !hc->cmd_ring_phys || !hc->event_ring_phys || !hc->erst_phys)
+    if (!hc->dcbaa_phys || !hc->cmd_ring_phys || !hc->event_ring_phys || !hc->erst_phys) {
+        /* The controller has not been given these addresses yet, so every
+         * successful partial allocation is safe to return to the allocator. */
+        if (hc->dcbaa_phys) free_page(hc->dcbaa_phys);
+        if (hc->cmd_ring_phys) free_page(hc->cmd_ring_phys);
+        if (hc->event_ring_phys) free_page(hc->event_ring_phys);
+        if (hc->erst_phys) free_page(hc->erst_phys);
+        hc->dcbaa_phys = hc->cmd_ring_phys = hc->event_ring_phys = hc->erst_phys = 0;
         return -1;
+    }
 
     hc->dcbaa = (uint64_t *)(hc->dcbaa_phys + KERNEL_VIRT_OFFSET);
     hc->cmd_ring = (xhci_trb_t *)(hc->cmd_ring_phys + KERNEL_VIRT_OFFSET);
