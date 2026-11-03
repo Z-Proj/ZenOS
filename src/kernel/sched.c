@@ -1220,6 +1220,17 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
     }
 
     task_t *parent = current;
+
+    /* Avoid cloning address spaces and descriptors when the task table is full. */
+    spinlock_acquire(&sched_lock);
+    int task_limit_reached = task_count >= MAX_TASKS;
+    spinlock_release(&sched_lock);
+    if (task_limit_reached)
+    {
+        spinlock_release_raw(&process_lock);
+        return -1;
+    }
+
     syscall_fork_frame_t *frame = (syscall_fork_frame_t *)syscall_frame_ptr;
 
     task_t *child = (task_t *)kmalloc(sizeof(task_t));
@@ -1249,7 +1260,6 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
     child->wait_collected = 0;
     child->userspace_faults = 0;
     child->last_userspace_fault = 0;
-    child->pinned_cpu = sched_pick_user_cpu_locked();
     child->running_cpu = -1;
     child->last_cpu = -1;
     fpu_save_state(child->fpu_state);
@@ -1328,6 +1338,7 @@ pid_t sched_fork(uint64_t syscall_frame_ptr)
         return -1;
     }
 
+    child->pinned_cpu = sched_pick_user_cpu_locked();
     child->pid = next_pid++;
     insert_task_locked(child);
     task_count++;
@@ -1371,14 +1382,15 @@ int sched_signal(uint64_t pid, int sig)
 
             if (sig == SIGSTOP)
             {
-                t->state = TASK_BLOCKED;
+                /* A stopped task is distinct from one blocked on I/O/futex/waitpid. */
+                t->state = TASK_STOPPED;
                 spinlock_release(&sched_lock);
                 return 0;
             }
 
             if (sig == SIGCONT)
             {
-                if (t->state == TASK_BLOCKED)
+                if (t->state == TASK_STOPPED)
                     t->state = TASK_READY;
                 spinlock_release(&sched_lock);
                 return 0;
