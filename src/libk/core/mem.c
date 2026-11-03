@@ -378,13 +378,21 @@ void free_page(uint64_t addr)
 
 void free_pages(uint64_t addr, size_t count)
 {
-    if (!pmm_bitmap || addr < memory_base || addr >= memory_top)
+    if (!pmm_bitmap || addr < memory_base || addr >= memory_top ||
+        ((addr - memory_base) & (PAGE_SIZE - 1)) != 0 || count == 0)
     {
         return;
     }
     spinlock_acquire(&pmm_lock);
 
     uint64_t page_idx = (addr - memory_base) / PAGE_SIZE;
+    if (page_idx >= total_pages)
+    {
+        spinlock_release(&pmm_lock);
+        return;
+    }
+    if (count > total_pages - page_idx)
+        count = (size_t)(total_pages - page_idx);
 
     for (size_t i = 0; i < count; i++)
     {
