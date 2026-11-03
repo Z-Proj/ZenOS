@@ -747,11 +747,13 @@ int dns_resolve(const char *hostname, uint8_t ip_out[4])
 
 void net_init(void)
 {
-    /* arp_lock is statically zero-initialized: E1000 interrupts can poll RX
-     * between e1000_init() and net_init(), so never reset it here. */
-    __atomic_store_n(&net_poll_active, 0, __ATOMIC_RELEASE);
+    /* Both globals are live before the NIC enables interrupts. Do not reset
+     * the poll guard here, and clear ARP state under its lock because early
+     * RX interrupts may already have populated the cache. */
     memset(conns, 0, sizeof(conns));
+    uint64_t flags = spinlock_acquire_irqsave(&arp_lock);
     memset(arp_cache, 0, sizeof(arp_cache));
+    spinlock_release_irqrestore(&arp_lock, flags);
     e1000_get_mac_address(my_mac);
     log("net: MAC %02x:%02x:%02x:%02x:%02x:%02x  IP %d.%d.%d.%d",
         1, 0,
