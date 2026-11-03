@@ -1382,9 +1382,9 @@ int main(int argc, char *argv[])
             reap_dead_windows();
         }
 
-        /* HARP is the always-running desktop process. Do not busy-poll input
-         * and IPC at full CPU speed when the desktop is idle. */
-        sched_yield();
+        /* Polling is nonblocking, so yield alone still burns a full CPU.
+         * A short sleep bounds idle polling while keeping input responsive. */
+        zen_sleep_ms(2);
     }
     return 0;
 }
