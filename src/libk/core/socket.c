@@ -304,6 +304,114 @@ uint32_t socket_available(socket_file_t *file)
     return avail;
 }
 
+/* Lock a validated socket while still holding the table lock. Deletion and
+ * owner cleanup take locks in the same table->file order, so the backing
+ * ring buffer cannot be freed or the slot reused during a handle operation. */
+static socket_error_t socket_lock_handle(uint64_t handle, socket_file_t **out,
+                                         uint64_t *irq_flags)
+{
+    if (!initialized || !out || !irq_flags || handle == 0)
+        return SOCKET_ERROR_INVALID;
+
+    uint64_t flags = spinlock_acquire_irqsave(&socket_table_lock);
+    for (int i = 0; i < SOCKET_MAX_FILES; i++)
+    {
+        socket_file_t *candidate = &socket_files[i];
+        if ((uint64_t)(uintptr_t)candidate != handle)
+            continue;
+        if (!candidate->in_use || !candidate->data)
+        {
+            spinlock_release_irqrestore(&socket_table_lock, flags);
+            return SOCKET_ERROR_NOT_FOUND;
+        }
+        spinlock_acquire(&candidate->lock);
+        spinlock_release(&socket_table_lock);
+        *out = candidate;
+        *irq_flags = flags;
+        return SOCKET_OK;
+    }
+    spinlock_release_irqrestore(&socket_table_lock, flags);
+    return SOCKET_ERROR_INVALID;
+}
+
+socket_error_t socket_read_handle(uint64_t handle, void *buffer, uint32_t size,
+                                  uint32_t *bytes_read)
+{
+    if (!buffer || !bytes_read)
+        return SOCKET_ERROR_INVALID;
+    socket_file_t *file = NULL;
+    uint64_t flags = 0;
+    socket_error_t result = socket_lock_handle(handle, &file, &flags);
+    if (result != SOCKET_OK)
+        return result;
+
+    if (!file->in_use || !file->data)
+    {
+        *bytes_read = 0;
+        result = SOCKET_ERROR_NOT_FOUND;
+    }
+    else if (file->available == 0)
+    {
+        *bytes_read = 0;
+        result = SOCKET_ERROR_NO_DATA;
+    }
+    else
+    {
+        uint32_t to_read = size < file->available ? size : file->available;
+        *bytes_read = socket_ring_read_locked(file, (uint8_t *)buffer, to_read);
+        file->available -= to_read;
+        result = SOCKET_OK;
+    }
+    spinlock_release_irqrestore(&file->lock, flags);
+    return result;
+}
+
+socket_error_t socket_write_handle(uint64_t handle, const void *buffer, uint32_t size)
+{
+    if (!buffer || size == 0)
+        return SOCKET_ERROR_INVALID;
+    socket_file_t *file = NULL;
+    uint64_t flags = 0;
+    socket_error_t result = socket_lock_handle(handle, &file, &flags);
+    if (result != SOCKET_OK)
+        return result;
+
+    if (!file->in_use || !file->data)
+        result = SOCKET_ERROR_NOT_FOUND;
+    else if (size > file->capacity - file->available)
+        result = SOCKET_ERROR_BUFFER_FULL;
+    else
+    {
+        socket_ring_write_locked(file, (const uint8_t *)buffer, size);
+        file->available += size;
+        result = SOCKET_OK;
+    }
+    spinlock_release_irqrestore(&file->lock, flags);
+    return result;
+}
+
+uint32_t socket_available_handle(uint64_t handle)
+{
+    socket_file_t *file = NULL;
+    uint64_t flags = 0;
+    if (socket_lock_handle(handle, &file, &flags) != SOCKET_OK)
+        return 0;
+    uint32_t available = file->in_use && file->data ? file->available : 0;
+    spinlock_release_irqrestore(&file->lock, flags);
+    return available;
+}
+
+socket_error_t socket_close_handle(uint64_t handle)
+{
+    socket_file_t *file = NULL;
+    uint64_t flags = 0;
+    socket_error_t result = socket_lock_handle(handle, &file, &flags);
+    if (result != SOCKET_OK)
+        return result;
+    spinlock_release_irqrestore(&file->lock, flags);
+    return SOCKET_OK;
+}
+
 int socket_validate_handle(uint64_t handle, socket_file_t **out)
 {
     if (!initialized || !out || handle == 0)
