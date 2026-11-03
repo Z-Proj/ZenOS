@@ -88,10 +88,40 @@ static int32_t sched_pick_user_cpu_locked(void)
     uint32_t cpu_count = smp_cpu_count();
     if (cpu_count == 0)
         return 0;
+    if (cpu_count > MAX_CPUS)
+        cpu_count = MAX_CPUS;
 
-    uint32_t cpu = next_user_cpu % cpu_count;
-    next_user_cpu = (cpu + 1) % cpu_count;
-    return (int32_t)cpu;
+    /*
+     * Round-robin placement can pile a Terminal shell, compositor-launched
+     * apps and system tools onto one CPU even while another CPU is mostly idle.
+     * Place each new task on the least-loaded pinned CPU. Tie-breaking rotates
+     * so equal-load systems still distribute new tasks evenly.
+     */
+    uint32_t load[MAX_CPUS] = {0};
+    if (task_list_head)
+    {
+        task_t *iter = task_list_head;
+        do
+        {
+            if (!iter->is_idle_task &&
+                (iter->state == TASK_READY || iter->state == TASK_RUNNING) &&
+                iter->pinned_cpu >= 0 &&
+                (uint32_t)iter->pinned_cpu < cpu_count)
+                load[iter->pinned_cpu]++;
+            iter = iter->next;
+        } while (iter != task_list_head);
+    }
+
+    uint32_t best_cpu = next_user_cpu % cpu_count;
+    for (uint32_t offset = 1; offset < cpu_count; offset++)
+    {
+        uint32_t candidate = (next_user_cpu + offset) % cpu_count;
+        if (load[candidate] < load[best_cpu])
+            best_cpu = candidate;
+    }
+
+    next_user_cpu = (best_cpu + 1) % cpu_count;
+    return (int32_t)best_cpu;
 }
 
 static task_t *sched_current_task_for_cpu(uint32_t cpu_index)
