@@ -61,7 +61,7 @@ socket_error_t socket_write(socket_file_t *file, const void *buffer, uint32_t si
 socket_error_t socket_delete(const char *name);
 socket_error_t socket_close(socket_file_t *file);
 uint32_t socket_available(socket_file_t *file);
-uint64_t socket_handle_from_file(socket_file_t *file);
+socket_error_t socket_open_handle(const char *name, uint64_t *handle);
 socket_error_t socket_read_handle(uint64_t handle, void *buffer, uint32_t size, uint32_t *bytes_read);
 socket_error_t socket_write_handle(uint64_t handle, const void *buffer, uint32_t size);
 socket_error_t socket_close_handle(uint64_t handle);
