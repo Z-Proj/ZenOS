@@ -77,24 +77,40 @@ static void fd_close_entry(fd_entry_t *e)
             }
         }
     } else if (e->type == FD_PIPE_READ) {
+        if (!e->pipe) {
+            memset(e, 0, sizeof(*e));
+            return;
+        }
         e->pipe->readers--;
         if (e->pipe->readers <= 0) e->pipe->read_closed = 1;
         e->pipe->refcount--;
         if (e->pipe->refcount <= 0)
             kfree(e->pipe);
     } else if (e->type == FD_PIPE_WRITE) {
+        if (!e->pipe) {
+            memset(e, 0, sizeof(*e));
+            return;
+        }
         e->pipe->writers--;
         if (e->pipe->writers <= 0) e->pipe->write_closed = 1;
         e->pipe->refcount--;
         if (e->pipe->refcount <= 0)
             kfree(e->pipe);
     } else if (e->type == FD_PTY_MASTER) {
+        if (!e->pty) {
+            memset(e, 0, sizeof(*e));
+            return;
+        }
         e->pty->master_refs--;
         if (e->pty->master_refs <= 0) e->pty->master_open = 0;
         e->pty->refcount--;
         if (e->pty->refcount <= 0)
             kfree(e->pty);
     } else if (e->type == FD_PTY_SLAVE) {
+        if (!e->pty) {
+            memset(e, 0, sizeof(*e));
+            return;
+        }
         e->pty->slave_refs--;
         if (e->pty->slave_refs <= 0) e->pty->slave_open = 0;
         e->pty->refcount--;
@@ -130,21 +146,29 @@ int fd_entry_clone(fd_entry_t *dst, const fd_entry_t *src, int inherit_cloexec)
         dst->dir = src->dir;
         dst->dir->refcount++;
     } else if (src->type == FD_PIPE_READ || src->type == FD_PIPE_WRITE) {
+        if (!src->pipe)
+            return -1;
         dst->pipe = src->pipe;
         dst->pipe->refcount++;
         if (src->type == FD_PIPE_READ) dst->pipe->readers++;
         if (src->type == FD_PIPE_WRITE) dst->pipe->writers++;
     } else if (src->type == FD_PTY_MASTER) {
+        if (!src->pty)
+            return -1;
         dst->pty = src->pty;
         dst->pty->refcount++;
         dst->pty->master_refs++;
         dst->pty->master_open = 1;
     } else if (src->type == FD_PTY_SLAVE) {
+        if (!src->pty)
+            return -1;
         dst->pty = src->pty;
         dst->pty->refcount++;
         dst->pty->slave_refs++;
         dst->pty->slave_open = 1;
     } else if (src->type == FD_UNIX_SOCK) {
+        if (!src->usock)
+            return -1;
         dst->usock = src->usock;
         unix_sock_retain(dst->usock);
     } else if (src->type == FD_DEV) {
