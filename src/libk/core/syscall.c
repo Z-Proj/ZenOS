@@ -154,27 +154,37 @@ void syscall_release_special_user_mappings(page_table_t *pml4)
     spinlock_release(&shm_lock);
 }
 
-static int unix_sock_copy_user_path(task_t *task, const sa_un_t *addr, char *out, size_t out_len)
+static int copy_from_user(task_t *task, void *dst, uint64_t src, size_t len);
+static int copy_to_user(task_t *task, uint64_t dst, const void *src, size_t len);
+
+static int unix_sock_copy_user_path(task_t *task, uint64_t user_addr, char *out, size_t out_len)
 {
-    if (!task || !addr || !out || out_len == 0)
+    sa_un_t addr;
+    if (!task || !user_addr || !out || out_len < 2)
+        return -22;
+    if (copy_from_user(task, &addr, user_addr, sizeof(addr)) < 0)
+        return -14;
+    if (addr.family != UNIX_AF_LOCAL)
         return -22;
 
-    if (addr->family != UNIX_AF_LOCAL)
+    size_t path_len = 0;
+    while (path_len < sizeof(addr.path) && addr.path[path_len] != '\0')
+        path_len++;
+    if (path_len == 0 || path_len == sizeof(addr.path))
         return -22;
 
-    if (addr->path[0] == '/')
+    if (addr.path[0] == '/')
     {
-        strncpy(out, addr->path, out_len - 1);
-        out[out_len - 1] = '\0';
+        if (path_len >= out_len)
+            return -36;
+        memcpy(out, addr.path, path_len + 1);
         return 0;
     }
 
-    if (strcmp(task->cwd, "/") != 0)
+    if (strcmp(task->cwd, "/") != 0 || path_len + 2 > out_len)
         return -22;
-
     out[0] = '/';
-    strncpy(out + 1, addr->path, out_len - 2);
-    out[out_len - 1] = '\0';
+    memcpy(out + 1, addr.path, path_len + 1);
     return 0;
 }
 
@@ -3190,13 +3200,12 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table) return -1;
         int fd = (int)arg1;
-        const sa_un_t *addr = (const sa_un_t *)arg2;
         char path[UNIX_PATH_MAX];
-        if (!addr) return -22;
+        if (!arg2) return -22;
         if (fd < 0 || fd >= TASK_MAX_FDS) return -9;
         fd_entry_t *e = &cur->fd_table->entries[fd];
         if (!e->used || e->type != FD_UNIX_SOCK) return -88;
-        int r = unix_sock_copy_user_path(cur, addr, path, sizeof(path));
+        int r = unix_sock_copy_user_path(cur, arg2, path, sizeof(path));
         if (r < 0) return r;
         return unix_sock_bind(e->usock, path) < 0 ? -98 : 0;
     }
@@ -3270,22 +3279,29 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     {
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table) return -1;
-        int fd          = (int)arg1;
-        const void *buf = (const void *)arg2;
-        uint32_t len    = (uint32_t)arg3;
-        const sa_un_t *addr = (const sa_un_t *)arg4;
+        int fd = (int)arg1;
+        uint32_t len = (uint32_t)arg3;
         char path[UNIX_PATH_MAX];
         const char *path_ptr = NULL;
         if (fd < 0 || fd >= TASK_MAX_FDS) return -9;
+        if (!arg2 || len == 0 || len > UNIX_BUF_SIZE) return -22;
         fd_entry_t *e = &cur->fd_table->entries[fd];
-        if (!e->used || e->type != FD_UNIX_SOCK) return -88;
-        if (addr)
+        if (!e->used || e->type != FD_UNIX_SOCK || !e->usock) return -88;
+        if (arg4)
         {
-            int rr = unix_sock_copy_user_path(cur, addr, path, sizeof(path));
+            int rr = unix_sock_copy_user_path(cur, arg4, path, sizeof(path));
             if (rr < 0) return rr;
             path_ptr = path;
         }
-        int r = unix_sock_sendto(e->usock, buf, len, path_ptr);
+        void *buffer = kmalloc(len);
+        if (!buffer) return -12;
+        if (copy_from_user(cur, buffer, arg2, len) < 0)
+        {
+            kfree(buffer);
+            return -14;
+        }
+        int r = unix_sock_sendto(e->usock, buffer, len, path_ptr);
+        kfree(buffer);
         return r < 0 ? -32 : r;
     }
 
@@ -3293,27 +3309,43 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     {
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table) return -1;
-        int fd       = (int)arg1;
-        void *buf    = (void *)arg2;
+        int fd = (int)arg1;
         uint32_t len = (uint32_t)arg3;
-        sa_un_t *addr = (sa_un_t *)arg4;
-        uint32_t *addrlen = (uint32_t *)arg5;
         char path[UNIX_PATH_MAX];
         if (fd < 0 || fd >= TASK_MAX_FDS) return -9;
-        fd_entry_t *e = &cur->fd_table->entries[fd];
-        if (!e->used || e->type != FD_UNIX_SOCK) return -88;
-        int r = unix_sock_recvfrom(e->usock, buf, len, path, sizeof(path));
-        if (r >= 0 && addr && addrlen)
+        if (!arg2 || len == 0 || len > UNIX_BUF_SIZE) return -22;
+        if (!!arg4 != !!arg5) return -22;
+        uint32_t max_len = 0;
+        if (arg4)
         {
-            uint32_t max_len = *addrlen;
-            if (max_len < sizeof(sa_un_t))
-                return -22;
-            addr->family = UNIX_AF_LOCAL;
-            strncpy(addr->path, path, sizeof(addr->path) - 1);
-            addr->path[sizeof(addr->path) - 1] = '\0';
-            *addrlen = sizeof(sa_un_t);
+            if (copy_from_user(cur, &max_len, arg5, sizeof(max_len)) < 0 ||
+                max_len < sizeof(sa_un_t) ||
+                user_copy_validate(cur, arg4, sizeof(sa_un_t), 1) < 0 ||
+                user_copy_validate(cur, arg5, sizeof(max_len), 1) < 0)
+                return -14;
         }
-        return r < 0 ? -11 : r;
+        fd_entry_t *e = &cur->fd_table->entries[fd];
+        if (!e->used || e->type != FD_UNIX_SOCK || !e->usock) return -88;
+        void *buffer = kmalloc(len);
+        if (!buffer) return -12;
+        int r = unix_sock_recvfrom(e->usock, buffer, len, path, sizeof(path));
+        if (r >= 0)
+        {
+            sa_un_t address;
+            if (copy_to_user(cur, arg2, buffer, (size_t)r) < 0)
+                r = -14;
+            else if (arg4)
+            {
+                memset(&address, 0, sizeof(address));
+                address.family = UNIX_AF_LOCAL;
+                strncpy(address.path, path, sizeof(address.path) - 1);
+                if (copy_to_user(cur, arg4, &address, sizeof(address)) < 0 ||
+                    copy_to_user(cur, arg5, &(uint32_t){sizeof(sa_un_t)}, sizeof(uint32_t)) < 0)
+                    r = -14;
+            }
+        }
+        kfree(buffer);
+        return r < 0 ? r : r;
     }
 
     case SYSCALL_UNIX_SHUTDOWN:
@@ -3329,40 +3361,30 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
     }
 
     case SYSCALL_GETSOCKNAME:
-    {
-        task_t *cur = sched_current_task();
-        if (!cur || !cur->fd_table) return -1;
-        int fd = (int)arg1;
-        sa_un_t *addr = (sa_un_t *)arg2;
-        uint32_t max_len = (uint32_t)arg3;
-        uint32_t *actual_len = (uint32_t *)arg4;
-        if (!addr) return -22;
-        if (fd < 0 || fd >= TASK_MAX_FDS) return -9;
-        fd_entry_t *e = &cur->fd_table->entries[fd];
-        if (!e->used || e->type != FD_UNIX_SOCK) return -88;
-        if (max_len < sizeof(sa_un_t)) return -22;
-        addr->family = 1;
-        unix_sock_getsockname(e->usock, addr->path, sizeof(addr->path));
-        if (actual_len) *actual_len = sizeof(sa_un_t);
-        return 0;
-    }
-
     case SYSCALL_GETPEERNAME:
     {
         task_t *cur = sched_current_task();
         if (!cur || !cur->fd_table) return -1;
         int fd = (int)arg1;
-        sa_un_t *addr = (sa_un_t *)arg2;
         uint32_t max_len = (uint32_t)arg3;
-        uint32_t *actual_len = (uint32_t *)arg4;
-        if (!addr) return -22;
+        if (!arg2 || max_len < sizeof(sa_un_t)) return -22;
         if (fd < 0 || fd >= TASK_MAX_FDS) return -9;
+        if (user_copy_validate(cur, arg2, sizeof(sa_un_t), 1) < 0 ||
+            (arg4 && user_copy_validate(cur, arg4, sizeof(uint32_t), 1) < 0))
+            return -14;
         fd_entry_t *e = &cur->fd_table->entries[fd];
-        if (!e->used || e->type != FD_UNIX_SOCK) return -88;
-        if (max_len < sizeof(sa_un_t)) return -22;
-        addr->family = 1;
-        unix_sock_getpeername(e->usock, addr->path, sizeof(addr->path));
-        if (actual_len) *actual_len = sizeof(sa_un_t);
+        if (!e->used || e->type != FD_UNIX_SOCK || !e->usock) return -88;
+        sa_un_t address;
+        memset(&address, 0, sizeof(address));
+        address.family = UNIX_AF_LOCAL;
+        if (num == SYSCALL_GETSOCKNAME)
+            unix_sock_getsockname(e->usock, address.path, sizeof(address.path));
+        else
+            unix_sock_getpeername(e->usock, address.path, sizeof(address.path));
+        uint32_t actual_len = sizeof(sa_un_t);
+        if (copy_to_user(cur, arg2, &address, sizeof(address)) < 0 ||
+            (arg4 && copy_to_user(cur, arg4, &actual_len, sizeof(actual_len)) < 0))
+            return -14;
         return 0;
     }
 
@@ -3372,45 +3394,39 @@ uint64_t syscall_handler(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t ar
         if (!cur || !cur->fd_table) return -1;
         int domain = (int)arg1;
         int type = (int)arg2;
-        int *sv = (int *)arg3;
         int base_type = type & 0xF;
         int nonblock = !!(type & UNIX_SOCK_NONBLOCK);
         int cloexec = !!(type & UNIX_SOCK_CLOEXEC);
-        if (!sv) return -22;
+        if (!arg3 || user_copy_validate(cur, arg3, sizeof(int) * 2, 1) < 0) return -14;
         if (domain != UNIX_AF_LOCAL) return -97;
         if (base_type != UNIX_SOCK_STREAM && base_type != UNIX_SOCK_DGRAM) return -93;
         int fd0 = fd_alloc(cur->fd_table);
         if (fd0 < 0) return -24;
-        cur->fd_table->entries[fd0].used = 1;
         int fd1 = fd_alloc(cur->fd_table);
-        if (fd1 < 0)
-        {
-            cur->fd_table->entries[fd0].used = 0;
-            return -24;
-        }
-        cur->fd_table->entries[fd1].used = 1;
+        if (fd1 < 0) { memset(&cur->fd_table->entries[fd0], 0, sizeof(fd_entry_t)); return -24; }
         unix_sock_t *a = NULL;
         unix_sock_t *b = NULL;
         if (unix_sock_socketpair(base_type, nonblock, &a, &b) < 0)
         {
-            cur->fd_table->entries[fd0].used = 0;
-            cur->fd_table->entries[fd1].used = 0;
+            memset(&cur->fd_table->entries[fd0], 0, sizeof(fd_entry_t));
+            memset(&cur->fd_table->entries[fd1], 0, sizeof(fd_entry_t));
             return -12;
         }
         fd_entry_t *e0 = &cur->fd_table->entries[fd0];
         fd_entry_t *e1 = &cur->fd_table->entries[fd1];
         memset(e0, 0, sizeof(*e0));
         memset(e1, 0, sizeof(*e1));
-        e0->used = 1;
-        e0->type = FD_UNIX_SOCK;
-        e0->cloexec = cloexec;
-        e0->usock = a;
-        e1->used = 1;
-        e1->type = FD_UNIX_SOCK;
-        e1->cloexec = cloexec;
-        e1->usock = b;
-        sv[0] = fd0;
-        sv[1] = fd1;
+        e0->used = 1; e0->type = FD_UNIX_SOCK; e0->cloexec = cloexec; e0->usock = a;
+        e1->used = 1; e1->type = FD_UNIX_SOCK; e1->cloexec = cloexec; e1->usock = b;
+        int pair[2] = {fd0, fd1};
+        if (copy_to_user(cur, arg3, pair, sizeof(pair)) < 0)
+        {
+            memset(e0, 0, sizeof(*e0));
+            memset(e1, 0, sizeof(*e1));
+            unix_sock_free(a);
+            unix_sock_free(b);
+            return -14;
+        }
         return 0;
     }
 
