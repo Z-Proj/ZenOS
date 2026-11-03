@@ -420,7 +420,7 @@ void read_line(char *buffer, size_t max_size, bool print)
             return;
         } else if (c == 8) {
             if (pos > 0) pos--;
-            if (print) printc('\\b');
+            if (print) printc('\b');
         } else if (c >= 32 && c <= 126) {
             if (print) printc(c);
             buffer[pos++] = c;
