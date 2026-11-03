@@ -307,25 +307,24 @@ static socket_error_t socket_lock_slot(socket_file_t *candidate,
 
 /* User-visible handles encode both slot and generation. A deleted socket
  * can reuse its table slot without making an old client handle valid again. */
-uint64_t socket_handle_from_file(socket_file_t *file)
+socket_error_t socket_open_handle(const char *name, uint64_t *handle)
 {
-    if (!file || !initialized)
-        return 0;
+    if (!initialized || !name || !handle)
+        return SOCKET_ERROR_INVALID;
     uint64_t flags = spinlock_acquire_irqsave(&socket_table_lock);
     for (int i = 0; i < SOCKET_MAX_FILES; i++)
     {
-        if (file != &socket_files[i])
+        socket_file_t *file = &socket_files[i];
+        if (!file->in_use || !file->data || strcmp(file->name, name) != 0)
             continue;
-        if (!file->in_use || !file->data || !file->generation)
-            break;
-        uint64_t handle = SOCKET_HANDLE_MAGIC |
-                          ((uint64_t)file->generation << 8) |
-                          (uint64_t)(i + 1);
+        *handle = SOCKET_HANDLE_MAGIC |
+                  ((uint64_t)file->generation << 8) |
+                  (uint64_t)(i + 1);
         spinlock_release_irqrestore(&socket_table_lock, flags);
-        return handle;
+        return SOCKET_OK;
     }
     spinlock_release_irqrestore(&socket_table_lock, flags);
-    return 0;
+    return SOCKET_ERROR_NOT_FOUND;
 }
 
 static socket_error_t socket_lock_handle(uint64_t handle, socket_file_t **out,
