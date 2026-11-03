@@ -22,6 +22,7 @@
 #include "../cpu/gdt.h"
 #include "../cpu/smp.h"
 #include "../drv/keyboard.h"
+#include "../drv/hpet.h"
 #include "signal.h"
 
 static task_t *task_list_head = NULL;
@@ -781,7 +782,7 @@ static void sched_switch_locked(sched_cpu_state_t *cpu_state, task_t *old_task, 
         __asm__ volatile("sti" ::: "memory");
 }
 
-static void sched_yield_internal(int allow_reap)
+static void sched_yield_internal(int allow_reap, uint64_t sleep_deadline_ns)
 {
     if (!scheduler_enabled)
         return;
@@ -813,6 +814,11 @@ static void sched_yield_internal(int allow_reap)
     }
 
     task_t *old_task = cpu_state->current_task;
+    if (sleep_deadline_ns && old_task && old_task->state == TASK_RUNNING)
+    {
+        old_task->sleep_deadline_ns = sleep_deadline_ns;
+        old_task->state = TASK_BLOCKED;
+    }
     if (old_task && old_task->state == TASK_RUNNING)
     {
         old_task->state = TASK_READY;
@@ -862,7 +868,32 @@ static void sched_yield_internal(int allow_reap)
 
 void sched_yield(void)
 {
-    sched_yield_internal(1);
+    sched_yield_internal(1, 0);
+}
+
+void sched_sleep_current_ms(uint32_t ms)
+{
+    if (ms == 0)
+        return;
+
+    task_t *current = sched_current_task();
+    uint64_t now_ns = hpet_monotonic_ns();
+    if (!current || !now_ns)
+    {
+        while (ms--)
+        {
+            sleep_ms(1);
+            sched_yield();
+        }
+        return;
+    }
+
+    uint64_t deadline = now_ns + (uint64_t)ms * 1000000ULL;
+    sched_yield_internal(1, deadline);
+
+    uint64_t flags = spinlock_acquire_irqsave(&sched_lock);
+    current->sleep_deadline_ns = 0;
+    spinlock_release_irqrestore(&sched_lock, flags);
 }
 
 void sched_abort_current(int exit_code)
@@ -885,9 +916,45 @@ void sched_abort_current(int exit_code)
 
 void sched_tick(registers_t *irq_regs)
 {
-    task_t *current = sched_current_task();
-    if (!scheduler_enabled || !current)
+    if (!scheduler_enabled)
         return;
+
+    uint32_t cpu_index = smp_current_cpu_index();
+    uint64_t now_ns = hpet_monotonic_ns();
+    int woke_local_task = 0;
+    if (now_ns)
+    {
+        uint64_t wake_flags = spinlock_acquire_irqsave(&sched_lock);
+        if (task_list_head)
+        {
+            task_t *iter = task_list_head;
+            do
+            {
+                if (iter->state == TASK_BLOCKED && iter->sleep_deadline_ns &&
+                    now_ns >= iter->sleep_deadline_ns)
+                {
+                    iter->sleep_deadline_ns = 0;
+                    iter->state = TASK_READY;
+                    if (iter->pinned_cpu < 0 ||
+                        iter->pinned_cpu == (int32_t)cpu_index)
+                        woke_local_task = 1;
+                }
+                iter = iter->next;
+            } while (iter != task_list_head);
+        }
+        spinlock_release_irqrestore(&sched_lock, wake_flags);
+    }
+
+    task_t *current = sched_current_task();
+    if (!current)
+        return;
+
+    if (woke_local_task &&
+        (current->is_idle_task || current->state == TASK_READY))
+    {
+        sched_yield_internal(0, 0);
+        return;
+    }
 
     if (current->time_slice_remaining > 0)
         current->time_slice_remaining--;
@@ -896,7 +963,7 @@ void sched_tick(registers_t *irq_regs)
     {
         if (!irq_regs || !current)
         {
-            sched_yield_internal(0);
+            sched_yield_internal(0, 0);
             return;
         }
 
@@ -904,7 +971,7 @@ void sched_tick(registers_t *irq_regs)
         {
             if (current->is_kernel_task)
             {
-                sched_yield_internal(0);
+                sched_yield_internal(0, 0);
                 return;
             }
             current->time_slice_remaining = TIME_SLICE;
@@ -913,11 +980,10 @@ void sched_tick(registers_t *irq_regs)
 
         if (current->is_kernel_task)
         {
-            sched_yield_internal(0);
+            sched_yield_internal(0, 0);
             return;
         }
 
-        uint32_t cpu_index = smp_current_cpu_index();
         sched_cpu_state_t *cpu_state = sched_get_cpu_state(cpu_index);
         uint64_t rflags = spinlock_acquire_irqsave(&sched_lock);
 
